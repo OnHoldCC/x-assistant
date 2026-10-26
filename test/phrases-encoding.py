@@ -1,6 +1,7 @@
 """The phrase dictionary must load under a non-UTF-8 Windows locale."""
 from pathlib import Path
 import sys
+sys.dont_write_bytecode = True
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
