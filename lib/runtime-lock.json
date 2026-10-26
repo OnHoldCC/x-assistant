@@ -1,0 +1,103 @@
+{
+  "runtime_version": "b11669",
+  "model": {
+    "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q8_0.gguf",
+    "name": "Hy-MT2-1.8B-Q8_0.gguf",
+    "sha256": "5c3fe0b1408a5ceb0143184ef247b11b579c525f4b02b060e6c851bb76fef1a4",
+    "size": 1908528192
+  },
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-arm64.tar.gz",
+      "sha256": "dbed55493d72bc1ba2babc8770d669c2289b5bc4ee9fb2a4dfc158d45b7d13fd",
+      "size": 12191582,
+      "name": "llama-b11669-bin-macos-arm64.tar.gz"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-x64.tar.gz",
+      "sha256": "cab28238d78158109b48deb27b05d50e0dcef56275d2e76da9ca8281526c7532",
+      "size": 11677404,
+      "name": "llama-b11669-bin-macos-x64.tar.gz"
+    },
+    "win32-x64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-cpu-x64.zip",
+      "sha256": "37b3efcf962847ca869745fd4ccf7f5e7e8dacfeff9fa3523b4ca8cdc66d632b",
+      "size": 19537886,
+      "name": "llama-b11669-bin-win-cpu-x64.zip"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-cpu-arm64.zip",
+      "sha256": "9cff39ffed17edcd03a7d876073f74d7b48cd43a1e5eafdd59ee094185ad871b",
+      "size": 12442177,
+      "name": "llama-b11669-bin-win-cpu-arm64.zip"
+    }
+  },
+  "decision_runtime": {
+    "darwin-arm64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-apple-darwin.tar.gz",
+      "name": "uv-aarch64-apple-darwin.tar.gz",
+      "sha256": "743f85035a1996ecb350659e01cd9faea9709829be09b1b4b03c73eaf3c9cd73",
+      "size": 14365303
+    },
+    "darwin-x64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-apple-darwin.tar.gz",
+      "name": "uv-x86_64-apple-darwin.tar.gz",
+      "sha256": "b0f52b0e3945b4107d89024ea38e625683011fbfc05a0d98f9fa2d6dcee28c66",
+      "size": 17167423
+    },
+    "win32-x64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-pc-windows-msvc.zip",
+      "name": "uv-x86_64-pc-windows-msvc.zip",
+      "sha256": "a38b8d1902b7cfbc76b423ba1bb456f623f42064cdc72628b6075b89afd1019a",
+      "size": 15264056
+    },
+    "win32-arm64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-pc-windows-msvc.zip",
+      "name": "uv-aarch64-pc-windows-msvc.zip",
+      "sha256": "09f47edf90726084a70f9426f6e3ca4f46e9bf7cbf23b1716ec64d60b055fae3",
+      "size": 15439089
+    }
+  },
+  "decision_model": {
+    "name": "Laya multilingual",
+    "revision": "1720e3e3357cfe1e281542e223f8273b0890ca34",
+    "files": [
+      {
+        "name": "config.json",
+        "size": 160,
+        "sha256": "7add7c041b53f7091e65908553af79ab3f077946e5f2312d510ae13b17c7c134",
+        "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/config.json"
+      },
+      {
+        "name": "encoder/config.json",
+        "size": 1938,
+        "sha256": "83f6916d13ef0f556ac461f28308dc2bffa7ebeadee8ec9e2db5812020ea5bb4",
+        "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/encoder/config.json"
+      },
+      {
+        "name": "model.safetensors",
+        "size": 643835514,
+        "sha256": "9d628fd971b700382ac6f65920a86f149777b2e748e0c955fb3b19695aa8f204",
+        "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/model.safetensors"
+      },
+      {
+        "name": "rl_agent_config.json",
+        "size": 472,
+        "sha256": "25061739243b617ad88d1219ba6f8a9c86c5881ca28df024fa2d9b3b2fcc30c6",
+        "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/rl_agent_config.json"
+      },
+      {
+        "name": "tokenizer/tokenizer.json",
+        "size": 34363188,
+        "sha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+        "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/tokenizer/tokenizer.json"
+      },
+      {
+        "name": "tokenizer/tokenizer_config.json",
+        "size": 502,
+        "sha256": "424b69444bf7b5809dc2cd2e36d0bd71b8055124dd24274d6db3c655d38205e7",
+        "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/tokenizer/tokenizer_config.json"
+      }
+    ]
+  }
+}

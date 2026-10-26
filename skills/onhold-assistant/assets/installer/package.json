@@ -1,0 +1,28 @@
+{
+  "name": "onhold-assistant",
+  "version": "0.4.0",
+  "description": "Install OnHold Assistant for local webpage translation and draft assistance on macOS and Windows.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "bin": {
+    "onhold-assistant": "bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "extension",
+    "skills",
+    "README.md",
+    "THIRD_PARTY_NOTICES.txt"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OnHoldCC/x-assistant.git"
+  }
+}
