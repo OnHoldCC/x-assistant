@@ -28,7 +28,7 @@ def candidates(text):
         for item in jieba.posseg.cut(clean[start:end],HMM=False):
             tokens.append((item.word,item.flag,position,position+len(item.word)));position+=len(item.word)
     with _lock:
-        dictionary=json.loads(_terms_path.read_text())
+        dictionary=json.loads(_terms_path.read_text(encoding='utf-8'))
         spans=[(match.start(),match.end(),'eng') for match in _english.finditer(clean)]
         for category,flag in [('fixed_phrases','nz'),('named_terms','eng')]:
             for term in dictionary[category]:

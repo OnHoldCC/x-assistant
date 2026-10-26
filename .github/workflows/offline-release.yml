@@ -43,6 +43,7 @@ jobs:
       - name: Install official models and verify real inference
         run: |
           node bin/cli.mjs setup --home "$RUNNER_TEMP/OnHold-online" --no-open
+          node -e 'const c=require(process.env.RUNNER_TEMP+"/OnHold-online/config.json");require("child_process").execFileSync(c.decisionPython,["test/phrases-encoding.py"],{stdio:"inherit"})'
           node bin/check-models.mjs
       - name: Build platform offline payload
         run: node bin/build-offline.mjs --home "$RUNNER_TEMP/OnHold-online" --output "$RUNNER_TEMP/$BUNDLE_NAME"
@@ -57,6 +58,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$BUNDLE_NAME.tar.gz.part"* "$RUNNER_TEMP/$BUNDLE_NAME.manifest.json" "$RUNNER_TEMP/$BUNDLE_NAME.SHA256SUMS" "$RUNNER_TEMP/$BUNDLE_NAME-install."*
+      - name: Show owned model logs on failure
+        if: failure()
+        run: node -e 'const fs=require("fs");for(const p of ["OnHold-online","OnHold-offline"]){const f=process.env.RUNNER_TEMP+"/"+p+"/service.log";if(fs.existsSync(f))console.log(fs.readFileSync(f,"utf8").slice(-20000))}'
   publish:
     needs: build
     runs-on: ubuntu-latest
