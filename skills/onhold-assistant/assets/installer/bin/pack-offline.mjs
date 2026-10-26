@@ -4,7 +4,7 @@ const at=process.argv.indexOf('--bundle'),folder=at<0?null:process.argv[at+1];
 async function main(){
  if(!folder)throw Error('用法：node bin/pack-offline.mjs --bundle 离线包目录');const bundle=path.resolve(folder),name=path.basename(bundle),parent=path.dirname(bundle);if(!/^[a-zA-Z0-9_.-]+$/.test(name))throw Error('离线包目录名称仅使用英文字母、数字、点、横线和下划线');
  await validateOffline(path.join(bundle,'assets'),verify);const archive=path.join(parent,name+'.tar.gz');if(fs.existsSync(archive))throw Error('归档已存在，不覆盖');
- console.log('[离线构建] 压缩已校验包');execFileSync('tar',['-czf',archive,'-C',parent,name],{stdio:'inherit',windowsHide:true});
+ console.log('[离线构建] 压缩已校验包');execFileSync('tar',['-czf',path.basename(archive),name],{cwd:parent,env:{...process.env,COPYFILE_DISABLE:'1'},stdio:'inherit',windowsHide:true});
  const max=1536*1024**2,parts=[],archiveHash=createHash('sha256');let output,hash,bytes=0,part=0,current;
  async function finish(){if(!output)return;output.end();await once(output,'close');parts.push({name:current,size:bytes,sha256:hash.digest('hex')});output=null;}
  for await(const chunk of fs.createReadStream(archive,{highWaterMark:16*1024**2})){
