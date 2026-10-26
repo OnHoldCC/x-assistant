@@ -195,7 +195,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       try{
         if(!await chrome.permissions.contains({origins:['http://127.0.0.1:18427/*']}))throw new Error('请在设置中保存，允许访问本机模型。');
         await migrateBrowserData();
-        const response=await fetch('http://127.0.0.1:18427/metrics',{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(4000)});
+        const response=await fetch('http://127.0.0.1:18427/metrics',{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000)});
         if(!response.ok)throw new Error('本机模型状态暂不可用');service=await response.json();
       }catch(cause){error=cause.message.startsWith('请')?cause.message:'本机翻译服务未连接';}
       return {browser_data_bytes:await chrome.storage.local.getBytesInUse(null),stats:service?.translation_stats||{since:null,segments:0,inference:0,cache_hits:0,total_ms:0},service,error:error||service?.data_warning||''};
