@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url';
 import {createReadStream} from 'node:fs';
 import {openData} from '../lib/data.mjs';
 import {probeAccelerator,usesGpu} from '../lib/acceleration.mjs';
+import {validateOffline} from '../lib/offline.mjs';
 import {materializeDecisionModel} from '../lib/models.mjs';
 import {writeJson,readOwned,markOwned,upgradeInstall,uninstallInstall,stopOwned} from '../lib/lifecycle.mjs';
 const packageRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -18,15 +19,17 @@ export function platformPlan(platform=process.platform,arch=process.arch){const 
 const option=name=>{const index=process.argv.indexOf('--'+name);return index>=0?process.argv[index+1]:undefined;};
 const home=path.resolve(option('home')||(process.platform==='win32'?path.join(process.env.LOCALAPPDATA||os.homedir(),'OnHoldAssistant'):path.join(os.homedir(),'Library/Application Support/OnHoldAssistant')));
 const configPath=path.join(home,'config.json');
+const offlineDirectory=option('offline-dir')?path.resolve(option('offline-dir')):null;let offlineMetadata;
 const progress=message=>console.log('[进度] '+message);
 const runLive=(command,args)=>new Promise((resolve,reject)=>{const child=spawn(command,args,{stdio:'inherit',windowsHide:true});child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(Error(command+' 退出码 '+code)));});
 async function sha(file){const hash=createHash('sha256');for await(const chunk of createReadStream(file))hash.update(chunk);return hash.digest('hex');}
 export async function verify(file,asset){return fs.existsSync(file)&&fs.statSync(file).size===asset.size&&await sha(file)===asset.sha256;}
-async function download(asset,directory){
+export async function download(asset,directory){
  fs.mkdirSync(directory,{recursive:true,mode:0o700});const file=path.join(directory,asset.name);fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});if(await verify(file,asset)){progress('复用已校验文件 '+asset.name);return file;}
  if(fs.existsSync(file))throw new Error(`文件校验不符，保留原文件：${file}`);
- const partial=file+'.part';console.log(`下载 ${asset.name}（${Math.round(asset.size/1024**2)} MB）`);
- await runLive('curl',['--fail','--location','--retry','2','--continue-at','-','--connect-timeout','30','--output',partial,asset.url]);
+ if(offlineDirectory){const source=path.join(offlineDirectory,asset.name);if(!await verify(source,asset))throw Error('离线包缺少或损坏：'+asset.name);progress('从离线包安装 '+asset.name);fs.copyFileSync(source,file);return file;}
+ const partial=file+'.part';if(await verify(partial,asset)){fs.renameSync(partial,file);return file;}console.log(`下载 ${asset.name}（${Math.round(asset.size/1024**2)} MB）`);
+ for(let attempt=0;attempt<3;attempt++){try{await runLive('curl',['--fail','--location','--http1.1','--retry','2','--continue-at','-','--connect-timeout','30','--speed-limit','1024','--speed-time','120','--output',partial,asset.url]);break;}catch(error){if(attempt===2)throw error;progress('下载连接中断，断点重试 '+asset.name+'（'+(attempt+1)+'/2）');}}
  progress('校验下载文件 '+asset.name);if(!await verify(partial,asset))throw new Error(`下载校验失败，未执行：${partial}`);fs.renameSync(partial,file);return file;
 }
 function findBinary(directory,pattern=/^llama-server(?:\.exe)?$/){for(const entry of fs.readdirSync(directory,{withFileTypes:true})){const file=path.join(directory,entry.name);if(entry.isFile()&&pattern.test(entry.name))return file;if(entry.isDirectory()){const found=findBinary(file,pattern);if(found)return found;}}}
@@ -61,12 +64,18 @@ async function prepareDecisions(plan){
   const archive=await download(lock.decision_runtime[`${plan.platform}-${plan.arch}`],path.join(home,'downloads')),tools=path.join(home,'tools/uv');fs.mkdirSync(tools,{recursive:true});
   if(plan.platform==='win32')execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',`Expand-Archive -LiteralPath ${psQuote(archive)} -DestinationPath ${psQuote(tools)} -Force`],{stdio:'inherit',windowsHide:true});else execFileSync('tar',['-xf',archive,'-C',tools],{stdio:'inherit'});
   const uv=findBinary(tools,/^uv(?:\.exe)?$/);if(!uv)throw new Error('Python 引导器解压不完整');
-  const env={...process.env,UV_PYTHON_INSTALL_DIR:path.join(home,'python'),UV_CACHE_DIR:path.join(home,'uv-cache')},version=plan.platform==='win32'&&plan.arch==='arm64'?'3.13':'3.12';
-  progress('安装独立 Python '+version);execFileSync(uv,['python','install',version],{env,stdio:'inherit',windowsHide:true});const venv=path.join(home,'decisions');execFileSync(uv,['venv',venv,'--allow-existing','--python',version],{env,stdio:'inherit',windowsHide:true});
+  const env={...process.env,UV_PYTHON_INSTALL_DIR:path.join(home,'python'),UV_PYTHON_BIN_DIR:path.join(home,'python/bin'),UV_CACHE_DIR:path.join(home,'uv-cache')},version=plan.platform==='win32'&&plan.arch==='arm64'?'3.13':'3.12';
+  let pythonSource=version;
+  if(offlineDirectory){
+   const base=path.join(home,'python/offline-base');if(!fs.existsSync(base))fs.cpSync(path.join(offlineMetadata.root,'python'),base,{recursive:true,verbatimSymlinks:true});
+   pythonSource=path.join(base,...offlineMetadata.python_entry.slice('python/'.length).split('/'));progress('使用离线 Python 运行时');
+  }else{progress('安装独立 Python '+version);execFileSync(uv,['python','install',version],{env,stdio:'inherit',windowsHide:true});}
+  const venv=path.join(home,'decisions');execFileSync(uv,['venv',venv,'--allow-existing','--python',pythonSource,...(offlineDirectory?['--offline']:[])],{env,stdio:'inherit',windowsHide:true});
   python=path.join(venv,plan.platform==='win32'?'Scripts/python.exe':'bin/python');
-  progress('安装 PyTorch / Laya，自动选择可用加速后端');
-  const pip=['pip','install','--python',python,'--torch-backend',plan.platform==='win32'?'auto':'cpu','laya[serve]==0.4.15','jieba==0.42.1'];
-  try{execFileSync(uv,pip,{env,stdio:'inherit',windowsHide:true});}catch(error){if(plan.platform!=='win32')throw error;progress('评分 GPU 依赖不可用，使用 CPU 依赖');pip[pip.indexOf('--torch-backend')+1]='cpu';execFileSync(uv,pip,{env,stdio:'inherit',windowsHide:true});}
+  progress(offlineDirectory?'从离线 wheelhouse 安装 PyTorch / Laya':'安装 PyTorch / Laya，自动选择可用加速后端');
+  const pip=['pip','install','--python',python,...(offlineDirectory?['--offline','--no-index','--find-links',path.join(offlineDirectory,'wheels')]:['--torch-backend',plan.platform==='win32'?'auto':'cpu']),'laya[serve]==0.4.15','jieba==0.42.1'];
+  try{execFileSync(uv,pip,{env,stdio:'inherit',windowsHide:true});}catch(error){if(offlineDirectory||plan.platform!=='win32')throw error;progress('评分 GPU 依赖不可用，使用 CPU 依赖');pip[pip.indexOf('--torch-backend')+1]='cpu';execFileSync(uv,pip,{env,stdio:'inherit',windowsHide:true});}
+
  }
  python=path.resolve(python);if(!fs.existsSync(python))throw new Error('找不到决策模型 Python 运行环境');
  return {decisionPython:python,...decisionConfig};
@@ -106,6 +115,7 @@ async function mainUnlocked(){
  const action=process.argv[2]||'help';
  if(action==='help'||['--help','-h'].includes(action)){console.log('onhold-assistant setup|upgrade|uninstall|replace-model|start|stop|status|doctor [--home 路径] [--no-open]\nsetup：下载并校验 Hy-MT2 与 Laya、启动本机服务，准备扩展目录。首次加载扩展需要浏览器确认。\n可选离线资源：--model GGUF路径 --runtime llama目录。Windows 自动检测 GPU，失败回退 CPU；Mac 优先 Metal。');return;}
  const plan=platformPlan();
+ if(offlineDirectory&&['setup','replace-model'].includes(action)){progress('校验完整离线包');offlineMetadata=await validateOffline(offlineDirectory,verify);}
  if(action==='doctor'){console.log(JSON.stringify({platform:plan.platform,arch:plan.arch,device:plan.device,node:process.version,memory_gb:Math.round(os.totalmem()/1024**3),model_download_mb:Math.round(lock.model.size/1024**2),decision_download_mb:Math.round(lock.decision_model.files.reduce((sum,file)=>sum+file.size,0)/1024**2),minimum_disk_gib:8,runtime:plan.runtime.name,home},null,2));return;}
  fs.mkdirSync(home,{recursive:true,mode:0o700});
  if(action==='setup'){

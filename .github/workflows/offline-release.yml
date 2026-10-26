@@ -1,0 +1,70 @@
+name: Build offline release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "OnHold Assistant $GITHUB_REF_NAME" --notes-file docs/OFFLINE-RELEASE.md
+  build:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: darwin-arm64
+          - os: windows-2025
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUNDLE_NAME: onhold-assistant-${{ github.ref_name }}-${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm test
+      - name: Install official models and verify real inference
+        run: |
+          node bin/cli.mjs setup --home "$RUNNER_TEMP/OnHold-online" --no-open
+          node test/live-models.mjs
+      - name: Build platform offline payload
+        run: node bin/build-offline.mjs --home "$RUNNER_TEMP/OnHold-online" --output "$RUNNER_TEMP/$BUNDLE_NAME"
+      - name: Remove online installation before offline test
+        run: node bin/cli.mjs uninstall --home "$RUNNER_TEMP/OnHold-online" --no-open
+      - name: Verify offline without system Node and external network access
+        run: node bin/verify-offline.mjs --bundle "$RUNNER_TEMP/$BUNDLE_NAME" --home "$RUNNER_TEMP/OnHold-offline"
+      - name: Split verified bundle for GitHub Releases
+        run: node bin/pack-offline.mjs --bundle "$RUNNER_TEMP/$BUNDLE_NAME"
+      - name: Upload parts and installer to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$BUNDLE_NAME.tar.gz.part"* "$RUNNER_TEMP/$BUNDLE_NAME.manifest.json" "$RUNNER_TEMP/$BUNDLE_NAME.SHA256SUMS" "$RUNNER_TEMP/$BUNDLE_NAME-install."*
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish only when both platform tests pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false

@@ -60,6 +60,21 @@ npx skills add OnHoldCC/x-assistant --skill onhold-assistant
 
 Skill 支持安装、升级、卸载、替换兼容模型和诊断。安装 Skill 本身不会立即下载或运行模型；执行安装任务时才会引导 Node.js 和模型依赖。
 
+### 离线安装
+
+离线包按系统和处理器架构分别构建，包含独立 Node.js、Python、运行时、模型和全部依赖 wheels，不包含用户数据。下载并解压对应离线包后，将其目录交给 Agent 执行安装；不需要单独安装 llama.cpp。
+
+维护者可以从已验证的默认模型安装生成离线目录：
+
+```sh
+node bin/build-offline.mjs --home /path/verified-install --output /path/new-offline-bundle
+node bin/pack-offline.mjs --bundle /path/new-offline-bundle
+```
+
+此命令需要在目标平台上运行。离线包使用 `install.command`（Mac）或 `install.ps1`（Windows）作为入口；缺少或损坏的离线资产会明确报错，不自动转为联网安装。完整离线包及各平台实际测试状态以 GitHub Releases 的说明为准。
+
+打包器生成每份不超过 1.5 GiB 的分卷及校验、自动还原安装入口。用户只需下载同一平台的全部分卷和入口文件，交给 Agent 安装。模型不进入 Git 历史。推送 `v*` 版本标签会触发 Mac / Windows 离线构建与实际推理测试；两端通过后才公开 Release。详细步骤见 [离线分发说明](docs/OFFLINE-RELEASE.md)。
+
 ### 方式二：从仓库运行
 
 此方式需要已有 Git 与 Node.js 22.20+；希望自动准备 Node.js 时使用上面的 Skill 流程。
@@ -76,7 +91,7 @@ node bin/cli.mjs setup --no-open
 ### 方式三：使用本地 npm 包
 
 ```sh
-npx --yes --package ./onhold-assistant-0.4.3.tgz onhold-assistant setup --no-open
+npx --yes --package ./onhold-assistant-0.4.4.tgz onhold-assistant setup --no-open
 ```
 
 当前尚未发布到 npm 注册表，`npx onhold-assistant` 还不能作为公开安装命令使用。

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+const base=process.argv[2]||'http://127.0.0.1:18427';
+const post=async(route,body)=>{const response=await fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(180000)});const value=await response.json();assert.equal(response.status,200,JSON.stringify(value));return value;};
+const source='A local translation model keeps private text on your own computer. #LocalAI';
+const translated=await post('/translate',{text:source,target_lang:'zh'});assert.ok(/[\u4e00-\u9fff]/.test(translated.text));
+const cached=await post('/translate',{text:source,target_lang:'zh'});assert.ok(['memory','sqlite'].includes(cached.cache_layer));
+await post('/observe',{url:'https://x.com/fixture/status/987654321',original:source,metrics:{views:1200,likes:12,replies:3,reposts:2}});
+const analyzed=await post('/analyze',{text:source,to_chinese:true});assert.ok(analyzed.keywords.length>0);
+const stored=await post('/lookup',{post_id:'987654321'});assert.equal(stored.original,source);assert.ok(stored.results.some(result=>result.kind==='translation'));assert.ok(stored.results.some(result=>result.kind==='analysis'));
+const health=await fetch(base+'/health').then(r=>r.json());console.log(JSON.stringify({version:health.version,translation:translated.text,keywords:analyzed.keywords,cache:cached.cache_layer,stored:true}));

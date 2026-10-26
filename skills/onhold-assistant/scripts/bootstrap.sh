@@ -2,12 +2,14 @@
 set -euo pipefail
 skill_scripts=$(cd "$(dirname "$0")" && pwd)
 app_home="$HOME/Library/Application Support/OnHoldAssistant"
+offline_dir=''
 previous=''
 for argument in "$@"; do
   if [ "$previous" = '--home' ]; then app_home="$argument"; fi
+  if [ "$previous" = '--offline-dir' ]; then offline_dir="$argument"; fi
   previous="$argument"
 done
-[ "$previous" != '--home' ] || { echo '--home requires a directory' >&2; exit 1; }
+[ "$previous" != '--offline-dir' ] && [ "$previous" != '--home' ] || { echo '--home requires a directory' >&2; exit 1; }
 [ -n "$app_home" ] && [ "$app_home" != '/' ] && [ "$app_home" != "$HOME" ] || { echo 'Unsafe install directory' >&2; exit 1; }
 if [ -d "$app_home" ]; then
   resolved_home=$(cd "$app_home" && pwd -P)
@@ -38,7 +40,11 @@ if [ -z "$node_binary" ]; then
     stage=$(mktemp -d "$app_home/.node-stage.XXXXXX")
     trap 'rm -rf "$stage"; rmdir "$node_lock" 2>/dev/null || true' EXIT
     echo 'Downloading verified private Node.js 24.22.1...' >&2
-    curl --fail --location --retry 2 --connect-timeout 30 --output "$stage/node.tar.gz" "https://nodejs.org/dist/v24.22.1/$release.tar.gz"
+    if [ -n "$offline_dir" ]; then
+      cp "$offline_dir/$release.tar.gz" "$stage/node.tar.gz"
+    else
+      curl --fail --location --retry 2 --connect-timeout 30 --output "$stage/node.tar.gz" "https://nodejs.org/dist/v24.22.1/$release.tar.gz"
+    fi
     printf '%s  %s\n' "$checksum" "$stage/node.tar.gz" | shasum -a 256 -c - >/dev/null
     tar -xzf "$stage/node.tar.gz" -C "$stage"
     compatible "$stage/$release/bin/node" || { echo 'Downloaded Node cannot run' >&2; exit 1; }

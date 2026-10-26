@@ -1,8 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $installerArgs = @($args)
+$offlineDirectory = $null
 $appHome = Join-Path $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $HOME }) 'OnHoldAssistant'
 for ($i = 0; $i -lt $installerArgs.Count; $i++) {
+    if ($installerArgs[$i] -eq '--offline-dir') {
+        if ($i + 1 -ge $installerArgs.Count) { throw '--offline-dir requires a directory' }
+        $offlineDirectory = [IO.Path]::GetFullPath($installerArgs[$i + 1])
+    }
     if ($installerArgs[$i] -eq '--home') {
         if ($i + 1 -ge $installerArgs.Count -or -not $installerArgs[$i + 1]) { throw '--home requires a directory' }
         $appHome = $installerArgs[$i + 1]
@@ -41,7 +46,8 @@ if (-not $nodeBinary) {
             New-Item -ItemType Directory $stage | Out-Null
             Write-Host 'Downloading verified private Node.js 24.22.1...'
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/v24.22.1/$release.zip" -OutFile "$stage/node.zip"
+            if ($offlineDirectory) { Copy-Item (Join-Path $offlineDirectory "$release.zip") "$stage/node.zip" }
+            else { Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/v24.22.1/$release.zip" -OutFile "$stage/node.zip" }
             if ((Get-FileHash "$stage/node.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $checksum) { throw 'Node download checksum mismatch; not executed' }
             Expand-Archive -LiteralPath "$stage/node.zip" -DestinationPath $stage
             if (-not (Test-CompatibleNode (Join-Path $stage "$release/node.exe"))) { throw 'Downloaded Node cannot run' }
