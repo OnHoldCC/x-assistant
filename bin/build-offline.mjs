@@ -28,12 +28,12 @@ async function main(){
  console.log('[离线构建] 复制独立 Python；排除字节码和用户配置');fs.cpSync(pythonBase,path.join(assets,'python'),{recursive:true,verbatimSymlinks:true,filter:source=>!source.split(path.sep).includes('__pycache__')&&!source.endsWith('.pyc')});
  const uv=findBinary(path.join(home,'tools/uv'),/^uv(?:\.exe)?$/);if(!uv)throw Error('找不到受管 uv');
  const frozen=execFileSync(uv,['pip','freeze','--python',config.decisionPython],{encoding:'utf8'}).trim();if(!frozen.split(/\r?\n/).every(line=>/^[a-zA-Z0-9_.-]+==[a-zA-Z0-9.+_-]+$/.test(line)))throw Error('依赖包含未固定或本地来源，拒绝打包');
- const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-offline-build-'));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-offline-build-')),buildEnv={...process.env,UV_CACHE_DIR:path.join(home,'uv-cache'),PIP_CACHE_DIR:path.join(home,'uv-cache/offline-wheel-cache')};
  try{
   const requirements=path.join(temporary,'requirements.txt');fs.writeFileSync(requirements,frozen+'\n');fs.mkdirSync(path.join(assets,'wheels'));
-  execFileSync(uv,['venv',path.join(temporary,'builder'),'--seed','--python',config.decisionPython],{stdio:'inherit',windowsHide:true});const builder=path.join(temporary,'builder',platform==='win32'?'Scripts/python.exe':'bin/python');
+  execFileSync(uv,['venv',path.join(temporary,'builder'),'--seed','--python',config.decisionPython],{env:buildEnv,stdio:'inherit',windowsHide:true});const builder=path.join(temporary,'builder',platform==='win32'?'Scripts/python.exe':'bin/python');
   const torchLine=frozen.split(/\r?\n/).find(line=>line.startsWith('torch==')),backend=torchLine?.split('+')[1],extra=backend?['--extra-index-url','https://download.pytorch.org/whl/'+backend]:[];
-  console.log('[离线构建] 下载并构建完整 wheelhouse');execFileSync(builder,['-m','pip','wheel','--no-deps','--wheel-dir',path.join(assets,'wheels'),'--requirement',requirements,...extra],{stdio:'inherit',windowsHide:true});
+  console.log('[离线构建] 下载并构建完整 wheelhouse');execFileSync(builder,['-m','pip','wheel','--no-deps','--wheel-dir',path.join(assets,'wheels'),'--requirement',requirements,...extra],{env:buildEnv,stdio:'inherit',windowsHide:true});
  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
  const licenseDir=path.join(assets,'licenses');fs.mkdirSync(licenseDir);const licenses=[
   ['Hy-MT2-LICENSE.txt','https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/LICENSE.txt'],

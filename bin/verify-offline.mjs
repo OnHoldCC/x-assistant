@@ -7,8 +7,8 @@ const env={...process.env,PATH:windows?`${process.env.WINDIR}\\System32;${proces
 const entry=path.join(bundle,'skill/scripts/bootstrap.'+(windows?'ps1':'sh')),command=windows?path.join(process.env.WINDIR,'System32/WindowsPowerShell/v1.0/powershell.exe'):'/bin/bash',prefix=windows?['-NoProfile','-File',entry]:[entry];
 const run=operation=>execFileSync(command,[...prefix,operation,'--home',home,'--offline-dir',path.join(bundle,'assets'),'--no-open',...(operation==='setup'?['--port','21427','--backend-port','21428','--decision-port','21430']:[])],{env,stdio:'inherit',windowsHide:true});
 try{
- run('setup');execFileSync(process.execPath,[path.join(root,'test/live-models.mjs'),'http://127.0.0.1:21427'],{env,stdio:'inherit',windowsHide:true});
- run('stop');run('start');execFileSync(process.execPath,[path.join(root,'test/live-models.mjs'),'http://127.0.0.1:21427'],{env,stdio:'inherit',windowsHide:true});
+ run('setup');execFileSync(process.execPath,[path.join(root,'bin/check-models.mjs'),'http://127.0.0.1:21427'],{env,stdio:'inherit',windowsHide:true});
+ run('stop');run('start');execFileSync(process.execPath,[path.join(root,'bin/check-models.mjs'),'http://127.0.0.1:21427'],{env,stdio:'inherit',windowsHide:true});
 }finally{if(fs.existsSync(path.join(home,'config.json')))run('uninstall');}
 for(const name of ['agent-node','models','python','decisions','runtime','config.json'])if(fs.existsSync(path.join(home,name)))throw Error('卸载遗留 '+name);
 if(!fs.existsSync(path.join(home,'data/onhold.sqlite3')))throw Error('卸载丢失持久数据');

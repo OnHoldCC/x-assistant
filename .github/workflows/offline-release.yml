@@ -43,7 +43,7 @@ jobs:
       - name: Install official models and verify real inference
         run: |
           node bin/cli.mjs setup --home "$RUNNER_TEMP/OnHold-online" --no-open
-          node test/live-models.mjs
+          node bin/check-models.mjs
       - name: Build platform offline payload
         run: node bin/build-offline.mjs --home "$RUNNER_TEMP/OnHold-online" --output "$RUNNER_TEMP/$BUNDLE_NAME"
       - name: Remove online installation before offline test
