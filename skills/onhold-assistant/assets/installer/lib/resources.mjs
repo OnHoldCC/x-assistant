@@ -10,7 +10,7 @@ export function cpuSeconds(text){
  return match?Number(match[1]||0)*86400+Number(match[2]||0)*3600+Number(match[3])*60+Number(match[4]):null;
 }
 export async function resources(pid,database,extraPids=[]){
- const result={translation_cpu_percent:null,translation_process_rss_mb:null,translation_gpu_percent:null,translation_gpu_scope:'program-processes',translation_data_bytes:null};
+ const result={translation_cpu_percent:null,translation_process_rss_mb:null,translation_data_bytes:null};
  if(database)try{result.translation_data_bytes=await dataUsage(database);}catch{}
  let cpuTotal=0,rssTotal=0,measured=false,hasRss=false;
  for(const modelPid of new Set([pid,...extraPids].filter(Boolean)))try{
@@ -25,8 +25,5 @@ export async function resources(pid,database,extraPids=[]){
   prior.set(modelPid,{at:now,seconds});if(Number.isFinite(rss)){rssTotal+=rss;hasRss=true;}
  }catch{}
  if(measured)result.translation_cpu_percent=Math.round(cpuTotal*10)/10;if(hasRss)result.translation_process_rss_mb=Math.round(rssTotal/1024**2*10)/10;
- // Per-program GPU utilization is unavailable through these portable process APIs.
- // Leave it unknown instead of substituting whole-device activity.
-
  return result;
 }

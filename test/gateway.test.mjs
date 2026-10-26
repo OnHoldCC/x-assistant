@@ -15,7 +15,7 @@ test('gateway protocol, cache, source restrictions and private config',async()=>
  assert.equal((await fetch(base+'/control/stop',{method:'POST',headers})).status,403);
  const health=await fetch(base+'/health').then(r=>r.text());assert.doesNotMatch(health,/secret-control|backendKey/);
  assert.ok((await fetch(base+'/setup').then(r=>r.text())).includes('Chrome'));assert.equal((await fetch(base+'/unknown')).status,404);
- const status=await fetch(base+'/metrics').then(r=>r.json());assert.equal(status.translation_calls,1);assert.equal(status.translation_gpu_scope,'program-processes');
+ const status=await fetch(base+'/metrics').then(r=>r.json());assert.equal(status.translation_calls,1);assert.equal('translation_gpu_percent' in status,false);assert.ok(status.translation_process_rss_mb>0);
  }finally{gateway.close();fs.rmSync(directory,{recursive:true,force:true});}
 });
 test('broken cache is preserved without blocking translation',async()=>{

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OnHold 助手",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minimum_chrome_version": "120",
   "description": "本机多语言互译、X 草稿预览、推文标签复制与参考评分，以及模型资源状态。",
   "permissions": [
@@ -26,8 +26,8 @@
     "default_title": "OnHold 助手",
     "default_popup": "settings.html",
     "default_icon": {
-      "16": "assets/icon-16.png",
-      "32": "assets/icon-32.png"
+      "16": "assets/assistant-16.png",
+      "32": "assets/assistant-32.png"
     }
   },
   "options_page": "settings.html",
@@ -49,10 +49,10 @@
     }
   ],
   "icons": {
-    "16": "assets/icon-16.png",
-    "32": "assets/icon-32.png",
-    "48": "assets/icon-48.png",
-    "128": "assets/icon-128.png"
+    "16": "assets/assistant-16.png",
+    "32": "assets/assistant-32.png",
+    "48": "assets/assistant-48.png",
+    "128": "assets/assistant-128.png"
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3FSzWLVkfbvANoLtEaypt4mUSx5EjHsVIdWT86V9ifylmWYTiVrmZb0phXH0mzNGTtgSFMJOoI1GchkEbfUTib0xNYVFYlYAFjpYPuteTqKMzSUZO+JPyq4XMjIOqqYwVuApNXV6fT3ClfYJJlCZ3EG7/QbloeNisnh07Z+WdO0+u7mYgjDqf9vqEVF9QvYyJCjZ06lmpi2Z1mw8wEer3EXHyTE02vcbl6m2wX/pcgwYZYNWH9aMBQtVRQQrvjW+SdjK3iooPJAgXMRrQtWWMju443NCYPc633ui5B0oAYcvbfiZsUk8qfKJK9yzmlm8KMXWVrd+SPS64QtB/iQSDQIDAQAB"
 }

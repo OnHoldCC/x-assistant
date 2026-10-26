@@ -3,6 +3,7 @@ import './analysis-core.js';
 import {DEFAULTS, validateSettings, translationAllowed, translationHosts, referenceOnly} from './core.js';
 
 const WEB_ORIGINS=['https://*/*','http://*/*'];
+chrome.action.setIcon({path:chrome.runtime.getManifest().action.default_icon}).catch(console.warn);
 chrome.runtime.onInstalled.addListener(()=>chrome.storage.local.remove(['translationCache','postAnalysisCache','cache']));
 const ready = chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'}).then(syncWebScripts);
 let revision = 0;

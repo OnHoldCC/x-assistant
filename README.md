@@ -1,78 +1,248 @@
-# OnHold 助手 · x-assistant
+# OnHold 助手
 
-本机网页互译、X 多语言草稿预览、短语标签和参考评分。默认阅读译为简体中文、草稿译为英语。正文逐段显示；输入框、代码和独立账号引用跳过。原帖话题与提炼标签分别复制。不会自动发布。
+![OnHold 助手图标](extension/assets/assistant-128.png)
 
-## 安装与维护
+在本机完成网页翻译、X 草稿翻译和推文分析的浏览器助手。
 
-需要 Node.js 22.20+。安装器准备模型、独立 Python/PyTorch 和本机服务，无需 Docker/Ollama。Mac 使用 Metal，Windows 首版使用 CPU；Windows 真机和全新机器下载流程尚未实测。
+[![Mac / Windows 检查](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
+
+[功能](#功能) · [安装](#安装) · [系统架构](#系统架构) · [维护](#维护) · [许可证](#许可证) · [作者](#作者)
+
+## 功能
+
+- **网页互译**：默认将外语译成简体中文，可切换目标语言。
+- **逐段展示**：按段落排队翻译，完成一段就显示一段，保留原文。
+- **白名单**：按 URL 控制自动翻译，也可以一键加入当前网站。
+- **X 草稿**：中文输入后生成外语预览，在独立小窗口核对并采纳，默认目标为英语。
+- **推文分析**：提取短语标签，结合内容与可见互动数据给出参考分。
+- **标签复制**：原帖 `#话题` 与模型提炼标签分别展示、分别复制。
+- **本机状态**：显示翻译数量、平均推理耗时、本程序 CPU、内存与数据占用。
+
+正文由本机模型处理，不调用云端翻译 API。输入框、代码块和独立 `@账号` 引用跳过阅读翻译。插件不会替你自动发布帖子。
+
+## 安装
+
+### 环境要求
+
+| 项目 | 要求 |
+| --- | --- |
+| 浏览器 | Chrome 120+ 或兼容的 Edge |
+| Node.js | 22.20 或更新版本 |
+| 磁盘空间 | 首次安装至少预留 8 GiB |
+| 翻译模型 | Hy-MT2-1.8B GGUF Q8_0，下载约 1.91 GB |
+| 评分模型 | Laya 多语版，下载约 678 MB |
+| 系统 | macOS / Windows；Mac 使用 Metal，Windows 首版使用 CPU |
+
+Mac Apple Silicon 已完成本机模型实测。Mac / Windows 自动化测试均已通过；Windows 真机模型运行、Intel Mac 和全新机器下载流程尚未完整实测。
+
+安装器准备独立运行环境，无需手动安装 Docker 或 Ollama。
+
+### 方式一：通过 Skill 安装
+
+先安装 Skill：
 
 ```sh
+npx skills add OnHoldCC/x-assistant --skill onhold-assistant
+```
+
+然后在支持 Skill 的助手中输入：
+
+> 使用 onhold-assistant，安装插件和本机翻译、评分模型，完成后检查服务状态。
+
+Skill 支持安装、升级、卸载、替换兼容模型和诊断。安装 Skill 本身不会立即下载或运行模型。
+
+### 方式二：从仓库运行
+
+```sh
+git clone https://github.com/OnHoldCC/x-assistant.git
+cd x-assistant
 node bin/cli.mjs doctor
 node bin/cli.mjs setup --no-open
-node bin/cli.mjs upgrade --no-open
-node bin/cli.mjs status
-node bin/cli.mjs stop
-node bin/cli.mjs start
-node bin/cli.mjs uninstall --no-open
 ```
 
-收到本地 npm 包后：
+安装器会下载模型、校验 SHA-256、启动本机服务，并输出扩展目录。
+
+### 方式三：使用本地 npm 包
 
 ```sh
-npx --yes --package ./onhold-assistant-0.4.0.tgz onhold-assistant setup --no-open
+npx --yes --package ./onhold-assistant-0.4.1.tgz onhold-assistant setup --no-open
 ```
 
-替换后续包时用新包运行 `upgrade`。当前未发布到 npm，因此不能把 `npx onhold-assistant` 当成已可用命令。
+当前尚未发布到 npm 注册表，`npx onhold-assistant` 还不能作为公开安装命令使用。
 
-Mac 默认目录 `~/Library/Application Support/OnHoldAssistant`；Windows `%LOCALAPPDATA%/OnHoldAssistant`。可通过 `--home` 指定目录。模型下载约 1.91 GB + 678 MB，含运行环境至少预留 8 GiB。服务只监听本机 18427/18428/18430，不修改开机自启，不停止其他应用占用的端口。
+### 加载浏览器插件
 
-首次 Chrome/Edge 加载扩展仍需浏览器操作；安装器输出扩展目录。在扩展管理页加载，之后在插件中保存设置。升级保留同一扩展路径，随后重新加载扩展。卸载服务不会替用户编辑浏览器个人资料，请在扩展管理页另行移除扩展。
+1. 打开 `chrome://extensions` 或 `edge://extensions`。
+2. 开启开发者模式，选择“加载已解压的扩展”。
+3. 选择安装器输出的扩展目录。
+4. 点击工具栏的 **X + 蓝色助手气泡** 图标，在设置中保存并允许访问本机服务。
 
-## 新架构
+首次加载需要浏览器确认，安装器不会修改你的浏览器个人资料。
 
-`浏览器 → 本机接口 → 内存热点缓存 → SQLite 最终数据 → 本机模型`
+## 使用
 
-- 浏览器仅保留设置、迁移标识与页面临时状态，不写译文或标签缓存。
-- 本机 RAM 缓存：7 天有效，最多 2,000 项 / 32 MiB；过期、超限、重启只影响这一层。
-- SQLite：保存原文版本、来源/Post ID、译文、分析结果、原帖话题、可见互动快照及统计，不自动按缓存容量淘汰。
-- 精确索引：来源按平台/Post ID 或 URL 定位；结果按内容指纹、目标语言、模型/流程版本查找。修改原文会保留新旧版本；分段译文也能关联回原帖。
-- Hy-MT2 负责翻译；候选短语由词库和词性边界提取，Laya 筛选相关标签和内容参考分。最终分数仍结合观察到的互动数据。
-- 草稿不自动存成帖子，也不保存草稿原文；生成的译文可保存在本机结果层。
+### 自动翻译网页
 
-本机接口提供 `/translate`、`/analyze`、`/observe`、`/lookup`、`/metrics`。`/cache/clear` 仅清内存，不删除最终数据。`/lookup` 通过 `post_id`、`id`、`url` 或 `content_hash` 查询，不需要扫描所有记录。
+1. 打开需要翻译的网页。
+2. 点击插件图标，选择“将当前网站加入自动翻译”。
+3. 允许该网站权限，在插件设置中确认目标语言。
 
-旧浏览器统计只迁移一次，旧浏览器结果缓存失效。`setup --import-data <旧SQLite文件>` 可保留旧 Python 译文记录；旧缓存缺失的原文无法反向恢复。不同提示/模型版本不会把旧记录冒充成新推理结果。
+此按钮只加入当前协议、域名和端口的所有路径，不包含子域名。也可以手动设置更窄的 URL 路径，例如：
 
-平均耗时只算模型推理；缓存命中单列。CPU 和内存仅汇总本程序的本机接口、翻译模型及评分模型进程（单核心满载为100%）。GPU 无法可靠按本程序读取时显示不可读取，不使用整机占用率。数据占用只计浏览器设置与 SQLite/WAL/SHM，排除模型、运行时和下载缓存。
+```text
+https://x.com/home
+https://x.com/*/status/*
+https://example.com/articles/*
+```
 
-## 升级、回退、卸载
+### 翻译草稿与分析推文
 
-升级保留数据与模型选择，先备份 SQLite、旧代码和配置；启动失败会恢复旧代码、配置并尝试恢复旧服务。备份保存在安装目录 `backups/`。维护操作互斥。
+- 发帖或评论时，先核对草稿译文，再点击采纳。
+- 选中 X 推文后，在右侧查看标签与参考评分。
+- 复制原帖话题或提炼标签后，可粘贴到其他输入框。
 
-卸载默认保留 `data/` 和 `backups/`，只删除本安装器管理的文件。外部模型路径不删除。明确希望同时删除原文、译文、标签、统计和备份时，才使用 `uninstall --purge-data`。
+评分依赖当前读到的正文与互动数据，不代表 X 官方评分，也不是账号全量运营统计。
 
-## 替换模型
+## 系统架构
+
+![OnHold 助手系统架构图](docs/architecture.svg)
+
+[下载可编辑的 Excalidraw 源文件](docs/architecture.excalidraw)
+
+### 一次请求如何处理
+
+1. 插件将正文交给本机接口。
+2. 先查本机内存缓存，命中后直接返回。
+3. 内存未命中时查 SQLite；查到后回填内存。
+4. 没有记录时调用本机模型，完成后保存结果并回填内存。
+5. 推文分析需要中文时先交给 Hy-MT2，再提取候选短语，由 Laya 筛选标签和计算内容参考分。
+
+### 缓存与持久数据
+
+| 层 | 内容 | 保留规则 |
+| --- | --- | --- |
+| 浏览器 | 设置、迁移标识、页面临时展示状态 | 不持久缓存译文或标签 |
+| 本机内存 | 最近使用的译文与分析结果 | 7 天有效，最多 2,000 项 / 32 MiB；重启即清空 |
+| 本机 SQLite | 原文版本、译文、标签、来源、可见互动快照、翻译统计 | 不因内存缓存超限而删除 |
+
+原文可以通过平台与 Post ID、URL 或内容指纹定位。译文与分析结果还包含目标语言、模型和流程版本索引。
+
+原文修改时保留历史版本；分段译文关联回来源帖子。不同模型或提示版本不会混用旧结果。草稿原文不存成帖子记录，生成的译文可以保存在本机结果层。
+
+### 资源统计
+
+| 指标 | 统计范围 |
+| --- | --- |
+| 平均耗时 | 模型实际推理耗时，不含缓存命中 |
+| CPU | 本机接口、翻译模型和评分模型进程；单核心满载为 100% |
+| 内存 | 上述本程序进程的 RSS 合计 |
+| 数据占用 | 浏览器设置与 SQLite / WAL / SHM；不含模型、运行时和下载缓存 |
+
+资源面板不显示 GPU 使用率。
+
+## 维护
+
+以下命令在仓库目录运行。使用 npm 包时，请通过对应版本的安装器执行相同操作。
+
+| 操作 | 命令 |
+| --- | --- |
+| 环境检查 | `node bin/cli.mjs doctor` |
+| 查看状态 | `node bin/cli.mjs status` |
+| 启动 | `node bin/cli.mjs start` |
+| 停止 | `node bin/cli.mjs stop` |
+| 升级 | `node bin/cli.mjs upgrade --no-open` |
+| 卸载，保留数据 | `node bin/cli.mjs uninstall --no-open` |
+
+### 升级与回退
+
+先获取新代码或新版本 npm 包，再运行 `upgrade`。
+
+升级会备份 SQLite、旧代码与配置，保留模型选择和原有数据。新服务启动失败时，会恢复旧代码与配置，并尝试恢复旧服务。
+
+升级后需在浏览器重载插件。`upgrade` 不会自行从 npm 下载最新版。
+
+### 默认目录与端口
+
+| 系统 | 安装目录 |
+| --- | --- |
+| macOS | `~/Library/Application Support/OnHoldAssistant` |
+| Windows | `%LOCALAPPDATA%/OnHoldAssistant` |
+
+可以使用 `--home` 指定安装目录。
+
+服务只监听本机 `18427`、`18428`、`18430` 端口，不修改开机自启，也不会停止占用端口的其他应用。
+
+### 卸载与数据保留
+
+默认卸载保留 `data/` 与 `backups/`，外部模型路径不删除。浏览器扩展需要在扩展管理页另外移除。
+
+仅在确定要同时删除原文、译文、标签、统计和备份时使用：
 
 ```sh
-node bin/cli.mjs replace-model --translation /path/model.gguf --sha256 <可信SHA256> --no-open
+node bin/cli.mjs uninstall --purge-data --no-open
+```
+
+### 替换模型
+
+替换翻译模型：
+
+```sh
+node bin/cli.mjs replace-model --translation /path/model.gguf --sha256 YOUR_TRUSTED_SHA256 --no-open
+```
+
+替换评分模型：
+
+```sh
 node bin/cli.mjs replace-model --decision /path/laya --manifest /path/manifest.json --no-open
+```
+
+恢复默认模型：
+
+```sh
 node bin/cli.mjs replace-model --translation default --decision default --no-open
 ```
 
-翻译端仅支持 llama.cpp 兼容 GGUF；评分端仅支持兼容 Laya 的检查点。决策清单包含 `name`、`files`，每个文件包含相对 `name`、`size`、`sha256`，必须覆盖 `lib/runtime-lock.json` 的必要文件。替换检查启动状态，保留旧权重与数据；模型指纹隔离旧结果。模型可启动不代表翻译质量已验证。
+翻译端支持 llama.cpp 兼容 GGUF，评分端支持兼容 Laya 的检查点。评分模型清单必须列出必要文件的相对路径、大小和 SHA-256，详见 [模型说明](skills/onhold-assistant/references/models.md)。
 
-## Skill
+替换时保留旧模型与数据，检查新模型启动状态；启动成功不等于输出质量已验证。
 
-`skills/onhold-assistant` 附带完整安装器和维护脚本。可安装本地 Skill 目录，或通过 `npx skills add OnHoldCC/x-assistant --skill onhold-assistant` 安装仓库中的 Skill。Skill 支持安装、升级、卸载、替换兼容模型和诊断；不会绕过浏览器首次加载步骤。
+### 旧数据迁移
 
-## 一键加入当前网站
+首次安装时可导入旧 Python SQLite 译文记录：
 
-网页中点插件图标，再点“将当前网站加入自动翻译”。仅加入当前协议、域名和端口的全部路径，不包含子域名。拒绝权限则不保存；内置页和扩展商店不支持。
+```sh
+node bin/cli.mjs setup --import-data /path/old.sqlite3 --no-open
+```
 
-项目当前仍为 UNLICENSED，尚未替作者选定开源许可证或发布。名称、Logo、X/Telegram 保持原样；未加入虚假的不可修改或加密锁定机制。
+旧浏览器翻译统计只迁移一次。缺少原文的旧缓存无法反向恢复原文。
 
-## 作者与官方渠道
+## 开发与验证
 
-OnHoldCC · [X](https://x.com/OnHoldCC) · [Telegram](https://t.me/On_Hold_CC)
+```sh
+npm test
+```
 
-版权与开源许可证尚未最终确定；当前代码为 UNLICENSED，不代表授权第三方移除版权声明或冒充官方。
+GitHub Actions 检查 macOS / Windows 与 Node.js 22.20 / 24。自动化测试覆盖缓存、索引、数据迁移、接口校验、模型校验、升级回退和卸载边界，不等同于所有硬件上的模型实测。
+
+## 许可证
+
+本项目采用 [OnHold 助手源码可用许可证 1.0](LICENSE)。
+
+| 允许 | 未经另行书面授权禁止 |
+| --- | --- |
+| 免费使用、研究、修改与分发 | 转售、出租或付费下载插件 |
+| 个人或企业运营自己的商业账号 | 将插件打包为收费软件或会员权益 |
+| 将译文与分析结果用于自己的商业内容 | 将插件功能作为收费服务提供给第三方 |
+
+分发时需保留许可证、作者署名和官方来源；修改版本需注明修改者，不得冒充官方。第三方依赖及模型不受本项目定制条款重新许可。
+
+这是源码可用许可，不是 OSI 批准的开源许可证。
+
+第三方模型、运行时与字体遵循各自许可证，见 [第三方声明](THIRD_PARTY_NOTICES.txt)。
+
+## 作者
+
+**OnHoldCC**
+
+- [X · @OnHoldCC](https://x.com/OnHoldCC)
+- [Telegram · @On_Hold_CC](https://t.me/On_Hold_CC)

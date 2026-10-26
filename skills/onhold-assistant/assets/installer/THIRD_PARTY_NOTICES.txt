@@ -1,0 +1,13 @@
+Runtime and model are downloaded directly from official sources and SHA-256 verified.
+llama.cpp (MIT): https://github.com/ggml-org/llama.cpp/tree/b11669
+Hy-MT2-1.8B-GGUF (Apache-2.0): https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/blob/a0c709d9fac510f2c807aa3af52872340dc37a4a/LICENSE.txt
+Browser React/Radix bundle notices: extension/THIRD_PARTY_LICENSES.txt
+Node.js runtime is user supplied. This installer does not change third-party licenses.
+Original project code: OnHold Assistant Source-Available License 1.0, see LICENSE. Free distribution and own commercial-account use are allowed; resale, paid bundles and paid access to the software require separate written permission. Third-party licenses are unchanged.
+
+Nunito font (SIL OFL): extension/assets/OFL-Nunito.txt
+
+Laya runtime and multilingual decision model: Apache-2.0, https://github.com/NandhaKishorM/laya and https://huggingface.co/convaiinnovations/laya-multilingual .
+uv Python bootstrap: MIT/Apache-2.0, https://github.com/astral-sh/uv .
+Assistant icon: X logo with a separate blue assistant badge. X is a trademark of X Corp.
+jieba 0.42.1 (MIT): https://github.com/fxsjy/jieba .
