@@ -3,15 +3,20 @@ name: onhold-assistant
 description: Install, upgrade, uninstall, replace compatible local models, or diagnose OnHold Assistant on macOS and Windows. Use for this assistant's local browser translation, X draft assistance and post-tag scoring services; not for publishing posts, X account analytics or unrelated applications.
 ---
 
-Use this skill's bundled installer at `scripts/setup.mjs`. Do not invent a published npm package or repository URL. Requires Node.js 22.20+; Python, llama.cpp, Hy-MT2 and Laya are managed by the installer. Run `doctor` first when the installation location or platform is unknown.
+Use the bundled bootstrap before the installer. On macOS run `bash <skill-directory>/scripts/bootstrap.sh <operation> [options]`; on Windows run `powershell.exe -NoProfile -File <skill-directory>/scripts/bootstrap.ps1 <operation> [options]`.
 
-| Requested operation | Command after locating this skill directory |
+The bootstrap reuses Node.js 22.20+ when available. Otherwise it downloads official Node.js 24.22.1 into the installation's private `agent-node/` directory, verifies a pinned SHA-256 before execution and then runs `scripts/setup.mjs`. Do not ask users to manually install Node as the normal flow. It does not replace system Node, edit global PATH or need administrator installation. Python, llama.cpp, Hy-MT2 and Laya are managed by the next stage. If Windows policy blocks the script, report that policy; do not silently disable it.
+
+| Requested operation | Bootstrap arguments |
 | --- | --- |
-| Install | `node <skill-directory>/scripts/setup.mjs setup --no-open` |
-| Upgrade | `node <skill-directory>/scripts/setup.mjs upgrade --no-open` |
-| Uninstall, retain data | `node <skill-directory>/scripts/setup.mjs uninstall --no-open` |
-| Start / stop / status | `node <skill-directory>/scripts/setup.mjs start` (or `stop`, `status`) |
-| Replace model | Read [model replacement](references/models.md), then run `replace-model` with the verified local model and checksum/manifest. |
+| Install | `setup --no-open` |
+| Upgrade | `upgrade --no-open` |
+| Uninstall, retain data | `uninstall --no-open` |
+| Start / stop / status | `start`, `stop` or `status` |
+| Diagnose | `doctor` |
+| Replace model | Read [model replacement](references/models.md), then use `replace-model` with a verified local model and checksum/manifest. |
+
+Run `doctor` first when the installation location or platform is unknown. The downloaded Node runtime stays in the same install directory across Skill updates. Successful uninstall through the bootstrap also removes only its marked private Node directory; unrelated system Node is untouched. Never delete an unmarked directory or bypass a bootstrap lock left by another operation. Do not invent a published npm package.
 
 Pass `--home <directory>` consistently when the user has a custom installation. Locate its existing config before maintenance. Never point maintenance at an unrelated directory or kill a service that fails the installation's instance check. Operations are locked against concurrent maintenance.
 

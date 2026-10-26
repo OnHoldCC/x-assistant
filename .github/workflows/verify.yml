@@ -14,3 +14,22 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
       - run: node bin/cli.mjs doctor
+      - name: Bootstrap without system Node on macOS
+        if: runner.os == 'macOS' && matrix.node == '22.20.0'
+        timeout-minutes: 5
+        run: |
+          env PATH=/usr/bin:/bin:/usr/sbin:/sbin bash skills/onhold-assistant/scripts/bootstrap.sh doctor --home "$RUNNER_TEMP/OnHold Node smoke"
+          env PATH=/usr/bin:/bin:/usr/sbin:/sbin bash skills/onhold-assistant/scripts/bootstrap.sh doctor --home "$RUNNER_TEMP/OnHold Node smoke"
+      - name: Bootstrap without system Node on Windows
+        if: runner.os == 'Windows' && matrix.node == '22.20.0'
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $bootstrap = Join-Path $PWD 'skills/onhold-assistant/scripts/bootstrap.ps1'
+          $smokeHome = Join-Path $env:RUNNER_TEMP 'OnHold Node smoke'
+          $windowsPowerShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $env:PATH = "$env:WINDIR\System32;$env:WINDIR\System32\WindowsPowerShell\v1.0"
+          & $windowsPowerShell -NoProfile -File $bootstrap doctor --home $smokeHome
+          if ($LASTEXITCODE -ne 0) { throw 'First Node bootstrap failed' }
+          & $windowsPowerShell -NoProfile -File $bootstrap doctor --home $smokeHome
+          if ($LASTEXITCODE -ne 0) { throw 'Private Node reuse failed' }

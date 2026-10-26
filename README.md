@@ -27,7 +27,7 @@
 | 项目 | 要求 |
 | --- | --- |
 | 浏览器 | Chrome 120+ 或兼容的 Edge |
-| Node.js | 22.20 或更新版本 |
+| Node.js | Skill 自动检测；缺少合适版本时自动安装独立 Node.js |
 | 磁盘空间 | 首次安装至少预留 8 GiB |
 | 翻译模型 | Hy-MT2-1.8B GGUF Q8_0，下载约 1.91 GB |
 | 评分模型 | Laya 多语版，下载约 678 MB |
@@ -35,23 +35,25 @@
 
 Mac Apple Silicon 已完成本机模型实测。Mac / Windows 自动化测试均已通过；Windows 真机模型运行、Intel Mac 和全新机器下载流程尚未完整实测。
 
-安装器准备独立运行环境，无需手动安装 Docker 或 Ollama。
+Skill 自动准备 Node.js，再由安装器准备模型运行环境，无需手动安装 Node.js、Python、Docker 或 Ollama。已有合适的 Node.js 会直接复用；独立 Node.js 不覆盖系统版本，也不修改全局 PATH。
 
 ### 方式一：通过 Skill 安装
 
-先安装 Skill：
+将以下请求交给支持 Skill 与终端操作的 Agent：
+
+> 从 https://github.com/OnHoldCC/x-assistant 安装 skills/onhold-assistant。使用该 Skill 自动检测并安装 Node.js，部署插件和本机翻译、评分模型，完成后检查服务状态。
+
+已有 Node.js 时，也可以先用以下命令安装 Skill：
 
 ```sh
 npx skills add OnHoldCC/x-assistant --skill onhold-assistant
 ```
 
-然后在支持 Skill 的助手中输入：
-
-> 使用 onhold-assistant，安装插件和本机翻译、评分模型，完成后检查服务状态。
-
-Skill 支持安装、升级、卸载、替换兼容模型和诊断。安装 Skill 本身不会立即下载或运行模型。
+Skill 支持安装、升级、卸载、替换兼容模型和诊断。安装 Skill 本身不会立即下载或运行模型；执行安装任务时才会引导 Node.js 和模型依赖。
 
 ### 方式二：从仓库运行
+
+此方式需要已有 Git 与 Node.js 22.20+；希望自动准备 Node.js 时使用上面的 Skill 流程。
 
 ```sh
 git clone https://github.com/OnHoldCC/x-assistant.git
@@ -65,7 +67,7 @@ node bin/cli.mjs setup --no-open
 ### 方式三：使用本地 npm 包
 
 ```sh
-npx --yes --package ./onhold-assistant-0.4.1.tgz onhold-assistant setup --no-open
+npx --yes --package ./onhold-assistant-0.4.2.tgz onhold-assistant setup --no-open
 ```
 
 当前尚未发布到 npm 注册表，`npx onhold-assistant` 还不能作为公开安装命令使用。
@@ -173,6 +175,8 @@ https://example.com/articles/*
 服务只监听本机 `18427`、`18428`、`18430` 端口，不修改开机自启，也不会停止占用端口的其他应用。
 
 ### 卸载与数据保留
+
+通过 Skill 卸载时，还会移除它自动安装并带有归属标记的独立 Node.js，用户的系统 Node.js 不受影响。直接调用 Node 安装器不会清理这一引导目录。
 
 默认卸载保留 `data/` 与 `backups/`，外部模型路径不删除。浏览器扩展需要在扩展管理页另外移除。
 
