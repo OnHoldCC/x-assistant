@@ -40,5 +40,5 @@ export async function upgradeInstall({home,packageRoot,version,start,patch={}}){
  }finally{fs.rmSync(stage,{recursive:true,force:true});}
 }
 export async function uninstallInstall(home,{purgeData=false}={}){
- const config=readOwned(home);await stopOwned(config);for(const name of owned)fs.rmSync(path.join(home,name),{recursive:true,force:true});if(purgeData)for(const name of ['data','backups'])fs.rmSync(path.join(home,name),{recursive:true,force:true});return {dataRetained:!purgeData,home};
+ const config=readOwned(home);await stopOwned(config);for(const name of owned)fs.rmSync(path.join(home,name),{recursive:true,force:true,maxRetries:20,retryDelay:100});if(purgeData)for(const name of ['data','backups'])fs.rmSync(path.join(home,name),{recursive:true,force:true,maxRetries:20,retryDelay:100});return {dataRetained:!purgeData,home};
 }

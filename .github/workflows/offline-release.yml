@@ -1,4 +1,7 @@
 name: Build offline release
+concurrency:
+  group: offline-release
+  cancel-in-progress: true
 on:
   push:
     tags: ['v*']
