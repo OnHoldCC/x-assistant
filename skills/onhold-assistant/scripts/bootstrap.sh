@@ -15,6 +15,7 @@ if [ -d "$app_home" ]; then
 fi
 node_root="$app_home/agent-node"
 compatible() { "$1" -e 'const [m,n]=process.versions.node.split(".").map(Number);process.exit(m>22||m===22&&n>=20?0:1)' >/dev/null 2>&1; }
+echo '[progress] Checking Node.js runtime' >&2
 node_binary=''
 if command -v node >/dev/null 2>&1 && compatible "$(command -v node)"; then node_binary=$(command -v node); fi
 if [ -z "$node_binary" ]; then
@@ -49,9 +50,11 @@ if [ -z "$node_binary" ]; then
     trap - EXIT
   fi
 fi
+echo "[progress] Node ready: $("$node_binary" --version). Running ${1:-help}" >&2
 set +e
 "$node_binary" "$skill_scripts/setup.mjs" "$@"
 result=$?
 set -e
 if [ "$result" -eq 0 ] && [ "${1:-}" = uninstall ] && [ ! -L "$node_root" ] && [ -f "$node_root/.onhold-node" ] && [ "$(cat "$node_root/.onhold-node")" = 'onhold-assistant-node-v1' ]; then rm -rf "$node_root"; fi
+if [ "$result" -ne 0 ]; then echo "[failed] Installer exited with code $result; see the error above" >&2; fi
 exit "$result"

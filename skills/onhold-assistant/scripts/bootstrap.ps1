@@ -15,6 +15,7 @@ $nodeRoot = Join-Path $appHome 'agent-node'
 function Test-CompatibleNode($binary) {
     try { & $binary -e "const [m,n]=process.versions.node.split('.').map(Number);process.exit(m>22||m===22&&n>=20?0:1)" 2>$null; return $LASTEXITCODE -eq 0 } catch { return $false }
 }
+[Console]::Error.WriteLine('[progress] Checking Node.js runtime')
 $nodeBinary = $null
 $systemNode = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($systemNode -and (Test-CompatibleNode $systemNode.Source)) { $nodeBinary = $systemNode.Source }
@@ -54,10 +55,12 @@ if (-not $nodeBinary) {
         }
     }
 }
+[Console]::Error.WriteLine('[progress] Node ready; starting installer')
 & $nodeBinary (Join-Path $PSScriptRoot 'setup.mjs') @installerArgs
 $result = $LASTEXITCODE
 if ($result -eq 0 -and $installerArgs.Count -gt 0 -and $installerArgs[0] -eq 'uninstall' -and (Test-Path "$nodeRoot/.onhold-node")) {
     $existing = Get-Item $nodeRoot -Force
     if (-not ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint) -and (Get-Content "$nodeRoot/.onhold-node" -Raw).Trim() -eq 'onhold-assistant-node-v1') { Remove-Item $nodeRoot -Recurse -Force }
 }
+if ($result -ne 0) { [Console]::Error.WriteLine('[failed] Installer failed; see the error above') }
 exit $result

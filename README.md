@@ -31,7 +31,7 @@
 | 磁盘空间 | 首次安装至少预留 8 GiB |
 | 翻译模型 | Hy-MT2-1.8B GGUF Q8_0，下载约 1.91 GB |
 | 评分模型 | Laya 多语版，下载约 678 MB |
-| 系统 | macOS / Windows；Mac 使用 Metal，Windows 首版使用 CPU |
+| 系统 | macOS / Windows；Mac 优先 Metal；Windows 检测可用 GPU，失败时回退 CPU |
 
 Mac Apple Silicon 已完成本机模型实测。Mac / Windows 自动化测试均已通过；Windows 真机模型运行、Intel Mac 和全新机器下载流程尚未完整实测。
 
@@ -39,7 +39,16 @@ Skill 自动准备 Node.js，再由安装器准备模型运行环境，无需手
 
 ### 方式一：通过 Skill 安装
 
-将以下请求交给支持 Skill 与终端操作的 Agent：
+在已经安装 Skill 的 Agent 中，直接说：
+
+```text
+安装 OnHold 助手
+升级 OnHold 助手
+卸载 OnHold 助手
+把翻译模型换成这个：[模型链接]
+```
+
+首次使用时，将以下请求交给支持 Skill 与终端操作的 Agent：
 
 > 从 https://github.com/OnHoldCC/x-assistant 安装 skills/onhold-assistant。使用该 Skill 自动检测并安装 Node.js，部署插件和本机翻译、评分模型，完成后检查服务状态。
 
@@ -62,12 +71,12 @@ node bin/cli.mjs doctor
 node bin/cli.mjs setup --no-open
 ```
 
-安装器会下载模型、校验 SHA-256、启动本机服务，并输出扩展目录。
+安装器会下载模型、校验 SHA-256、启动本机服务，并输出扩展目录。llama.cpp 是自动下载的内部运行时，用户不需要单独安装。
 
 ### 方式三：使用本地 npm 包
 
 ```sh
-npx --yes --package ./onhold-assistant-0.4.2.tgz onhold-assistant setup --no-open
+npx --yes --package ./onhold-assistant-0.4.3.tgz onhold-assistant setup --no-open
 ```
 
 当前尚未发布到 npm 注册表，`npx onhold-assistant` 还不能作为公开安装命令使用。
@@ -140,7 +149,9 @@ https://example.com/articles/*
 | 内存 | 上述本程序进程的 RSS 合计 |
 | 数据占用 | 浏览器设置与 SQLite / WAL / SHM；不含模型、运行时和下载缓存 |
 
-资源面板不显示 GPU 使用率。
+资源面板不显示 GPU 使用率；模型名称旁显示实际使用的推理后端。Windows 翻译优先尝试 Vulkan（可覆盖兼容的独显和核显），Laya 根据可用的 PyTorch 后端选择 CUDA、Intel XPU 或 CPU；Mac 优先 Metal。驱动不支持或启动失败时会报告原因并回退。
+
+安装时输出分阶段日志及真实下载进度。Agent 读取日志并定期汇报；依赖安装、模型加载等阶段不伪造总体百分比。
 
 ## 维护
 

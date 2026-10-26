@@ -99,5 +99,19 @@
         "url": "https://huggingface.co/convaiinnovations/laya-multilingual/resolve/1720e3e3357cfe1e281542e223f8273b0890ca34/tokenizer/tokenizer_config.json"
       }
     ]
+  },
+  "gpu_platforms": {
+    "win32-x64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-vulkan-x64.zip",
+      "name": "llama-b11669-bin-win-vulkan-x64.zip",
+      "size": 32182350,
+      "sha256": "2c07574e7bde71321cb785282b20cc821e951132149eeceeea32ddebdbf0598e"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-vulkan-arm64.zip",
+      "name": "llama-b11669-bin-win-vulkan-arm64.zip",
+      "size": 24817965,
+      "sha256": "963d3b185362cadca3de643409f916a5ce95dd0f7fd8617ba9ee5d8833ac1ef3"
+    }
   }
 }

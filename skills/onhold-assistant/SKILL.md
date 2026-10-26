@@ -1,7 +1,9 @@
 ---
 name: onhold-assistant
-description: Install, upgrade, uninstall, replace compatible local models, or diagnose OnHold Assistant on macOS and Windows. Use for this assistant's local browser translation, X draft assistance and post-tag scoring services; not for publishing posts, X account analytics or unrelated applications.
+description: Install OnHold Assistant from scratch, upgrade, uninstall, replace compatible local models, or diagnose it on macOS and Windows. Use for this assistant's local browser translation, X draft assistance and post-tag scoring services; not for publishing posts, X account analytics or unrelated applications.
 ---
+
+For users, accept simple requests such as “安装 OnHold 助手”, “升级 OnHold 助手”, “卸载 OnHold 助手” or “把翻译模型换成这个链接”. Handle the runtime, downloads, trusted checksums and commands yourself instead of asking beginners to install llama.cpp/Python or type implementation commands.
 
 Use the bundled bootstrap before the installer. On macOS run `bash <skill-directory>/scripts/bootstrap.sh <operation> [options]`; on Windows run `powershell.exe -NoProfile -File <skill-directory>/scripts/bootstrap.ps1 <operation> [options]`.
 
@@ -20,7 +22,7 @@ Run `doctor` first when the installation location or platform is unknown. The do
 
 Pass `--home <directory>` consistently when the user has a custom installation. Locate its existing config before maintenance. Never point maintenance at an unrelated directory or kill a service that fails the installation's instance check. Operations are locked against concurrent maintenance.
 
-Setup downloads and verifies pinned official assets (about 1.91 GB translation + 678 MB decision weights/tokenizer), reserves at least 8 GiB including managed Python/PyTorch, and starts loopback services on 18427/18428/18430. Mac uses Metal when available; Windows uses the CPU build. Do not claim Windows or clean-machine bootstrap was tested merely because the platform files exist.
+Setup downloads and verifies pinned official assets (about 1.91 GB translation + 678 MB decision weights/tokenizer), reserves at least 8 GiB including managed Python/PyTorch, and starts loopback services on 18427/18428/18430. Mac prefers Metal. Windows first tries the pinned Vulkan runtime, verifies actual backend devices, and falls back to CPU when no compatible GPU is available. PyTorch dependencies use automatic backend selection on Windows; Laya selects CUDA/Metal/Intel XPU when available. Report the actual devices after startup; do not assume every display adapter supports acceleration. Do not claim Windows or clean-machine bootstrap was tested merely because the platform files exist.
 
 The installer upgrades to its bundled version, not an unseen newest release. Obtain the user-selected new release or updated Skill before claiming an upgrade to a newer version; the source repository is https://github.com/OnHoldCC/x-assistant, but no npm registry release is configured yet.
 
@@ -37,3 +39,7 @@ Verify `/health`, `/metrics`, one explicit short translation, a repeated cache h
 ## Project license
 
 The original assistant code uses the OnHold Assistant Source-Available License 1.0 bundled at `assets/installer/LICENSE`. Free redistribution and own commercial-account use are permitted; resale, paid bundles and paid access to the software need separate written authorization. Keep the license, attribution and official source notice when redistributing. Third-party licenses remain independent.
+
+## Progress reporting
+
+Run long commands with output visible or redirected to a local log that you continue reading. Report the current stage and latest observed download bytes/percentage to the user at least every 60 seconds, including when stalled. Stages include Node check/download/verification, translation weights, runtime/GPU detection, decision weights, Python/dependencies, model startup, upgrade backup and uninstall. Use the actual curl/package-manager progress; there is no meaningful overall percentage for every step. Report failures with the failed stage and error; never call a download or a running process a completed installation. After setup, verify a real translation and analysis; after upgrade verify retained data; after uninstall verify the owned service and managed runtime/models are removed.

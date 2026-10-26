@@ -7,6 +7,7 @@ import {createAnalyzer} from './analysis.mjs';
 import {spawn} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {resources} from './resources.mjs';
+import {usesGpu} from './acceleration.mjs';
 const languages=JSON.parse(fs.readFileSync(new URL('../extension/languages.json',import.meta.url),'utf8'));
 export function validateTranslation(body){
  if(!body||typeof body.text!=='string'||!body.text.trim()||body.text.length>4000)throw new Error('正文须为 1–4000 字符');
@@ -56,8 +57,8 @@ export function createGateway(config,backendPid,translateOverride,decisionPid){
   if(req.method==='OPTIONS'){respond(res,{});return;}
   const route=new URL(req.url,'http://localhost').pathname;
   try{
-   if(req.method==='GET'&&route==='/health')return respond(res,{service:'onhold-assistant',version:config.codeVersion||'0.4.2',instance:config.instance,pid:process.pid});
-   if(req.method==='GET'&&route==='/metrics')return respond(res,{model:config.decisionName||'convaiinnovations/laya-multilingual',translation_loaded:true,decision_loaded:!!decisionPid,decision_model:config.decisionName||'convaiinnovations/laya-multilingual',decision_device:config.decisionDevice||'未知',translation_model:config.modelName||'Hy-MT2-1.8B Q8_0',translation_device:config.device,translation_calls:calls,translation_average_ms:calls?Math.round(totalMs/calls):null,translation_stats:store.counters(),hot_cache:{entries:store.hot.entries.size,bytes:store.hot.bytes},data_warning:store.warning,architecture:2,uptime_seconds:Math.round((Date.now()-started)/1000),...await resources(backendPid,config.database,[process.pid,...(decisionPid?[decisionPid]:[])])});
+   if(req.method==='GET'&&route==='/health')return respond(res,{service:'onhold-assistant',version:config.codeVersion||'0.4.3',instance:config.instance,pid:process.pid});
+   if(req.method==='GET'&&route==='/metrics')return respond(res,{model:config.decisionName||'convaiinnovations/laya-multilingual',translation_loaded:true,decision_loaded:!!decisionPid,decision_model:config.decisionName||'convaiinnovations/laya-multilingual',decision_device:config.decisionDevice||'未知',translation_model:config.modelName||'Hy-MT2-1.8B Q8_0',translation_device:config.device,translation_calls:calls,translation_average_ms:calls?Math.round(totalMs/calls):null,translation_stats:store.counters(),hot_cache:{entries:store.hot.entries.size,bytes:store.hot.bytes},data_warning:store.warning,acceleration_warning:config.accelerationWarning||'',architecture:2,uptime_seconds:Math.round((Date.now()-started)/1000),...await resources(backendPid,config.database,[process.pid,...(decisionPid?[decisionPid]:[])])});
    if(req.method==='GET'&&(route==='/setup'||route==='/'))return respond(res,`<!doctype html><meta charset="utf-8"><title>OnHold 助手安装</title><style>body{max-width:760px;margin:60px auto;font:16px/1.8 system-ui;padding:20px;color:#242424}code{overflow-wrap:anywhere;background:#eee;padding:8px}*{scrollbar-width:none}::-webkit-scrollbar{display:none}</style><h1>本机模型已就绪</h1><p>Hy-MT2 已在本机运行。模型下载和运行环境不需要手动配置。</p><h2>最后一步：加载浏览器扩展</h2><p>在 Chrome 或 Edge 打开扩展管理页，开启开发者模式，点击“加载已解压的扩展”，选择：</p><p><code>${escape(config.extensionPath)}</code></p><p>Chrome：chrome://extensions　Edge：edge://extensions</p><p>加载后在插件设置保存一次，允许本机访问。扩展不会替你发布帖子。</p>`,200,'text/html; charset=utf-8');
    if(req.method==='POST'&&route==='/control/stop'){
     if(origin||req.headers.authorization!==`Bearer ${config.controlToken}`)return respond(res,{error:'无权停止'},403);
@@ -91,7 +92,8 @@ export function createGateway(config,backendPid,translateOverride,decisionPid){
 }
 async function run(configPath){
  const config=JSON.parse(fs.readFileSync(configPath));const logs=fs.openSync(config.log,'a',0o600);
- const args=['--model',config.model,'--alias','hy-mt2-1.8b-q8','--host','127.0.0.1','--port',String(config.backendPort),'--api-key-file',config.keyFile,'--n-gpu-layers',config.device==='Metal'?'99':'0','--ctx-size','16384','--parallel','2','--threads',String(Math.max(1,Math.min(4,config.cores))),'--no-webui','--no-context-shift','--offline'];
+ const args=['--model',config.model,'--alias','hy-mt2-1.8b-q8','--host','127.0.0.1','--port',String(config.backendPort),'--api-key-file',config.keyFile,'--n-gpu-layers',usesGpu(config.device)?'99':'0','--ctx-size','16384','--parallel','2','--threads',String(Math.max(1,Math.min(4,config.cores))),'--no-webui','--no-context-shift','--offline'];
+ if(usesGpu(config.device)&&config.acceleratorId)args.push('--device',config.acceleratorId);
  const child=spawn(config.binary,args,{cwd:path.dirname(config.binary),stdio:['ignore',logs,logs],windowsHide:true});
  const decision=config.decisionPython?spawn(config.decisionPython,[path.join(path.dirname(configPath),'app/lib/decision_server.py'),config.decisionModel,String(config.decisionPort)],{env:{...process.env,LAYA_API_KEY:config.backendKey},stdio:['ignore',logs,logs],windowsHide:true}):null;
  fs.closeSync(logs);let stopping=false,gateway;
