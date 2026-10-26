@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $installerArgs = @($args)
 $appHome = Join-Path $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $HOME }) 'OnHoldAssistant'
 for ($i = 0; $i -lt $installerArgs.Count; $i++) {
