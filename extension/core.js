@@ -1,6 +1,6 @@
 import {LANGUAGES} from './languages.mjs';
 export const DEFAULTS = Object.freeze({
-  enabled: false, autoTranslate: true, allWebsites: false, composeTranslate: true, composeTarget: 'en', readingTarget:'zh', postAnalysis: true, collectMetrics: false,
+  enabled: false, autoTranslate: true, allWebsites: false, composeTranslate: true, composeTarget: 'en', readingTarget:'zh', postAnalysis: false, hideAds: true, collectMetrics: false,
   translationAllowlist:['https://x.com/home','https://x.com/*/status/*','https://twitter.com/home','https://twitter.com/*/status/*'],
   mode: 'local', provider: 'chat', endpoint: '', model: '', apiKey: '',
   threshold: 0.85, dailyLimit: 100
@@ -10,6 +10,19 @@ export const MAX_CHARS = 12000;
 export const PROMPT_VERSION = '2';
 export const LAYA_ENDPOINT = 'http://127.0.0.1:18427/v1/systemone';
 export function referenceOnly(text){return !text.replace(/https?:\/\/\S+|@[A-Za-z0-9_]+|#[\p{L}\p{N}_]+/gu,'').match(/\p{L}/u);}
+export function translationParagraphs(text){
+  const sourceLines=[],sourceBreaks=[];let gap='';
+  for(const part of text.replace(/\r\n?/g,'\n').split(/(\n+)/)){
+    if(!part.trim()){gap+=part;continue;}
+    sourceLines.push(part);sourceBreaks.push(gap);gap='';
+  }
+  return {sourceLines,sourceBreaks};
+}
+export function translationChunks(text){
+  const chunks=[];let rest=text;
+  while(rest.length>2000){let end=rest.lastIndexOf(' ',2000);if(end<1000)end=2000;if(/[\uD800-\uDBFF]/.test(rest[end-1]))end--;chunks.push(rest.slice(0,end));rest=rest.slice(end);}
+  if(rest)chunks.push(rest);return chunks;
+}
 export function normalizeTranslationRules(input) {
   const rules=typeof input==='string'?input.split(/\r?\n/):input;
   if(!Array.isArray(rules)||rules.length>50)throw new Error('翻译白名单最多 50 条，每行一个 URL 规则。');
@@ -73,7 +86,8 @@ export function validateSettings(input) {
     autoTranslate: input.autoTranslate !== false,
     allWebsites: input.allWebsites === true,
     composeTranslate: input.composeTranslate !== false,
-    postAnalysis: input.postAnalysis !== false,
+    postAnalysis: false,
+    hideAds: input.hideAds !== false,
     collectMetrics: input.collectMetrics !== false,
     translationAllowlist: normalizeTranslationRules(input.translationAllowlist??DEFAULTS.translationAllowlist),
     composeTarget: input.composeTarget || 'en',

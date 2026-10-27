@@ -1,7 +1,7 @@
 {
   "name": "onhold-assistant",
-  "version": "0.4.7",
-  "description": "Install OnHold Assistant for local webpage translation and draft assistance on macOS and Windows.",
+  "version": "0.6.10",
+  "description": "Local X translation with native undo, collapsible post-border details and account Analytics in the popup.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {

@@ -27,3 +27,29 @@ test('an English paragraph mentioning Chinese names still translates',async()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-assistant-mixed-'));let called=false;const gateway=createGateway({database:path.join(directory,'cache.sqlite3'),modelHash:'fixed'},process.pid,async()=>{called=true;return {choices:[{finish_reason:'stop',message:{content:'这是提及中文名字的英文正文。'}}]};});
  try{const result=await gateway.translate({text:'This English paragraph mentions 中文 while most of the post is written in English.'});assert.equal(called,true);assert.equal(result.unchanged,undefined);assert.match(result.text,/英文/);}finally{gateway.close();fs.rmSync(directory,{recursive:true,force:true});}
 });
+test('observed page translation retains provenance without putting unknown originals into training records',async()=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-native-observe-')),config={port:0,database:path.join(directory,'cache.sqlite3'),extensionIds:[]},gateway=createGateway(config,process.pid);
+ await new Promise(resolve=>gateway.server.listen(0,'127.0.0.1',resolve));config.port=gateway.server.address().port;
+ const request=body=>fetch(`http://127.0.0.1:${config.port}/observe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const body={url:'https://x.com/example/status/1234567890123456789',original:null,translation:{provider:'x_grok_dom',text:'页面已显示的中文译文',complete:false}};
+ try{
+  const result=await (await request(body)).json();assert.equal(result.translation_recorded,true);assert.equal(result.original_available,false);
+  assert.equal(gateway.store.db.prepare('SELECT COUNT(*) AS n FROM contents').get().n,0);assert.equal(gateway.store.db.prepare('SELECT COUNT(*) AS n FROM documents').get().n,0);
+  const saved=JSON.parse(gateway.store.db.prepare("SELECT value FROM results WHERE kind='native_translation'").get().value);assert.equal(saved.provider,'x_grok_dom');assert.equal(saved.original_text,null);assert.equal(saved.complete,false);
+  assert.equal((await request({...body,url:'https://evil.example/post'})).status,422);assert.equal((await request({...body,translation:{...body.translation,provider:'unknown'}})).status,422);
+  const known={...body,original:'The actual observed original.'};assert.equal((await request(known)).status,200);
+  assert.equal(gateway.store.lookup({url:body.url}).original,known.original);
+  assert.equal(gateway.store.db.prepare('SELECT COUNT(*) AS n FROM contents WHERE original=?').get(body.translation.text).n,0);
+ }finally{gateway.close();fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('cold translation reports preparation, resumes on readiness, and cache reads do not load the model',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-cold-'));let preparations=0,inferences=0;
+ const config={port:0,database:path.join(dir,'cache.sqlite3'),modelHash:'cold',extensionIds:[],translationState:'not_loaded',ensureTranslation:async()=>{preparations++;config.translationState='preparing';}};
+ const gateway=createGateway(config,undefined,async()=>{inferences++;return {choices:[{finish_reason:'stop',message:{content:'你好'}}]};});
+ await new Promise(resolve=>gateway.server.listen(0,'127.0.0.1',resolve));config.port=gateway.server.address().port;
+ const request=()=>fetch(`http://127.0.0.1:${config.port}/translate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Hello'})});
+ try{const cold=await request();assert.equal(cold.status,503);assert.equal((await cold.json()).code,'TRANSLATION_PREPARING');assert.equal(preparations,1);assert.equal(inferences,0);config.translationState='ready';assert.equal((await (await request()).json()).text,'你好');config.translationState='not_loaded';assert.equal((await (await request()).json()).cached,true);assert.equal(preparations,1);assert.equal(inferences,1);
+ const state=await fetch(`http://127.0.0.1:${config.port}/metrics`).then(r=>r.json());assert.equal(state.translation_loaded,false);assert.equal(state.translation_state,'not_loaded');
+ }finally{gateway.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

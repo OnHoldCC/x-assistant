@@ -5,7 +5,18 @@
     const saved = originals.get(node);
     if (saved && node.innerHTML === saved.html) return saved.text;
     if (saved) {node.style.display=saved.display; originals.delete(node);}
-    return node.innerText;
+    if(!node.matches('[data-testid="tweetText"]'))return node.innerText;
+    // X's inline link wrappers can make innerText invent line breaks inside a sentence.
+    function text(child){
+      if(child.nodeType===Node.TEXT_NODE)return child.nodeValue;
+      if(child.nodeType!==Node.ELEMENT_NODE)return '';
+      const style=getComputedStyle(child);
+      if(child.hidden||style.display==='none'||style.visibility==='hidden')return '';
+      if(child.tagName==='BR')return '\n';
+      if(child.tagName==='IMG')return child.alt||'';
+      return [...child.childNodes].map(text).join('');
+    }
+    return [...node.childNodes].map(text).join('').replace(/\r\n?/g,'\n');
   }
   function isForeign(text,target='zh') {
     const clean = text.replace(/https?:\/\/\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?|@[A-Za-z0-9_]+|#[\p{L}\p{N}_]+/giu, '');
@@ -34,7 +45,7 @@
     host.style.setProperty('--translation-color',rgb.reduce((a,b)=>a+b,0)>480?'#b6cbd5':'#486572');
     const root=host.attachShadow({mode:'open'});
     const style=document.createElement('style');
-    style.textContent=`:host{display:block;font:inherit;color:inherit;overflow-wrap:anywhere}*{box-sizing:border-box}.body[hidden],[hidden]{display:none!important}.pair{margin:0 0 16px}.original,.translation{white-space:pre-wrap;line-height:1.65}.translation{margin-top:5px;color:var(--translation-color,#486572);font-size:.96em}.tools,.row-meta{color:#536471;font:12px/1.5 system-ui,-apple-system,sans-serif;margin:6px 0}.tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.status{overflow-wrap:anywhere}button{font:inherit;color:#1473a9;border:0;background:transparent;padding:2px 0;min-height:32px;cursor:pointer}button:disabled{cursor:wait}button:focus-visible{outline:2px solid #1d9bf0;outline-offset:3px}a{color:#1d9bf0;text-decoration:none}a:hover{text-decoration:underline}@media(prefers-color-scheme:dark){.translation{color:var(--translation-color,#b6cbd5)}.tools,.row-meta{color:#a3b4bf}button{color:#7ac5ff}}`;
+    style.textContent=`:host{display:block;font:inherit;color:inherit;overflow-wrap:anywhere}*{box-sizing:border-box}.body[hidden],[hidden]{display:none!important}.pair{margin:0}.original,.translation{white-space:pre-wrap;line-height:1.65}.translation{margin-top:5px;color:var(--translation-color,#486572);font-size:.96em}.tools{color:#536471;font:12px/1.5 system-ui,-apple-system,sans-serif;margin:6px 0}.tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.status{overflow-wrap:anywhere}button{font:inherit;color:#1473a9;border:0;background:transparent;padding:2px 0;min-height:32px;cursor:pointer}button:disabled{cursor:wait}button:focus-visible{outline:2px solid #1d9bf0;outline-offset:3px}a{color:#1d9bf0;text-decoration:none}a:hover{text-decoration:underline}@media(prefers-color-scheme:dark){.translation{color:var(--translation-color,#b6cbd5)}.tools{color:#a3b4bf}button{color:#7ac5ff}}`;
     const body=document.createElement('div');body.className='body';body.hidden=true;
     const tools=document.createElement('div');tools.className='tools';
     const label=document.createElement('span');label.textContent='翻译';
@@ -46,7 +57,7 @@
     const links=[...textNode.querySelectorAll('a[href]')].map(a=>({label:a.innerText,href:a.href}))
       .filter(a=>a.label&&/^https?:\/\//.test(a.href));
     let loading=false,done=false,expanded=false,retries=0,retryTimer,port,rendered=false,failed=false;
-    let rows=[],sources=[];
+    let rows=[],sources=[],breaks=[];
     function show(active) {
       body.hidden=!active;
       if(active&&!options.translationOnly){originals.set(textNode,saved);textNode.style.display='none';}
@@ -57,14 +68,15 @@
     function begin(data) {
       if(!Array.isArray(data.sourceLines)||!data.sourceLines.length||!data.sourceLines.every(s=>typeof s==='string'))throw new Error('原文段落格式不正确。');
       expanded=data.expanded===true;
+      breaks=data.sourceBreaks||data.sourceLines.map((_,index)=>index?'\n':'');
       if(!rendered||sources.length!==data.sourceLines.length||sources.some((line,i)=>line!==data.sourceLines[i])) {
         sources=data.sourceLines;rows=[];body.replaceChildren();
-        sources.forEach(source=>{
+        sources.forEach((source,index)=>{
           const pair=document.createElement('div');pair.className='pair';
+          pair.style.margin=`${Math.max(0,(breaks[index].match(/\n/g)||[]).length-1)*1.65}em 0 0`;
           if(!options.translationOnly){const original=document.createElement('div');original.className='original';originalLine(original,source,links);pair.append(original);}
           const chinese=document.createElement('div');chinese.className='translation';chinese.lang=options.target||'zh';chinese.dir='auto';chinese.textContent='…';chinese.setAttribute('aria-label','此段翻译中');
-          const meta=document.createElement('div');meta.className='row-meta';meta.hidden=sources.length===1;
-          pair.append(chinese,meta);body.append(pair);rows.push({node:chinese,meta,done:false});
+          pair.append(chinese);body.append(pair);rows.push({node:chinese,done:false});
         });
       }
       if(!rendered){rendered=true;show(true);}
@@ -73,10 +85,7 @@
     function paragraph(data,started) {
       if(!Number.isInteger(data.index)||!rows[data.index]||typeof data.text!=='string')throw new Error('段落译文格式不正确。');
       const row=rows[data.index];row.node.replaceChildren();originalLine(row.node,data.text,links);row.node.removeAttribute('aria-label');
-      row.referenceOnly=data.referenceOnly===true;if(row.referenceOnly)row.meta.hidden=true;
       row.node.hidden=sources[data.index].trim()===data.text.trim();row.done=true;
-      row.cached=data.cached===true;row.elapsed=Number.isFinite(data.elapsed_ms)?Math.max(0,Math.round(data.elapsed_ms)):Math.round(performance.now()-started);
-      row.meta.textContent=row.referenceOnly?'':row.cached?'缓存':`机器翻译 · ${row.elapsed} ms`;
       status.textContent=`· ${rows.filter(r=>r.done).length}/${rows.length} · ${Math.round(performance.now()-started)} ms`;
     }
     function request(payload,progress) {
@@ -98,30 +107,30 @@
     }
     async function start(automatic=false) {
       if(loading||done||!current())return;
-      const started=performance.now();failed=false;loading=true;button.disabled=!rendered;button.textContent='翻译中…';
-      status.textContent=options.readFull?'正在补读全文，仅在本机翻译':'仅在本机处理';
+      const started=performance.now();failed=false;loading=true;options.onStart?.();button.disabled=!rendered;button.textContent='翻译中…';
+      status.textContent=options.readFull&&!automatic?'正在补读全文，仅在本机翻译':'仅在本机处理';
       try {
-        const data=await request({type:'TRANSLATE',text,automatic,readFull:!!options.readFull,postUrl:options.postUrl},message=>{
+        const data=await request({type:'TRANSLATE',text,automatic,readFull:!!options.readFull&&!automatic,postUrl:options.postUrl},message=>{
           if(message.kind==='source')begin(message);else if(message.kind==='paragraph')paragraph(message,started);
         });
         if(!current()||!host.isConnected)return;
         const sourceLines=data.sourceLines||text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
         const translated=data.paragraphs||(typeof data.text==='string'?data.text.split(/\n+/).map(s=>s.trim()).filter(Boolean):[]);
         if(sourceLines.length!==translated.length||!sourceLines.length)throw new Error('段落未能对齐，请重试翻译。');
-        begin({sourceLines,expanded:data.expanded});translated.forEach((line,index)=>{
+        begin({sourceLines,sourceBreaks:data.sourceBreaks,expanded:data.expanded});translated.forEach((line,index)=>{
           if(!rows[index].done)paragraph({index,text:line,cached:data.paragraphCached?.[index]??data.cached,elapsed_ms:data.paragraphMs?.[index]??data.elapsed_ms,referenceOnly:data.paragraphSkipped?.[index]},started);
         });
         done=true;retries=0;label.title=`本机 Hy-MT2 · ${data.source_lang||'自动'} → ${options.targetName||'中文'}${expanded?' · 已读取全文':''}`;
-        send({type:'OBSERVE_CONTENT',source:{url:options.postUrl||location.href,original:sourceLines.join('\n\n')}}).catch(()=>{});
+        send({type:'OBSERVE_CONTENT',source:{url:options.postUrl||location.href,...(options.sourceRecord||{original:sourceLines.map((line,index)=>breaks[index]+line).join('')})}}).catch(()=>{});
         options.onComplete?.(data);
-        label.textContent=rows.length===1?(rows[0].cached?'缓存':'机器翻译'):'翻译完成';
-        status.textContent=rows.length===1&&!rows[0].cached?`· ${rows[0].elapsed} ms`:'';
+        label.textContent=options.readFull&&!expanded?'部分译文':data.cached?'缓存':'机器翻译';
+        status.textContent=options.readFull&&!expanded?'当前显示部分 · 展开帖子后继续翻译':data.cached?'':`· ${Math.round(data.elapsed_ms??performance.now()-started)} ms`;
         button.textContent=body.hidden?(options.translationOnly?'译文':'对照'):'原文';
       } catch(error) {if(current()){
         failed=true;button.textContent='重试';status.textContent=error.message;
         for(const row of rows)if(!row.done){row.node.textContent='此段暂未译出';row.node.removeAttribute('aria-label');}
         if(automatic&&error.retryable&&retries<2){retries++;status.textContent='本机服务连接中，稍后自动重试';retryTimer=setTimeout(()=>start(true),retries*3000);}
-      }}finally{loading=false;button.disabled=false;}
+      }}finally{loading=false;button.disabled=false;options.onSettled?.();}
     }
     button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(rendered&&!failed)show(body.hidden);else start();});
     host.addEventListener('click',event=>event.stopPropagation());

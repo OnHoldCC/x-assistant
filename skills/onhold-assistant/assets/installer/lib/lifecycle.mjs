@@ -27,7 +27,7 @@ export async function upgradeInstall({home,packageRoot,version,start,patch={}}){
  const before=readOwned(home),backup=path.join(home,'backups',Date.now()+'-'+randomUUID().slice(0,8)),stage=path.join(home,'.stage-'+randomUUID());
  const next={...before,...patch,codeVersion:version};let stopped=false,appMoved=false,extensionMoved=false;
  try{
-  fs.mkdirSync(stage);for(const item of ['lib','extension'])fs.cpSync(path.join(packageRoot,item),path.join(stage,'app',item),{recursive:true});stageExtension(path.join(packageRoot,'extension'),path.join(stage,'extension'),before.port);
+  fs.mkdirSync(stage);for(const item of ['bin','lib','extension','package.json'])fs.cpSync(path.join(packageRoot,item),path.join(stage,'app',item),{recursive:true});stageExtension(path.join(packageRoot,'extension'),path.join(stage,'extension'),before.port);
   await stopOwned(before);stopped=true;fs.mkdirSync(backup,{recursive:true});backupDatabase(before.database,path.join(backup,'data.sqlite3'));writeJson(path.join(backup,'config.json'),before);
   fs.renameSync(path.join(home,'app'),path.join(backup,'app'));appMoved=true;fs.renameSync(path.join(home,'extension'),path.join(backup,'extension'));extensionMoved=true;
   fs.renameSync(path.join(stage,'app'),path.join(home,'app'));fs.renameSync(path.join(stage,'extension'),path.join(home,'extension'));writeJson(path.join(home,'config.json'),next);markOwned(home,next,version);await start(next);return {config:next,backup};

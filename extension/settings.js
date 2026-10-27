@@ -1,6 +1,6 @@
 import {LANGUAGES} from './languages.mjs';
 import {DEFAULTS,validateSettings,translationHosts,translationSiteRule} from './core.js';
-const $=id=>document.getElementById(id),fields=['autoTranslate','allWebsites','composeTranslate','composeTarget','readingTarget','postAnalysis','translationAllowlist'];let saved={};
+const $=id=>document.getElementById(id),fields=['autoTranslate','allWebsites','composeTranslate','composeTarget','readingTarget','hideAds','translationAllowlist'];let saved={};
 for(const id of ['readingTarget','composeTarget'])$(id).replaceChildren(...Object.entries(LANGUAGES).map(([value,name])=>{const option=document.createElement('option');option.value=value;option.textContent=name;return option;}));
 const send=async message=>{const response=await chrome.runtime.sendMessage(message);if(!response?.ok)throw new Error(response?.error||'扩展连接失败');return response.data;};
 let currentSite='';

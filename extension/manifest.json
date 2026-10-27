@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "OnHold 助手",
-  "version": "1.0.1",
+  "version": "1.2.15",
   "minimum_chrome_version": "120",
-  "description": "本机多语言互译、X 草稿预览、推文标签复制与参考评分，以及模型资源状态。",
+  "description": "X 一键翻译与撤销，浏览帖子上沿展示参考评分与互动数据，使用 OnHold 字体。",
   "permissions": [
     "storage",
     "scripting",
-    "activeTab"
+    "activeTab",
+    "alarms"
   ],
   "host_permissions": [
     "https://x.com/*",
@@ -38,12 +39,15 @@
         "https://twitter.com/*"
       ],
       "js": [
-        "translation-ui.js",
-        "content.js",
-        "compose.js",
         "metrics-core.js",
-        "analysis-core.js",
-        "post-analysis.js"
+        "x-dashboard.js",
+        "ad-filter.js",
+        "translation-ui.js",
+        "x-reading-source.js",
+        "content.js",
+        "onhold-ui.js",
+        "compose.js",
+        "post-border.js"
       ],
       "run_at": "document_idle"
     }
@@ -54,5 +58,16 @@
     "48": "assets/assistant-48.png",
     "128": "assets/assistant-128.png"
   },
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3FSzWLVkfbvANoLtEaypt4mUSx5EjHsVIdWT86V9ifylmWYTiVrmZb0phXH0mzNGTtgSFMJOoI1GchkEbfUTib0xNYVFYlYAFjpYPuteTqKMzSUZO+JPyq4XMjIOqqYwVuApNXV6fT3ClfYJJlCZ3EG7/QbloeNisnh07Z+WdO0+u7mYgjDqf9vqEVF9QvYyJCjZ06lmpi2Z1mw8wEer3EXHyTE02vcbl6m2wX/pcgwYZYNWH9aMBQtVRQQrvjW+SdjK3iooPJAgXMRrQtWWMju443NCYPc633ui5B0oAYcvbfiZsUk8qfKJK9yzmlm8KMXWVrd+SPS64QtB/iQSDQIDAQAB"
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3FSzWLVkfbvANoLtEaypt4mUSx5EjHsVIdWT86V9ifylmWYTiVrmZb0phXH0mzNGTtgSFMJOoI1GchkEbfUTib0xNYVFYlYAFjpYPuteTqKMzSUZO+JPyq4XMjIOqqYwVuApNXV6fT3ClfYJJlCZ3EG7/QbloeNisnh07Z+WdO0+u7mYgjDqf9vqEVF9QvYyJCjZ06lmpi2Z1mw8wEer3EXHyTE02vcbl6m2wX/pcgwYZYNWH9aMBQtVRQQrvjW+SdjK3iooPJAgXMRrQtWWMju443NCYPc633ui5B0oAYcvbfiZsUk8qfKJK9yzmlm8KMXWVrd+SPS64QtB/iQSDQIDAQAB",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/nunito-variable.ttf"
+      ],
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ]
+    }
+  ]
 }

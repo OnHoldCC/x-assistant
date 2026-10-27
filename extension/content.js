@@ -1,5 +1,5 @@
 (() => {
-  if (globalThis.__xAIStampLoaded) return;
+  if (globalThis.__xAIStampLoaded||location.hash==='#onhold-dashboard-reader') return;
   globalThis.__xAIStampLoaded = true;
   let config = {enabled: false, autoTranslate: false, threshold: 0.85};
   let generation = 0;
@@ -28,6 +28,7 @@
     return null;
   }
   function extract(article) {
+    if(globalThis.OnHoldAdFilter?.shouldHide(article))return null;
     const textNode = [...article.querySelectorAll('[data-testid="tweetText"]')].find(el =>
       !el.closest('[data-testid="quoteTweet"], [data-testid="card.wrapper"], article article') && originalText(el).trim());
     if (!textNode) return null;
@@ -39,7 +40,7 @@
     return {text, node:textNode, postUrl:link, moreNode, readFull:!!moreNode&&!!link&&timed, key:`${link}\n${text}`};
   }
 
-  if(location.hash==='#x-local-full-reader') {
+  if(['#x-local-full-reader','#onhold-dashboard-reader'].includes(location.hash)) {
     const clicked=new WeakSet();
     chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       if(message.type!=='READ_FULL_POST'||sender.id!==chrome.runtime.id)return;
@@ -53,34 +54,42 @@
     return;
   }
 
-  const restored=new WeakSet();
-  function restoreChinese(article) {
-    const button=[...article.querySelectorAll('button,[role="button"]')].find(el=>
-      !el.closest('[data-testid="quoteTweet"], [data-testid="card.wrapper"], article article') &&
-      /^(Show original|显示原文|查看原文)$/i.test(el.textContent.trim()) &&
-      /Translated from Chinese|译自中文|翻译自中文/i.test(el.parentElement?.innerText||''));
-    if(!button)return false;
-    if(!restored.has(button)){restored.add(button);button.click();}
-    return true;
+  const nativeWaits=new WeakMap();
+  const inReadingView=article=>{const rect=article.getBoundingClientRect();return !document.hidden&&rect.width>0&&rect.height>0&&rect.bottom>-100&&rect.top<innerHeight+100;};
+  function translationBusy(article,mode){
+    const previous=article.getAttribute('data-onhold-reading-translation');if(previous===(mode||null))return;
+    if(mode)article.setAttribute('data-onhold-reading-translation',mode);else article.removeAttribute('data-onhold-reading-translation');
+    article.dispatchEvent(new CustomEvent('onhold-reading-translation',{bubbles:true,detail:{active:!!mode}}));
+  }
+  function startLocal(article,state){
+    if(!config.autoTranslate||!inReadingView(article)||!state.translation)return;
+    const nativeButton=[...article.querySelectorAll('button,[role="button"]')].some(button=>!button.closest('[data-testid="quoteTweet"],[data-testid="card.wrapper"],article article')&&/^(Show translation|显示翻译|查看翻译)$/i.test(button.textContent.trim()));
+    if(nativeButton){
+      let wait=nativeWaits.get(article);
+      if(!wait||wait.key!==state.key){wait={key:state.key,at:performance.now()};nativeWaits.set(article,wait);setTimeout(()=>{if(article.isConnected&&nativeWaits.get(article)===wait)scan();},1100);}
+      if(performance.now()-wait.at<1000)return;
+    }
+    state.translation.start(true);
   }
 
+  const nativeReady=reading=>reading?.native&&(config.readingTarget!=='zh'||!XAITranslationUI.isForeign(reading.text));
   function attachTranslation(article, state) {
-    if(config.translatePageAllowed===false)return;
+    const reading=globalThis.OnHoldXReading?.read(article);
+    if(config.translatePageAllowed===false||nativeReady(reading))return;
     if (!globalThis.XAITranslationUI || !XAITranslationUI.isForeign(state.text,config.readingTarget||'zh')) return;
     if (state.translation?.host.isConnected) return;
     state.translation?.remove();
     state.translation = XAITranslationUI.mount(state.node, state.text, send, () =>
       state.generation === generation && states.get(article) === state && article.isConnected && extract(article)?.key === state.key,
-      {target:config.readingTarget,targetName:config.languages?.[config.readingTarget],postUrl:state.postUrl,readFull:state.readFull,moreNode:state.moreNode,onComplete:data=>article.dispatchEvent(new CustomEvent('onhold-translated',{bubbles:true,detail:{text:data.text,original:state.text,target_lang:data.target_lang||'zh',sourceText:data.sourceLines?.join('\n\n')||state.text}}))});
+      {sourceRecord:reading?.native?{original:reading.original,translation:{provider:'x_grok_dom',text:reading.text,complete:reading.complete}}:undefined,onStart:()=>{if(states.get(article)===state)translationBusy(article,'local');},onSettled:()=>{if(states.get(article)===state)translationBusy(article,null);},target:config.readingTarget,targetName:config.languages?.[config.readingTarget],postUrl:state.postUrl,readFull:state.readFull,moreNode:state.moreNode,onComplete:data=>article.dispatchEvent(new CustomEvent('onhold-translated',{bubbles:true,detail:{text:data.text,original:state.text,target_lang:data.target_lang||'zh',sourceText:data.sourceLines?.map((line,index)=>(data.sourceBreaks?.[index]??(index?'\n':''))+line).join('')||state.text}}))});
     visible.unobserve(article);
     visible.observe(article);
   }
 
   const visible = new IntersectionObserver(entries => {
-    for (const entry of entries) if (entry.isIntersecting) {
+    for (const entry of entries) if (entry.isIntersecting&&!document.hidden) {
       const state = states.get(entry.target);
-      if (state && config.autoTranslate && restoreChinese(entry.target)) continue;
-      if (state && config.autoTranslate) state.translation?.start(true);
+      if(state)startLocal(entry.target,state);
     }
   }, {rootMargin: '100px'});
 
@@ -90,15 +99,18 @@
       state.translation?.remove(); states.delete(article); visible.unobserve(article);
     }
     for (const article of document.querySelectorAll('article[data-testid="tweet"]')) {
+      if(nativeReady(globalThis.OnHoldXReading?.read(article))){const old=states.get(article);old?.translation?.remove();states.delete(article);visible.unobserve(article);translationBusy(article,null);continue;}
       const info = extract(article);
       const old = states.get(article);
       if (old && old.key === info?.key) {
         old.node = info.node;
         attachTranslation(article, old);
+        startLocal(article,old);
         continue;
       }
 
       old?.translation?.remove();
+      if(article.getAttribute('data-onhold-reading-translation')==='local')translationBusy(article,null);
       visible.unobserve(article);
       states.delete(article);
       if (!info) continue;
@@ -106,16 +118,19 @@
       states.set(article, state);
       attachTranslation(article, state);
       visible.observe(article);
+      startLocal(article,state);
     }
   }
 
+  document.addEventListener('onhold-ad-visibility',scan);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)scan();});
   setInterval(()=>{if(!document.hidden&&pageUrl!==location.href)scan();},1000);
 
   function refresh(next) {
     generation++;
     config = next;
     visible.disconnect();
-    for (const state of states.values()) {state.translation?.remove();}
+    for (const [article,state] of states) {state.translation?.remove();translationBusy(article,null);}
     states.clear();
     scan();
   }

@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import path from 'node:path';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
+const browser=await chromium.launch({headless:true}),page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
+page.on('pageerror',error=>errors.push(error.message));
+try{
+ await page.addInitScript(()=>{
+  window.listeners=[];window.calls=[];window.settings={hideAds:true,postAnalysis:true,autoTranslate:false,composeTranslate:true,readingTarget:'zh',languages:{zh:'中文'}};
+  window.chrome={runtime:{onMessage:{addListener(fn){listeners.push(fn);}},async sendMessage(message){
+   if(message.type==='GET_PUBLIC_CONFIG')return {ok:true,data:settings};calls.push(message);
+   if(message.type==='ANALYZE_POST')return {ok:true,data:{potential:{score:70,rows:[]},keywords:[],model:'测试模型',elapsed_ms:1}};
+   return {ok:true,data:{}};
+  }}};
+ });
+ const post=(id,label,body='这是一条普通帖子。',author='Example')=>`<div data-testid="cellInnerDiv" id="cell-${id}"><article id="${id}" data-testid="tweet"><div data-testid="User-Name"><a href="/example"><span>${author}</span></a>${label}</div><div data-testid="tweetText">${body}</div><button data-testid="like" aria-label="3 Likes">3</button></article></div>`;
+ const html=`<style>main{width:600px;margin:20px}article{padding:20px;border:1px solid #ddd;min-height:100px}</style><main>${post('ad','<span>Ad</span>','ad-only-body')}${post('promoted','<span>Promoted</span>')}${post('cn','<span>广告</span>')}${post('tw','<span>推廣</span>')}${post('indicator','<div data-testid="promotedIndicator"></div>')}${post('organic','','Ad')}${post('author','','正常正文','Ad')}${post('mention','','我们来讨论 Ad、Promoted 和广告过滤。')}${post('quote','','引用一条广告：<div data-testid="quoteTweet"><span>Ad</span></div>')}${post('late','','late-ad-body')}<div data-testid="cellInnerDiv" id="shared"><article id="shared-ad" data-testid="tweet"><span>Ad</span><div data-testid="tweetText">广告</div></article><article id="shared-organic" data-testid="tweet"><div data-testid="tweetText">正常帖子</div></article></div></main>`;
+ await page.route('https://x.com/**',route=>route.fulfill({contentType:'text/html;charset=utf-8',body:html}));await page.goto('https://x.com/home');
+ for(const name of ['translation-ui.js','x-reading-source.js','ad-filter.js','content.js'])await page.addScriptTag({path:path.resolve('extension',name)});
+ for(const id of ['ad','promoted','cn','tw','indicator','shared-ad'])await page.locator('#'+id).waitFor({state:'hidden'});
+ for(const id of ['organic','author','mention','quote','shared-organic'])assert.equal(await page.locator('#'+id).isVisible(),true,id+' must remain visible');
+ assert.equal(await page.locator('#cell-ad').isVisible(),false,'ad cell collapses without an empty gap');
+ assert.equal(await page.locator('#shared').isVisible(),true,'a shared cell must retain its organic post');
+ await page.locator('#late').evaluate(node=>{const span=document.createElement('span');span.textContent='Ad';node.querySelector('[data-testid="User-Name"]').append(span);});
+ await page.locator('#late').waitFor({state:'hidden'});
+ await page.waitForTimeout(900);
+ assert.equal(await page.evaluate(()=>calls.some(message=>message.type==='ANALYZE_POST'&&['ad-only-body','late-ad-body'].includes(message.text))),false,'hidden ads must not be analyzed');
+ assert.equal(await page.locator('#ad').locator('x-local-translation').count(),0);
+ await page.locator('#ad [data-testid="User-Name"] > span').evaluate(node=>node.textContent='3h');
+ await page.locator('#ad').waitFor({state:'visible'});assert.equal(await page.locator('#cell-ad').isVisible(),true,'recycled organic cells must be restored');
+ await page.evaluate(()=>{settings.hideAds=false;listeners.forEach(fn=>fn({type:'CONFIG_CHANGED',config:settings}));});
+ for(const id of ['promoted','cn','tw','indicator','late','shared-ad'])assert.equal(await page.locator('#'+id).isVisible(),true,'disable restores '+id);
+ await page.evaluate(()=>{settings.hideAds=true;listeners.forEach(fn=>fn({type:'CONFIG_CHANGED',config:settings}));});await page.locator('#promoted').waitFor({state:'hidden'});
+ await page.waitForFunction(()=>!document.querySelector('[data-onhold-ad-dissolving]'));
+ await page.evaluate(()=>{const cell=document.createElement('div');cell.dataset.testid='cellInnerDiv';cell.innerHTML='<article id="new-ad" data-testid="tweet"><span>Ad</span><div data-testid="tweetText">new-ad-body</div></article>';document.querySelector('main').prepend(cell);});
+ await page.waitForFunction(()=>document.querySelector('#new-ad')?.hasAttribute('data-onhold-ad-dissolving'));
+ assert.equal(await page.locator('#new-ad').isVisible(),true,'the ad is briefly visible during its wind exit');
+ assert.ok(await page.locator('onhold-ad-dust span').count()>=48,'the exit includes a dense particle trail');
+ await page.waitForTimeout(850);
+ assert.equal(await page.locator('#new-ad').isVisible(),true,'the slower wind effect must remain visible beyond the old duration');
+ assert.ok(await page.locator('onhold-ad-dust span').count()>=48,'particles persist during the slower exit');
+ await page.evaluate(()=>{settings.hideAds=false;listeners.forEach(fn=>fn({type:'CONFIG_CHANGED',config:settings}));});
+ assert.equal(await page.locator('#new-ad').getAttribute('data-onhold-ad-dissolving'),null);
+ assert.equal(await page.locator('onhold-ad-dust').count(),0,'disabling cancels and removes particles');
+ await page.waitForTimeout(2000);assert.equal(await page.locator('#new-ad').isVisible(),true,'a cancelled animation must not hide the restored post later');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await page.evaluate(()=>{settings.hideAds=true;listeners.forEach(fn=>fn({type:'CONFIG_CHANGED',config:settings}));});
+ await page.locator('#new-ad').waitFor({state:'hidden'});
+ assert.equal(await page.locator('[data-onhold-ad-dissolving],onhold-ad-dust').count(),0,'reduced motion hides without animation');
+ assert.deepEqual(errors,[]);
+ console.log('Passed: explicit ad labels, localized labels, structural indicators, body/name/quote false positives, collapsed cells, shared cells, dynamic ads, recycled posts, wind and particles, cancellation, reduced motion, toggle restoration, no hidden-ad analysis.');
+}finally{await browser.close();}

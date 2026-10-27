@@ -113,34 +113,38 @@ async function replaceModel(config,plan){
 async function mainUnlocked(){
  const [major,minor]=process.versions.node.split('.').map(Number);if(major<22||major===22&&minor<20)throw new Error('需要 Node.js 22.20 或更新版本');
  const action=process.argv[2]||'help';
- if(action==='help'||['--help','-h'].includes(action)){console.log('onhold-assistant setup|upgrade|uninstall|replace-model|start|stop|status|doctor [--home 路径] [--no-open]\nsetup：下载并校验 Hy-MT2 与 Laya、启动本机服务，准备扩展目录。首次加载扩展需要浏览器确认。\n可选离线资源：--model GGUF路径 --runtime llama目录。Windows 自动检测 GPU，失败回退 CPU；Mac 优先 Metal。');return;}
+ if(action==='help'||['--help','-h'].includes(action)){console.log('onhold-assistant setup|upgrade|uninstall|replace-model|prepare-translation|start|stop|status|doctor [--home 路径] [--no-open]\nsetup：默认下载并校验 Laya 决策模型；翻译模型首次需要时再准备。首次加载扩展需要浏览器确认。\n可选离线资源：--model GGUF路径 --runtime llama目录。Windows 自动检测 GPU，失败回退 CPU；Mac 优先 Metal。');return;}
  const plan=platformPlan();
- if(offlineDirectory&&['setup','replace-model'].includes(action)){progress('校验完整离线包');offlineMetadata=await validateOffline(offlineDirectory,verify);}
+ if(offlineDirectory&&['setup','replace-model','prepare-translation'].includes(action)){progress('校验完整离线包');offlineMetadata=await validateOffline(offlineDirectory,verify);}
  if(action==='doctor'){console.log(JSON.stringify({platform:plan.platform,arch:plan.arch,device:plan.device,node:process.version,memory_gb:Math.round(os.totalmem()/1024**3),model_download_mb:Math.round(lock.model.size/1024**2),decision_download_mb:Math.round(lock.decision_model.files.reduce((sum,file)=>sum+file.size,0)/1024**2),minimum_disk_gib:8,runtime:plan.runtime.name,home},null,2));return;}
  fs.mkdirSync(home,{recursive:true,mode:0o700});
  if(action==='setup'){
   if(fs.existsSync(configPath)){const config=readOwned(home);await start(config);console.log(`已安装，扩展目录：${config.extensionPath}`);open(`http://127.0.0.1:${config.port}/setup`);return;}
   const port=Number(option('port')||18427),backendPort=Number(option('backend-port')||18428),decisionPort=Number(option('decision-port')||18430);const ports=[port,backendPort,decisionPort];if(ports.some(value=>!Number.isInteger(value)||value<1024||value>65535)||new Set(ports).size!==ports.length)throw new Error('端口无效');for(const value of ports)await free(value);
   const disk=fs.statfsSync(home);if(Number(disk.bavail)*Number(disk.bsize)<8*1024**3&&!option('model'))throw new Error('翻译和评分模型安装至少需要 8 GiB 可用磁盘空间');
-  progress('并行准备翻译模型、运行时和评分依赖');
-  const prepared=await Promise.allSettled([
-   (async()=>{const model=option('model')?path.resolve(option('model')):await download(lock.model,path.join(home,'models'));if(!await verify(model,lock.model))throw Error('模型版本或 SHA-256 不匹配，未启动');return model;})(),
-   prepareRuntime(plan),prepareDecisions(plan)
-  ]);
-  const failed=prepared.find(result=>result.status==='rejected');if(failed)throw failed.reason;
-  const [model,runtime,decisions]=prepared.map(result=>result.value);const app=path.join(home,'app');fs.mkdirSync(app,{recursive:true});for(const item of ['lib','extension'])fs.cpSync(path.join(packageRoot,item),path.join(app,item),{recursive:true});
+  progress('准备默认决策模型；翻译模型按需下载');
+  const decisions=await prepareDecisions(plan),model=option('model')?path.resolve(option('model')):path.join(home,'models',lock.model.name),runtime={};
+  if(option('model')){if(!await verify(model,lock.model))throw Error('模型版本或 SHA-256 不匹配');Object.assign(runtime,await prepareRuntime(plan));}
+  const app=path.join(home,'app');fs.mkdirSync(app,{recursive:true});for(const item of ['bin','lib','extension','package.json'])fs.cpSync(path.join(packageRoot,item),path.join(app,item),{recursive:true});
   const extensionPath=path.join(home,'extension');fs.cpSync(path.join(packageRoot,'extension'),extensionPath,{recursive:true});
   if(port!==18427)for(const name of ['background.js','settings.js','manifest.json']){const file=path.join(extensionPath,name);fs.writeFileSync(file,fs.readFileSync(file,'utf8').replaceAll('18427',String(port)));}
   const backendKey=randomBytes(32).toString('hex'),keyFile=path.join(home,'backend-key');fs.writeFileSync(keyFile,backendKey,{mode:0o600});
   const metadata=JSON.parse(fs.readFileSync(path.join(packageRoot,'lib/extension.json')));if(option('extension-id')&&!/^[a-p]{32}$/.test(option('extension-id')))throw Error('扩展 ID 无效');
-  const config={port,backendPort,decisionPort,...decisions,instance:randomBytes(16).toString('hex'),controlToken:randomBytes(32).toString('hex'),...runtime,model,modelHash:lock.model.sha256,backendKey,keyFile,extensionPath,extensionIds:[...new Set([metadata.id,...(option('extension-id')?[option('extension-id')]:[])])],cores:os.availableParallelism(),database:path.join(home,'data/onhold.sqlite3'),log:path.join(home,'service.log'),nodeBinary:process.execPath,codeVersion:version,modelName:'tencent/Hy-MT2-1.8B-GGUF Q8_0'};
-  progress('保存安装配置和本机数据库');writeJson(configPath,config);markOwned(home,config,version);if(option('import-data')){const store=openData(config.database);try{store.importLegacy(path.resolve(option('import-data')));}finally{store.close();}}progress('启动并验证翻译与评分模型');await start(config);progress('安装完成');console.log(`模型就绪。扩展目录：${extensionPath}`);open(`http://127.0.0.1:${port}/setup`);return;
+  const config={port,backendPort,decisionPort,...decisions,instance:randomBytes(16).toString('hex'),controlToken:randomBytes(32).toString('hex'),...runtime,model,modelHash:lock.model.sha256,backendKey,keyFile,extensionPath,extensionIds:[...new Set([metadata.id,...(option('extension-id')?[option('extension-id')]:[])])],cores:os.availableParallelism(),database:path.join(home,'data/onhold.sqlite3'),log:path.join(home,'service.log'),nodeBinary:process.execPath,codeVersion:version,translationDeferred:true,translationOfflineDirectory:offlineDirectory,modelName:'tencent/Hy-MT2-1.8B-GGUF Q8_0'};
+  progress('保存安装配置和本机数据库');writeJson(configPath,config);markOwned(home,config,version);if(option('import-data')){const store=openData(config.database);try{store.importLegacy(path.resolve(option('import-data')));}finally{store.close();}}progress('启动并验证决策模型');await start(config);progress('安装完成');console.log(`模型就绪。扩展目录：${extensionPath}`);open(`http://127.0.0.1:${port}/setup`);return;
  }
  if(!fs.existsSync(configPath))throw new Error('尚未安装，请先运行 setup');const config=readOwned(home);
+ if(action==='prepare-translation'){
+  progress('按需准备翻译模型');
+  if(!fs.existsSync(config.model)){if(config.modelHash!==lock.model.sha256)throw Error('自定义翻译模型不存在，请重新指定模型');await download(lock.model,path.join(home,'models'));}
+  if(await sha(config.model)!==config.modelHash)throw Error('翻译模型 SHA-256 不匹配，未启动');
+  const runtime=config.binary&&fs.existsSync(config.binary)?{}:await prepareRuntime(plan);
+  writeJson(configPath,{...config,...runtime,translationDeferred:true});progress('翻译模型与运行时已准备完成');return;
+ }
  if(action==='status'){const value=await status(config);console.log(JSON.stringify({running:value?.instance===config.instance,extension:config.extensionPath,...(value?.instance===config.instance?{service:value}: {})},null,2));return;}
  if(action==='start'){await start(config);console.log('本机翻译服务已就绪');return;}
  if(action==='stop'){await stopOwned(config);console.log('本安装器服务已停止；模型和数据保留');return;}
- if(action==='upgrade'){progress('备份数据，升级代码并验证模型启动');const result=await upgradeInstall({home,packageRoot,version,start});console.log(`已升级至 ${version}，数据保留；备份：${result.backup}。请重载浏览器扩展。`);return;}
+ if(action==='upgrade'){progress('备份数据，升级代码并验证模型启动');const result=await upgradeInstall({home,packageRoot,version,start,patch:{translationDeferred:true}});console.log(`已升级至 ${version}，数据保留；备份：${result.backup}。请重载浏览器扩展。`);return;}
  if(action==='uninstall'){progress('停止本安装服务并清理受管依赖与模型');const result=await uninstallInstall(home,{purgeData:process.argv.includes('--purge-data')});console.log(`服务和本安装器文件已卸载；${result.dataRetained?'数据和备份保留于 '+home:'数据已按 --purge-data 删除'}。浏览器扩展请在扩展管理页移除。`);return;}
  if(action==='replace-model'){await replaceModel(config,plan);return;}
  throw new Error('未知命令；运行 onhold-assistant help');
