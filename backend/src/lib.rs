@@ -40,7 +40,15 @@ pub fn dispatch(store: &Store, operation: &str, input: Value) -> Result<Value, S
     }
     outcome
 }
-fn dispatch_inner(store: &Store, operation: &str, input: Value) -> Result<Value, String> {
+fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Value, String> {
+    if let Some(reference) = input
+        .get("account")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        let name = store.account_handle(reference)?;
+        input["account"] = json!(name);
+    }
     let text = |key: &str| {
         input
             .get(key)
@@ -48,6 +56,9 @@ fn dispatch_inner(store: &Store, operation: &str, input: Value) -> Result<Value,
             .ok_or_else(|| format!("缺少 {key}"))
     };
     match operation {
+        "learn_x_session" => store.learn_x_session(&input, now()),
+        "refresh_x_session" => store.refresh_x_session(&input, now()),
+        "forget_x_session" => store.forget_x_session(text("account")?, now()),
         "dashboard" => store.dashboard(
             input.get("account").and_then(Value::as_str),
             input

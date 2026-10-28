@@ -144,7 +144,7 @@ export function ConnectionSetup({
         )}
         {step === 1 && (
           <>
-            {clients.some(client => client.online && extensionNeedsUpgrade(client.extension_version)) && <Button variant="outline" onClick={() => setStep(0)}>更新助手至 {extensionVersion}</Button>}
+            {clients.some(client => client.transport === "websocket" && client.online && extensionNeedsUpgrade(client.extension_version)) && <Button variant="outline" onClick={() => setStep(0)}>更新助手至 {extensionVersion}</Button>}
             <Button onClick={connect} disabled={!pairing || !!pairing.error}>
               {waiting && <LoaderCircle className="animate-spin" />}连接 X
               助手插件

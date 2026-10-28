@@ -37,6 +37,8 @@ backend/
       ingest.rs              # 采集输入校验与入库
       dashboard.rs           # 统计窗口、趋势、后台汇总
       sessions.rs            # 浏览器连接与登录状态
+      identities.rs          # 不可变 X UID 绑定及账号引用
+      x_sync.rs              # 登录凭证、只读接口重放及后台定时采集
       jobs.rs                # 采集任务排队、领取与完成
       automation.rs          # 自动化及操作限制
       operations.rs          # 收藏与创作者数据

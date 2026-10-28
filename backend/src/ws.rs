@@ -93,7 +93,8 @@ async fn run(socket: &mut WebSocket, store: &Store, auth: &Auth) -> Result<(), S
                 if logged_in {
                     let _=store.schedule_automation(&auth.account,now());
                     let _=store.schedule_capture(&auth.account,now());
-                    let queued=store.jobs()?.as_array().is_some_and(|jobs|jobs.iter().any(|job|job["account"]==auth.account&&job["state"]=="queued"));
+                    let backend=store.has_x_session(&auth.account)?;
+                    let queued=store.jobs()?.as_array().is_some_and(|jobs|jobs.iter().any(|job|job["account"]==auth.account&&job["state"]=="queued"&&(!backend||!matches!(job["action"].as_str(),Some("capture"|"capture_analytics")))));
                     if queued { send(socket,json!({"type":"capture"})).await?; }
                 }
             }

@@ -151,10 +151,10 @@ export function SessionCard({
       </div>
       <dl className="status-list">
         <div>
-          <dt>浏览器连接</dt>
+          <dt>{client?.transport === "backend" ? "采集方式" : "浏览器连接"}</dt>
           <dd>
             <StatusBadge tone={client?.online ? "success" : "neutral"}>
-              {client?.online ? "长连接在线" : "未连接"}
+              {client?.transport === "backend" ? "后台定时采集" : client?.online ? "长连接在线" : "未连接"}
             </StatusBadge>
           </dd>
         </div>
@@ -163,9 +163,9 @@ export function SessionCard({
           <dd>{ready ? "每 5 分钟" : "等待连接"}</dd>
         </div>
         <div>
-          <dt>最近心跳</dt>
+          <dt>{client?.transport === "backend" ? "最近请求" : "最近心跳"}</dt>
           <dd>
-            {client
+            {client?.last_seen
               ? new Date(client.last_seen).toLocaleTimeString("zh-CN", {
                   hour12: false,
                 })

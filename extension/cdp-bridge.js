@@ -1,5 +1,6 @@
 import {runAutomation} from './automation.js';
 import {captureAnalyticsCsv,parseAnalyticsCsv} from './analytics-export.js';
+import {learnRequests,sessionFromCookies} from './request-capture.js';
 export function captureX(requestedPeriod){
   if(!['x.com','twitter.com'].includes(location.hostname)||location.protocol!=='https:')throw Error('请打开 X 页面后连接（当前来源：'+location.origin+'）');
   const path=document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')||'';
@@ -177,7 +178,8 @@ export function createCdpBridge(){
   async function heartbeat(){
     const active=socket;if(active?.readyState!==WebSocket.OPEN)return;
     const {cdpTab,cdpAccount}=await session();let state='logged_in',error='';
-    try{const snapshot=await capture(cdpTab);if(snapshot.handle!==cdpAccount){state='account_changed';error='X 账号已切换，请重新绑定当前账号';}}
+    try{const snapshot=await capture(cdpTab);if(snapshot.handle!==cdpAccount){state='account_changed';error='X 账号已切换，请重新绑定当前账号';}
+      else {const cookies=await chrome.debugger.sendCommand({tabId:cdpTab},'Network.getCookies',{urls:['https://x.com/']});const credentials=sessionFromCookies(cookies.cookies||[]);await call('refresh_x_session',credentials);}}
     catch(cause){error=cause.message.slice(0,500);state=/尚未识别登录账号|先登录 X/.test(error)?'logged_out':'page_unavailable';}
     if(active!==socket||active.readyState!==WebSocket.OPEN)return;
     active.send(JSON.stringify({type:'heartbeat',state,error,automation_supported:true,extension_version:chrome.runtime.getManifest().version}));await chrome.storage.session.set({cdpLoginState:state,cdpError:error});
@@ -230,8 +232,8 @@ export function createCdpBridge(){
     if(!tab?.id||!/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')){if(pickX)await chrome.tabs.create({url:'https://x.com/home',active:true});throw Error('请先登录 X，再点击「连接 X 助手插件」');}
     closeSocket();const old=await session();if(Number.isInteger(old.cdpTab)){await chrome.storage.session.remove(['cdpTab','cdpAccount']);await chrome.debugger.detach({tabId:old.cdpTab}).catch(()=>{});}
     await chrome.debugger.attach({tabId:tab.id},'1.3');
-    try{const snapshot=await capture(tab.id);await call('ingest',snapshot);await call('heartbeat',{client:await client(),account:snapshot.handle});await chrome.storage.session.set({cdpTab:tab.id,cdpAccount:snapshot.handle,cdpError:''});await openSocket();await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});return {account:snapshot.handle,posts:snapshot.posts.length};}
+    try{const snapshot=await capture(tab.id);await learnRequests(tab.id,snapshot.handle,call);if((await capture(tab.id)).handle!==snapshot.handle){await call('forget_x_session',{account:snapshot.handle});throw Error('X 账号已改变，请重新连接');}await call('heartbeat',{client:await client(),account:snapshot.handle});await chrome.storage.session.set({cdpTab:tab.id,cdpAccount:snapshot.handle,cdpError:''});await openSocket();await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});return {account:snapshot.handle,posts:0};}
     catch(error){closeSocket();await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount']);throw error;}
     }finally{busy=false;}
-  },async disconnect(){closeSocket();const {cdpTab}=await session();if(Number.isInteger(cdpTab))await chrome.debugger.detach({tabId:cdpTab}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount','cdpError','cdpLoginState']);await chrome.storage.session.set({cdpWs:'disconnected'});await chrome.alarms.clear('onhold-cdp');return true;},async collect(){if(busy)throw Error('采集任务正在执行');const {cdpAccount}=await session();if(!cdpAccount)throw Error('请先连接 X 账号');return call('enqueue',{account:cdpAccount,action:'capture_analytics'});}};
+  },async disconnect(){const {cdpTab,cdpAccount}=await session();if(cdpAccount)await call('forget_x_session',{account:cdpAccount});closeSocket();if(Number.isInteger(cdpTab))await chrome.debugger.detach({tabId:cdpTab}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount','cdpError','cdpLoginState']);await chrome.storage.session.set({cdpWs:'disconnected'});await chrome.alarms.clear('onhold-cdp');return true;},async collect(){if(busy)throw Error('采集任务正在执行');const {cdpAccount}=await session();if(!cdpAccount)throw Error('请先连接 X 账号');return call('enqueue',{account:cdpAccount,action:'capture_analytics'});}};
 }

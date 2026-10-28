@@ -3,6 +3,9 @@ use super::*;
 impl Store {
     pub fn schedule_capture(&self, account: &str, at: i64) -> Result<bool, String> {
         let account = handle(account)?;
+        if self.has_x_session(&account)? {
+            return Ok(false);
+        }
         let last: i64=self.lock()?.query_row("SELECT MAX(COALESCE((SELECT last_seen FROM accounts WHERE handle=?),0),COALESCE((SELECT MAX(created_at) FROM jobs WHERE account=?),0))",params![account,account],|r|r.get(0)).map_err(|e|e.to_string())?;
         if at - last >= 300_000 {
             self.enqueue(&account, at)?;
@@ -18,9 +21,13 @@ impl Store {
             return Err("采集任务类型无效".into());
         }
         let account = handle(account)?;
+        let backend = self.has_x_session(&account)?;
         let db = self.lock()?;
         db.execute("UPDATE jobs SET state='failed',error='浏览器连接中断，请重新采集',updated_at=? WHERE state='running' AND updated_at<?",params![at,at-120_000]).map_err(|e|e.to_string())?;
-        if db
+        if backend {
+            let active: bool = db.query_row("SELECT state IN ('active','limited') FROM x_sessions WHERE owner_uid=(SELECT uid FROM accounts WHERE handle=?)",[&account],|r|r.get(0)).map_err(|e|e.to_string())?;
+            if !active { return Err("X 登录态已失效，请在浏览器重新连接".into()); }
+        } else if db
             .query_row(
                 "SELECT 1 FROM clients c LEFT JOIN browser_sessions s ON s.client=c.id WHERE c.account=? AND c.last_seen>? AND (s.client IS NULL OR (s.connected=1 AND s.state='logged_in')) AND (?='capture' OR s.analytics_supported=1)",
                 params![account, at - 90_000, action],
@@ -50,6 +57,9 @@ impl Store {
             params![id, account, action, at, at],
         )
         .map_err(|e| e.to_string())?;
+        if backend {
+            db.execute("UPDATE x_sessions SET next_poll=CASE WHEN state='limited' THEN next_poll ELSE MIN(next_poll,?) END WHERE owner_uid=(SELECT uid FROM accounts WHERE handle=?)",params![at,account]).map_err(|e|e.to_string())?;
+        }
         Ok(json!({"id":id}))
     }
     pub fn jobs(&self) -> Result<Value, String> {
@@ -64,7 +74,7 @@ impl Store {
         let mut db = self.lock()?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
         tx.execute("UPDATE jobs SET state='failed',error='浏览器连接中断，请重新采集',updated_at=? WHERE state='running' AND updated_at<?",params![at,at-120_000]).map_err(|e|e.to_string())?;
-        let job:Option<(String,String,String)>=tx.query_row("SELECT id,action,input FROM jobs WHERE account=? AND state='queued' AND (action='capture' OR EXISTS(SELECT 1 FROM browser_sessions WHERE client=? AND analytics_supported=1 AND connected=1 AND state='logged_in')) AND (action NOT IN ('follow_back','unfollow') OR EXISTS(SELECT 1 FROM browser_sessions WHERE client=? AND automation_supported=1)) ORDER BY created_at LIMIT 1",params![account,client,client],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())?;
+        let job:Option<(String,String,String)>=tx.query_row("SELECT id,action,input FROM jobs WHERE account=? AND state='queued' AND (action NOT IN ('capture','capture_analytics') OR NOT EXISTS(SELECT 1 FROM x_sessions s JOIN accounts a ON a.uid=s.owner_uid WHERE a.handle=jobs.account)) AND (action='capture' OR EXISTS(SELECT 1 FROM browser_sessions WHERE client=? AND analytics_supported=1 AND connected=1 AND state='logged_in')) AND (action NOT IN ('follow_back','unfollow') OR EXISTS(SELECT 1 FROM browser_sessions WHERE client=? AND automation_supported=1)) ORDER BY created_at LIMIT 1",params![account,client,client],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())?;
         if let Some((id, action, input)) = job {
             tx.execute("UPDATE jobs SET state='running',client=?,updated_at=? WHERE id=? AND state='queued'",params![client,at,id]).map_err(|e|e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;

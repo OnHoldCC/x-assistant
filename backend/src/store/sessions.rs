@@ -15,6 +15,13 @@ impl Store {
             .prepare("SELECT c.id,c.account,c.last_seen,s.state,s.error,s.connected,s.analytics_supported,s.extension_version FROM clients c LEFT JOIN browser_sessions s ON s.client=c.id ORDER BY c.last_seen DESC LIMIT 100")
             .map_err(|e| e.to_string())?;
         let clients=stmt.query_map([],|r|{let last:i64=r.get(2)?;let connected=r.get::<_,Option<bool>>(5)?;Ok(json!({"id":r.get::<_,String>(0)?,"account":r.get::<_,String>(1)?,"last_seen":last,"online":at-last<60_000&&connected.unwrap_or(true),"transport":if connected.is_some(){"websocket"}else{"http"},"login_state":r.get::<_,Option<String>>(3)?.unwrap_or_else(||"unknown".into()),"error":r.get::<_,Option<String>>(4)?.unwrap_or_default(),"capture_interval_seconds":300,"analytics_supported":r.get::<_,Option<bool>>(6)?.unwrap_or(false),"extension_version":r.get::<_,Option<String>>(7)?.unwrap_or_default()}))}).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        drop(stmt);
+        let mut clients = clients;
+        let mut stmt=db.prepare("SELECT s.owner_uid,a.handle,s.last_poll,s.state,s.error,EXISTS(SELECT 1 FROM request_templates t WHERE t.owner_uid=s.owner_uid AND t.operation='analytics') FROM x_sessions s JOIN accounts a ON a.uid=s.owner_uid ORDER BY a.handle").map_err(|e|e.to_string())?;
+        let backend=stmt.query_map([],|r|Ok(json!({"id":format!("backend:{}",r.get::<_,String>(0)?),"account":r.get::<_,String>(1)?,"last_seen":r.get::<_,Option<i64>>(2)?.unwrap_or(0),"online":true,"transport":"backend","login_state":if matches!(r.get::<_,String>(3)?.as_str(),"active"|"limited"){"logged_in"}else{"logged_out"},"error":r.get::<_,String>(4)?,"capture_interval_seconds":300,"analytics_supported":r.get::<_,bool>(5)?}))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        for session in backend {
+            clients.insert(0, session);
+        }
         Ok(json!(clients))
     }
     pub fn session_status(
@@ -37,6 +44,9 @@ impl Store {
             return Err("登录状态无效".into());
         }
         self.heartbeat(client, account, at)?;
+        if ["logged_out", "account_changed"].contains(&state) {
+            self.forget_x_session(account, at)?;
+        }
         self.lock()?.execute("INSERT INTO browser_sessions(client,state,error,connected) VALUES(?,?,?,1) ON CONFLICT(client) DO UPDATE SET state=excluded.state,error=excluded.error,connected=1",params![client,state,error]).map_err(|e|e.to_string())?;
         Ok(())
     }

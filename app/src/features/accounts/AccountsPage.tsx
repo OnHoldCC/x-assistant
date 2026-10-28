@@ -25,6 +25,7 @@ export function AccountsPage({
   goConnect,
   choose,
   collect,
+  disconnect,
 }: {
   data: Dashboard | null;
   clients: Client[];
@@ -32,6 +33,7 @@ export function AccountsPage({
   goConnect: () => void;
   choose: (account: string) => void;
   collect: (account: string) => Promise<void>;
+  disconnect: (account: string) => Promise<void>;
 }) {
   const mobile = useIsMobile();
   const [search, setSearch] = useState("");
@@ -103,6 +105,7 @@ export function AccountsPage({
                   >
                     立即采集
                   </Button>
+                  {client?.transport === "backend" && <Button variant="ghost" disabled={busy} onClick={() => disconnect(item.handle)}>断开采集</Button>}
                 </article>
               );
             })}
@@ -112,7 +115,7 @@ export function AccountsPage({
           <TableHeader>
             <TableRow>
               <TableHead>账号</TableHead>
-              <TableHead>浏览器</TableHead>
+              <TableHead>采集方式</TableHead>
               <TableHead>登录状态</TableHead>
               <TableHead>最近采集</TableHead>
               <TableHead>操作</TableHead>
@@ -150,7 +153,7 @@ export function AccountsPage({
                       <StatusBadge
                         tone={client?.online ? "success" : "neutral"}
                       >
-                        {client?.online ? "已连接" : "未连接"}
+                        {client?.transport === "backend" ? "后台定时采集" : client?.online ? "浏览器已连接" : "未连接"}
                       </StatusBadge>
                     </TableCell>
                     <TableCell>
@@ -170,6 +173,7 @@ export function AccountsPage({
                       >
                         立即采集
                       </Button>
+                      {client?.transport === "backend" && <Button variant="ghost" size="sm" disabled={busy} onClick={() => disconnect(item.handle)}>断开采集</Button>}
                     </TableCell>
                   </TableRow>
                 );

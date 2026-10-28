@@ -1,6 +1,6 @@
 use rusqlite::{Connection, TransactionBehavior};
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 4;
 
 pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
     let tx = db
@@ -74,6 +74,32 @@ pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         }
     }
+    if version < 3 {
+        let has_uid = {
+            let mut statement = tx
+                .prepare("PRAGMA table_info(accounts)")
+                .map_err(|e| e.to_string())?;
+            let rows = statement
+                .query_map([], |r| r.get::<_, String>(1))
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .any(|name| name == "uid")
+        };
+        if !has_uid {
+            tx.execute_batch("CREATE TABLE accounts_uid(uid TEXT PRIMARY KEY NOT NULL,handle TEXT NOT NULL UNIQUE,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL);
+          INSERT INTO accounts_uid SELECT 'legacy:'||handle,handle,first_seen,last_seen FROM accounts;
+          DROP TABLE accounts;
+          ALTER TABLE accounts_uid RENAME TO accounts;").map_err(|e|e.to_string())?;
+        }
+        tx.execute_batch("
+          CREATE TABLE IF NOT EXISTS request_templates(owner_uid TEXT NOT NULL,operation TEXT NOT NULL,value TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(owner_uid,operation));
+          CREATE TABLE IF NOT EXISTS relationship_runs(owner_uid TEXT NOT NULL,kind TEXT NOT NULL,generation TEXT NOT NULL,cursor TEXT,complete INTEGER NOT NULL DEFAULT 0,error TEXT,updated_at INTEGER NOT NULL,PRIMARY KEY(owner_uid,kind));
+          CREATE TABLE IF NOT EXISTS relationships(owner_uid TEXT NOT NULL,target_uid TEXT NOT NULL,handle TEXT NOT NULL,name TEXT NOT NULL,following INTEGER,followed_by INTEGER,following_generation TEXT,followers_generation TEXT,updated_at INTEGER NOT NULL,PRIMARY KEY(owner_uid,target_uid));
+          CREATE TABLE IF NOT EXISTS automation_actions(job_id TEXT NOT NULL,owner_uid TEXT NOT NULL,target_uid TEXT NOT NULL,action TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(job_id,target_uid,action));").map_err(|e|e.to_string())?;
+    }
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS x_sessions(owner_uid TEXT PRIMARY KEY REFERENCES accounts(uid),headers TEXT NOT NULL,revision TEXT NOT NULL,state TEXT NOT NULL,next_poll INTEGER NOT NULL,last_poll INTEGER,error TEXT NOT NULL DEFAULT '');").map_err(|e|e.to_string())?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())

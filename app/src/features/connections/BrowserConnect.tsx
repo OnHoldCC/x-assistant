@@ -51,7 +51,7 @@ export function BrowserConnect() {
         data: { endpoint: location.origin, token: pairing.token },
       });
       if (!response?.ok) throw Error(response?.error || "插件连接未完成");
-      setMessage("@" + response.data.account + " 已绑定，WebSocket 已连接。");
+      setMessage("@" + response.data.account + " 已绑定，后台将每 5 分钟采集数据，浏览器关闭后仍可继续。");
       setDone(true);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);

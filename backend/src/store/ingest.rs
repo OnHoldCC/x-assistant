@@ -13,8 +13,136 @@ fn analytics_period(value: &str) -> Option<&'static str> {
     }
 }
 
+pub(super) fn validate_analytics(analytics: &mut Value, account: &str) -> Result<(), String> {
+    if !analytics.is_object()
+        || analytics.to_string().len() > 256000
+        || analytics.get("account").and_then(Value::as_str) != Some(account)
+    {
+        return Err("Analytics 账号不匹配".into());
+    }
+    let period = analytics
+        .get("period")
+        .and_then(Value::as_str)
+        .and_then(analytics_period);
+    if let Some(key) = analytics.get("period_key").filter(|v| !v.is_null()) {
+        if key.as_str().and_then(analytics_period) != period || period.is_none() {
+            return Err("Analytics 周期不匹配".into());
+        }
+    }
+    if let Some(period) = period {
+        analytics["period_key"] = json!(period);
+    }
+    if let Some(periods) = analytics.get("available_periods") {
+        let periods = periods.as_array().ok_or("Analytics 周期列表无效")?;
+        if periods.len() > 7
+            || periods
+                .iter()
+                .any(|p| p.as_str().and_then(analytics_period).is_none())
+        {
+            return Err("Analytics 周期列表无效".into());
+        }
+    }
+    if analytics
+        .get("verified_only")
+        .is_some_and(|v| !v.is_null() && !v.is_boolean())
+    {
+        return Err("Analytics 筛选条件无效".into());
+    }
+    let metrics = analytics
+        .get("metrics")
+        .and_then(Value::as_object)
+        .ok_or("Analytics 指标无效")?;
+    for (name, count) in metrics {
+        if ![
+            "impressions",
+            "engagements",
+            "engagement_rate",
+            "profile_visits",
+            "followers",
+            "verified_followers",
+            "likes",
+            "replies",
+            "reposts",
+            "bookmarks",
+            "shares",
+            "new_follows",
+            "unfollows",
+            "posts",
+            "video_views",
+            "media_views",
+        ]
+        .contains(&name.as_str())
+            || !count
+                .get("value")
+                .and_then(Value::as_f64)
+                .is_some_and(|n| n.is_finite() && (0.0..=1e15).contains(&n))
+            || (name != "engagement_rate" && count.get("value").and_then(Value::as_i64).is_none())
+            || count
+                .get("raw")
+                .is_some_and(|v| v.as_str().is_none_or(|s| s.chars().count() > 80))
+            || count.get("approximate").is_some_and(|v| !v.is_boolean())
+        {
+            return Err("Analytics 指标无效".into());
+        }
+    }
+    if let Some(series) = analytics.get("series") {
+        let series = series.as_array().ok_or("分析时间序列无效")?;
+        if series.len() > 366 {
+            return Err("分析时间点过多".into());
+        }
+        let mut last = String::new();
+        for point in series {
+            let date = point["date"].as_str().ok_or("分析日期无效")?;
+            if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err()
+                || date.len() != 10
+                || date <= last.as_str()
+            {
+                return Err("分析日期顺序无效".into());
+            }
+            last = date.into();
+            let values = point["metrics"].as_object().ok_or("分析曲线指标无效")?;
+            for (name, value) in values {
+                if ![
+                    "impressions",
+                    "engagements",
+                    "engagement_rate",
+                    "profile_visits",
+                    "likes",
+                    "replies",
+                    "reposts",
+                    "bookmarks",
+                    "shares",
+                    "new_follows",
+                    "unfollows",
+                    "net_follows",
+                    "posts",
+                    "video_views",
+                    "media_views",
+                ]
+                .contains(&name.as_str())
+                    || !value.is_null()
+                        && !value.as_f64().is_some_and(|v| {
+                            v.is_finite() && v.abs() <= 1e15 && (v >= 0.0 || name == "net_follows")
+                        })
+                {
+                    return Err("分析曲线指标无效".into());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 impl Store {
-    pub fn ingest(&self, mut input: Snapshot, at: i64) -> Result<Value, String> {
+    pub fn ingest(&self, input: Snapshot, at: i64) -> Result<Value, String> {
+        self.ingest_checked(input, at, None)
+    }
+    pub(super) fn ingest_checked(
+        &self,
+        mut input: Snapshot,
+        at: i64,
+        session: Option<(&str, &str)>,
+    ) -> Result<Value, String> {
         let account = handle(&input.handle)?;
         let source = url::Source::parse(&input.source)?;
         if input.posts.len() > 50 {
@@ -53,133 +181,23 @@ impl Store {
             }
         }
         if let Some(analytics) = &mut input.analytics {
-            if !analytics.is_object()
-                || analytics.to_string().len() > 256000
-                || analytics.get("account").and_then(Value::as_str) != Some(account.as_str())
-            {
-                return Err("Analytics 账号不匹配".into());
-            }
-            let period = analytics
-                .get("period")
-                .and_then(Value::as_str)
-                .and_then(analytics_period);
-            if let Some(key) = analytics.get("period_key").filter(|v| !v.is_null()) {
-                if key.as_str().and_then(analytics_period) != period || period.is_none() {
-                    return Err("Analytics 周期不匹配".into());
-                }
-            }
-            if let Some(period) = period {
-                analytics["period_key"] = json!(period);
-            }
-            if let Some(periods) = analytics.get("available_periods") {
-                let periods = periods.as_array().ok_or("Analytics 周期列表无效")?;
-                if periods.len() > 7
-                    || periods
-                        .iter()
-                        .any(|p| p.as_str().and_then(analytics_period).is_none())
-                {
-                    return Err("Analytics 周期列表无效".into());
-                }
-            }
-            if analytics
-                .get("verified_only")
-                .is_some_and(|v| !v.is_null() && !v.is_boolean())
-            {
-                return Err("Analytics 筛选条件无效".into());
-            }
-            let metrics = analytics
-                .get("metrics")
-                .and_then(Value::as_object)
-                .ok_or("Analytics 指标无效")?;
-            for (name, count) in metrics {
-                if ![
-                    "impressions",
-                    "engagements",
-                    "engagement_rate",
-                    "profile_visits",
-                    "followers",
-                    "verified_followers",
-                    "likes",
-                    "replies",
-                    "reposts",
-                    "bookmarks",
-                    "shares",
-                    "new_follows",
-                    "unfollows",
-                    "posts",
-                    "video_views",
-                    "media_views",
-                ]
-                .contains(&name.as_str())
-                    || !count
-                        .get("value")
-                        .and_then(Value::as_f64)
-                        .is_some_and(|n| n.is_finite() && (0.0..=1e15).contains(&n))
-                    || (name != "engagement_rate"
-                        && count.get("value").and_then(Value::as_i64).is_none())
-                    || count
-                        .get("raw")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| s.chars().count() > 80))
-                    || count.get("approximate").is_some_and(|v| !v.is_boolean())
-                {
-                    return Err("Analytics 指标无效".into());
-                }
-            }
+            validate_analytics(analytics, &account)?;
         }
         if let Some(creator) = &input.creator {
             operations::validate_creator(creator, &account)?;
         }
-        if let Some(series) = input.analytics.as_ref().and_then(|v| v.get("series")) {
-            let series = series.as_array().ok_or("分析时间序列无效")?;
-            if series.len() > 366 {
-                return Err("分析时间点过多".into());
-            }
-            let mut last = String::new();
-            for point in series {
-                let date = point["date"].as_str().ok_or("分析日期无效")?;
-                if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err()
-                    || date.len() != 10
-                    || date <= last.as_str()
-                {
-                    return Err("分析日期顺序无效".into());
-                }
-                last = date.into();
-                let values = point["metrics"].as_object().ok_or("分析曲线指标无效")?;
-                for (name, value) in values {
-                    if ![
-                        "impressions",
-                        "engagements",
-                        "engagement_rate",
-                        "profile_visits",
-                        "likes",
-                        "replies",
-                        "reposts",
-                        "bookmarks",
-                        "shares",
-                        "new_follows",
-                        "unfollows",
-                        "net_follows",
-                        "posts",
-                        "video_views",
-                        "media_views",
-                    ]
-                    .contains(&name.as_str())
-                        || !value.is_null()
-                            && !value.as_f64().is_some_and(|v| {
-                                v.is_finite()
-                                    && v.abs() <= 1e15
-                                    && (v >= 0.0 || name == "net_follows")
-                            })
-                    {
-                        return Err("分析曲线指标无效".into());
-                    }
-                }
-            }
+        if let Some(uid) = &input.uid {
+            self.bind_account_uid(uid, &account, at)?;
         }
         let mut db = self.lock()?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
+        if let Some((uid, revision)) = session {
+            if !tx.query_row("SELECT EXISTS(SELECT 1 FROM x_sessions WHERE owner_uid=? AND revision=? AND state IN ('active','limited'))",params![uid,revision],|r|r.get::<_,bool>(0)).map_err(|e|e.to_string())? {
+                return Err("登录态已更新或断开，本次采集已取消".into());
+            }
+        }
         let save = (|| -> rusqlite::Result<()> {
-            tx.execute("INSERT INTO accounts VALUES(?,?,?) ON CONFLICT(handle) DO UPDATE SET last_seen=excluded.last_seen",params![account,at,at])?;
+            tx.execute("INSERT INTO accounts(uid,handle,first_seen,last_seen) VALUES(?,?,?,?) ON CONFLICT(handle) DO UPDATE SET last_seen=excluded.last_seen",params![format!("legacy:{account}"),account,at,at])?;
             for post in &input.posts {
                 let existing: Option<String> = tx
                     .query_row("SELECT handle FROM posts WHERE id=?", [&post.id], |r| {

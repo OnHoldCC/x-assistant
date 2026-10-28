@@ -45,6 +45,8 @@ pub struct Post {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub uid: Option<String>,
     pub handle: String,
     pub source: String,
     #[serde(default)]
@@ -117,8 +119,11 @@ mod schema;
 pub use schema::SCHEMA_VERSION;
 mod automation;
 mod dashboard;
+mod identities;
 mod ingest;
 mod jobs;
 mod journal;
 mod operations;
 mod sessions;
+mod x_sync;
+pub use x_sync::run as run_x_sync;

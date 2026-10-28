@@ -98,7 +98,7 @@ export type Client = {
   account: string;
   last_seen: number;
   online: boolean;
-  transport: "http" | "websocket";
+  transport: "http" | "websocket" | "backend";
   login_state:
     | "logged_in"
     | "logged_out"

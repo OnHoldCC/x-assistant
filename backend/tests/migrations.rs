@@ -2,6 +2,29 @@ use onhold_backend::store::{Store, SCHEMA_VERSION};
 use rusqlite::Connection;
 
 #[test]
+fn version_three_upgrade_keeps_uid_posts_and_pairing() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("version-three.db");
+    let store = Store::open(&file).unwrap();
+    let token = store.token().unwrap();
+    let uid = "1900000000000000123";
+    store.ingest(serde_json::from_value(serde_json::json!({"uid":uid,"handle":"example","source":"https://x.com/example","posts":[{"id":"123","author":"example","text":"keep this post"}]})).unwrap(),1000).unwrap();
+    drop(store);
+    let db = Connection::open(&file).unwrap();
+    db.execute("DROP TABLE x_sessions", []).unwrap();
+    db.pragma_update(None, "user_version", 3).unwrap();
+    drop(db);
+    let store = Store::open(&file).unwrap();
+    assert_eq!(store.token().unwrap(), token);
+    assert_eq!(store.account_uid("example").unwrap(), uid);
+    assert_eq!(
+        store.dashboard(Some("example"), 7, 1001).unwrap()["posts"][0]["text"],
+        "keep this post"
+    );
+    assert!(!store.has_x_session("example").unwrap());
+}
+
+#[test]
 fn version_one_upgrade_keeps_pairing_and_tracks_the_loaded_extension_version() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("version-one.db");

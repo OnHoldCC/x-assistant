@@ -220,6 +220,8 @@ pub fn run() {
                 app.path().app_data_dir()?.join("onhold-admin.sqlite3"),
             )?);
             app.manage(store.clone());
+            #[cfg(desktop)]
+            tauri::async_runtime::spawn(onhold_backend::store::run_x_sync(store.clone()));
             app.manage(models::ModelGate(Arc::new(tokio::sync::Semaphore::new(1))));
             let mut events=store.subscribe_logs();let app_handle=app.handle().clone();
             tauri::async_runtime::spawn(async move {loop {match events.recv().await {Ok(event)=>{let _=app_handle.emit("system-log",event);},Err(tokio::sync::broadcast::error::RecvError::Lagged(_))=>continue,Err(_)=>break}}});

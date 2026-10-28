@@ -20,6 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()?;
     let store = Arc::new(Store::open(home.join("onhold-admin.sqlite3"))?);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
+    tokio::spawn(onhold_backend::store::run_x_sync(store.clone()));
     println!("OnHold Rust 后台：http://127.0.0.1:{port}");
     axum::serve(listener, http::router(store, assets, port)?)
         .with_graceful_shutdown(async {

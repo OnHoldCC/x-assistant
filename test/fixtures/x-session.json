@@ -1,0 +1,7 @@
+{
+  "uid": "1900000000000000123",
+  "profile": {"data":{"user":{"result":{"rest_id":"1900000000000000123","core":{"screen_name":"example"},"legacy":{"followers_count":1200,"friends_count":40}}}}},
+  "posts": {"data":{"instructions":[{"entries":[{"rest_id":"123","legacy":{"user_id_str":"1900000000000000123","full_text":"A captured #OnHold post","favorite_count":390,"reply_count":290,"retweet_count":15,"bookmark_count":0,"created_at":"Tue Oct 27 00:00:00 +0000 2026"},"views":{"count":"566000"}},{"rest_id":"456","legacy":{"user_id_str":"999","full_text":"Other account must not be imported"}}]}]}},
+  "analytics": {"data":{"analytics":{"account":"example","period":"7d","metrics":{"impressions":{"value":70},"likes":{"value":7}},"series":[{"date":"2026-10-28","metrics":{"impressions":70}}]}}},
+  "creator": {"data":{"creator":{"account":"example","state":"ineligible","verified_followers":{"current":{"value":492},"target":500}}}}
+}

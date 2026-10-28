@@ -218,15 +218,16 @@ export function App() {
         .then(setPairing)
         .catch((cause) => setError(String(cause)));
   }, [settingsOpen, setupOpen, platformReady, nativeMobile, remote]);
+  const captureClients = clients.filter(client => client.transport === "backend" || !clients.some(other => other.transport === "backend" && other.account === client.account));
   const selected = data?.account,
     posts = data?.posts || [],
-    ready = clients.some(
+    ready = captureClients.some(
       (client) =>
         client.account === selected &&
         client.online &&
         client.login_state === "logged_in",
     );
-  const analyticsReady = clients.some(
+  const analyticsReady = captureClients.some(
     (client) =>
       client.account === selected &&
       client.online &&
@@ -245,6 +246,22 @@ export function App() {
     try {
       await api("enqueue", { account: target, action });
       setNotice("@" + target + " 采集已排队");
+      await latestLoad.current();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+  const disconnect = async (target: string) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      await api("forget_x_session", { account: target });
+      setNotice("@" + target + " 已断开采集，历史数据已保留");
       await latestLoad.current();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -479,6 +496,7 @@ export function App() {
                 goConnect={goConnect}
                 choose={choose}
                 collect={collect}
+                disconnect={disconnect}
               />
             )}
             {view === "tasks" && (
