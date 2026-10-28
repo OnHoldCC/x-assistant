@@ -11,3 +11,30 @@ Laya runtime and multilingual decision model: Apache-2.0, https://github.com/Nan
 uv Python bootstrap: MIT/Apache-2.0, https://github.com/astral-sh/uv .
 Assistant icon: X logo with a separate blue assistant badge. X is a trademark of X Corp.
 jieba 0.42.1 (MIT): https://github.com/fxsjy/jieba .
+Mobile external links: Tauri Opener (MIT/Apache-2.0), https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/opener .
+Application shell: Tauri (MIT/Apache-2.0), https://github.com/tauri-apps/tauri .
+Admin frontend: React (MIT), https://github.com/facebook/react ; shadcn/ui (MIT), https://github.com/shadcn-ui/ui ; Radix UI (MIT), https://github.com/radix-ui/primitives ; Lucide icons (ISC), https://github.com/lucide-icons/lucide . OnHold business components and layouts are maintained in app/src/shared/operations.tsx.
+
+shadcn/ui component source license:
+
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

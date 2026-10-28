@@ -63,16 +63,26 @@
   }
   function startLocal(article,state){
     if(!config.autoTranslate||!inReadingView(article)||!state.translation)return;
-    const nativeButton=[...article.querySelectorAll('button,[role="button"]')].some(button=>!button.closest('[data-testid="quoteTweet"],[data-testid="card.wrapper"],article article')&&/^(Show translation|显示翻译|查看翻译)$/i.test(button.textContent.trim()));
-    if(nativeButton){
-      let wait=nativeWaits.get(article);
-      if(!wait||wait.key!==state.key){wait={key:state.key,at:performance.now()};nativeWaits.set(article,wait);setTimeout(()=>{if(article.isConnected&&nativeWaits.get(article)===wait)scan();},1100);}
-      if(performance.now()-wait.at<1000)return;
-    }
     state.translation.start(true);
   }
 
   const nativeReady=reading=>reading?.native&&(config.readingTarget!=='zh'||!XAITranslationUI.isForeign(reading.text));
+  function preferNative(article,reading){
+    if(!reading||!config.autoTranslate||config.translatePageAllowed===false||!inReadingView(article))return false;
+    if(nativeReady(reading))return true;
+    const restore=reading.native&&config.readingTarget==='zh'&&/Translated from (?:Simplified |Traditional )?Chinese|译自(?:简体|繁体)?中文|翻译自(?:简体|繁体)?中文/i.test(reading.metadata);
+    const pattern=restore?/^(Show original|显示原文|查看原文)$/i:/^(Show translation|显示翻译|查看翻译)$/i;
+    const button=[...article.querySelectorAll('button,[role="button"]')].find(button=>!button.closest('[data-testid="quoteTweet"],[data-testid="card.wrapper"],article article')&&pattern.test(button.textContent.trim()));
+    if(!button||!restore&&!XAITranslationUI.isForeign(reading.text,config.readingTarget||'zh'))return false;
+    const key=reading.url+'\n'+(reading.original||reading.text)+'\n'+config.readingTarget;
+    let wait=nativeWaits.get(article);
+    if(!wait||wait.key!==key){
+      wait={key,at:performance.now()};nativeWaits.set(article,wait);
+      states.get(article)?.translation?.remove();button.click();
+      setTimeout(()=>{if(article.isConnected&&nativeWaits.get(article)===wait)scan();},3100);
+    }
+    return performance.now()-wait.at<3000;
+  }
   function attachTranslation(article, state) {
     const reading=globalThis.OnHoldXReading?.read(article);
     if(config.translatePageAllowed===false||nativeReady(reading))return;
@@ -99,7 +109,8 @@
       state.translation?.remove(); states.delete(article); visible.unobserve(article);
     }
     for (const article of document.querySelectorAll('article[data-testid="tweet"]')) {
-      if(nativeReady(globalThis.OnHoldXReading?.read(article))){const old=states.get(article);old?.translation?.remove();states.delete(article);visible.unobserve(article);translationBusy(article,null);continue;}
+      const reading=globalThis.OnHoldXReading?.read(article);
+      if(nativeReady(reading)||preferNative(article,reading)){const old=states.get(article);old?.translation?.remove();states.delete(article);visible.unobserve(article);translationBusy(article,null);continue;}
       const info = extract(article);
       const old = states.get(article);
       if (old && old.key === info?.key) {

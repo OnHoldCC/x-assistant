@@ -1,19 +1,21 @@
 {
   "manifest_version": 3,
   "name": "OnHold 助手",
-  "version": "1.2.15",
+  "version": "1.4.1",
   "minimum_chrome_version": "120",
-  "description": "X 一键翻译与撤销，浏览帖子上沿展示参考评分与互动数据，使用 OnHold 字体。",
+  "description": "X 账号分析、创作者进度、收藏标签与自动化助手。",
   "permissions": [
     "storage",
     "scripting",
     "activeTab",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
-    "http://127.0.0.1:18427/*"
+    "http://127.0.0.1:18427/*",
+    "http://127.0.0.1:18431/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -25,13 +27,19 @@
   },
   "action": {
     "default_title": "OnHold 助手",
-    "default_popup": "settings.html",
+    "default_popup": "admin-ui/bridge.html",
     "default_icon": {
       "16": "assets/assistant-16.png",
       "32": "assets/assistant-32.png"
     }
   },
   "options_page": "settings.html",
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1/*",
+      "http://localhost/*"
+    ]
+  },
   "content_scripts": [
     {
       "matches": [

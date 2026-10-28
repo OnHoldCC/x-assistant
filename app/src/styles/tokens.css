@@ -1,0 +1,97 @@
+/* OnHold UI 1.0 — shadcn neutral foundations. Keep component colors semantic. */
+:root {
+  --font-family-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  --font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #126bc5;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+  --danger-surface: #fef2f2;
+  --success: #15803d;
+  --success-surface: #f0fdf4;
+  --warning: #92400e;
+  --warning-surface: #fffbeb;
+  --info: #1d4ed8;
+  --info-surface: #eff6ff;
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #126bc5;
+  --chart-1: #0f1419;
+  --chart-2: #126bc5;
+  --chart-3: #1787ae;
+  --chart-4: #526a80;
+  --chart-5: #568bc0;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.205 0 0);
+  --onhold-sidebar-width: 18rem;
+  --onhold-sidebar-width-mobile: min(18rem, calc(100vw - 2rem));
+  --onhold-header-height: 3rem;
+  --onhold-detail-width: 32.5rem;
+  --motion-fast: 150ms;
+  --motion-panel: 200ms;
+  color-scheme: light;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.75 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: #fca5a5;
+  --destructive-foreground: #450a0a;
+  --danger-surface: #450a0a;
+  --success: #86efac;
+  --success-surface: #052e16;
+  --warning: #fde68a;
+  --warning-surface: #451a03;
+  --info: #93c5fd;
+  --info-surface: #172554;
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 18%);
+  --ring: oklch(0.922 0 0);
+  --chart-1: oklch(0.922 0 0);
+  --chart-2: #93c5fd;
+  --chart-3: #86efac;
+  --chart-4: #fde68a;
+  --chart-5: #d8b4fe;
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.922 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.922 0 0);
+  color-scheme: dark;
+}

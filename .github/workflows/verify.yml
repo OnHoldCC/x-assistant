@@ -13,6 +13,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
+      - run: npm run installer:check
       - run: node bin/cli.mjs doctor
       - name: Bootstrap without system Node on macOS
         if: runner.os == 'macOS' && matrix.node == '22.20.0'

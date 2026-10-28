@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import '../extension/metrics-core.js';
+test('count units do not misread the B in Bookmark as a billion',()=>{assert.equal(XAIMetrics.parseCount('1 Bookmark').value,1);assert.equal(XAIMetrics.parseCount('566K views').value,566000);assert.equal(XAIMetrics.parseCount('1.2M').value,1200000);});
 test('reference weighted rate uses complete observed counts, propagates estimates and is not clamped to a probability',()=>{
  const rate=globalThis.XAIMetrics.interactionRates;
  assert.deepEqual(rate({views:100,likes:10,replies:2,reposts:1}),{visible:13,weighted:17.6,approximate:false});

@@ -1,7 +1,7 @@
 {
   "name": "onhold-assistant",
-  "version": "0.6.10",
-  "description": "Local X translation with native undo, collapsible post-border details and account Analytics in the popup.",
+  "version": "0.8.0",
+  "description": "OnHold React TypeScript admin, Rust data backend and CDP browser companion.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
@@ -21,7 +21,20 @@
     "THIRD_PARTY_NOTICES.txt"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "installer:sync": "node scripts/sync-installer.mjs",
+    "installer:check": "node scripts/sync-installer.mjs --check",
+    "app:build": "npm --prefix app run build",
+    "desktop:start": "npm --prefix app run tauri -- dev",
+    "desktop:pack": "node app/scripts/build-desktop.mjs",
+    "desktop:installer": "node app/scripts/build-macos-installer.mjs",
+    "android:init": "npm --prefix app run android -- init",
+    "android:pack": "npm --prefix app run android -- build --apk",
+    "ios:init": "npm --prefix app run ios -- init",
+    "ios:pack": "npm --prefix app run ios -- build",
+    "backend:test": "cargo test --manifest-path backend/Cargo.toml",
+    "backend:start": "cargo run --manifest-path backend/Cargo.toml --",
+    "ui:dev": "npm --prefix app run dev"
   },
   "repository": {
     "type": "git",

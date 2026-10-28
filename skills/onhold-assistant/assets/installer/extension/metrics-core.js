@@ -3,7 +3,7 @@
   function parseCount(raw) {
     if(typeof raw!=='string'||raw.length>300)return null;
     const text=raw.replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f]/g,'').trim();
-    const match=text.match(/(\d{1,3}(?:[,\u00a0\u202f ]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*([KMB千万亿])?/i);
+    const match=text.match(/(\d{1,3}(?:[,\u00a0\u202f ]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*([KMB](?![A-Za-z])|[千万亿])?/i);
     if(!match)return null;
     const unit=(match[2]||'').toUpperCase(),base=Number(match[1].replace(/[,\u00a0\u202f ]/g,''));
     if(!unit&&match[1].includes('.'))return null;

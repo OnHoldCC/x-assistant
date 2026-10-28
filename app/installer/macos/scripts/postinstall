@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+target=${3:-/}
+target=${target%/}
+legacy="$target/Applications/OnHold Assistant.app"
+current="$target/Applications/OnHold Admin.app"
+[ -d "$legacy" ] && [ ! -L "$legacy" ] || exit 0
+identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$legacy/Contents/Info.plist" 2>/dev/null) || exit 0
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$legacy/Contents/Info.plist" 2>/dev/null) || exit 0
+[ "$identifier" = cc.onhold.assistant ] && [ "$version" = 0.7.0 ] || exit 0
+new_identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$current/Contents/Info.plist" 2>/dev/null) || exit 1
+[ "$new_identifier" = cc.onhold.admin ] || exit 1
+backups="$target/Library/Application Support/OnHold/Previous Versions"
+/bin/mkdir -p "$backups"
+archive=$(/usr/bin/mktemp -d "$backups/upgrade.XXXXXX")
+if ! /bin/mv "$legacy" "$archive/OnHold Assistant.app.backup"; then
+  /bin/rmdir "$archive"
+  echo '旧版备份失败，原应用和用户数据保持原位。' >&2
+  exit 1
+fi
+printf '旧原型已备份到：%s\n' "$archive/OnHold Assistant.app.backup"

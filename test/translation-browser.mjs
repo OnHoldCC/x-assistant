@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
 const browser=await chromium.launch({headless:true});
-async function fixture({native=false,restore=false,auto=true,target='zh',more=false,delay=120,io=true,body='This post was automatically translated into English.'}={}){
+async function fixture({native=false,restore=false,nativeButton=false,auto=true,target='zh',more=false,delay=120,io=true,body='This post was automatically translated into English.'}={}){
  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(({auto,target,delay,io})=>{
   if(!io)window.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};
@@ -15,13 +15,21 @@ async function fixture({native=false,restore=false,auto=true,target='zh',more=fa
    return {ok:true,data:{}};
   }}};
  },{auto,target,delay,io});
- const metadata=native?'<div id="native">Translated from Chinese <button id="original">Show original</button></div>':'<div id="native"></div>';
- const html=`<meta charset="utf-8"><style>main{width:600px;margin:20px}article{padding:20px;border:1px solid #ddd}</style><main><article data-testid="tweet" id="post">${metadata}<div data-testid="tweetText" style="white-space:pre-wrap">${body}</div><a href="https://x.com/example/status/123"><time>1h</time></a>${more?'<button data-testid="tweet-text-show-more-link" id="more">Show more</button>':''}</article></main><script>function bindOriginal(){const button=document.querySelector('#original');if(button)button.onclick=()=>{restores++;${restore?"document.querySelector('[data-testid=tweetText]').textContent='这是原本的中文帖子。';document.querySelector('#native').replaceChildren();":''}};}bindOriginal();const more=document.querySelector('#more');if(more)more.onclick=()=>{document.querySelector('[data-testid=tweetText]').textContent+=' The expanded post includes the remaining full content.';more.remove();};</script>`;
+ const metadata=native?'<div id="native">Translated from Chinese <button id="original">Show original</button></div>':nativeButton?'<div id="native"><button id="native-translate">Show translation</button></div>':'<div id="native"></div>';
+ const html=`<meta charset="utf-8"><style>main{width:600px;margin:20px}article{padding:20px;border:1px solid #ddd}</style><main><article data-testid="tweet" id="post">${metadata}<div data-testid="tweetText" style="white-space:pre-wrap">${body}</div><a href="https://x.com/example/status/123"><time>1h</time></a>${more?'<button data-testid="tweet-text-show-more-link" id="more">Show more</button>':''}</article></main><script>function bindOriginal(){const button=document.querySelector('#original');if(button)button.onclick=()=>{restores++;${restore?"document.querySelector('[data-testid=tweetText]').textContent='这是原本的中文帖子。';document.querySelector('#native').replaceChildren();":''}};}bindOriginal();const nativeTranslate=document.querySelector('#native-translate');if(nativeTranslate)nativeTranslate.onclick=()=>{window.nativeClicks=(window.nativeClicks||0)+1;document.querySelector('[data-testid=tweetText]').textContent='这是 X 原生翻译提供的中文。';document.querySelector('#native').innerHTML='Translated from English <button id="original">Show original</button>';bindOriginal();};const more=document.querySelector('#more');if(more)more.onclick=()=>{document.querySelector('[data-testid=tweetText]').textContent+=' The expanded post includes the remaining full content.';more.remove();};</script>`;
  await page.route('https://x.com/**',r=>r.fulfill({contentType:'text/html;charset=utf-8',body:html}));await page.goto('https://x.com/home');
  for(const name of ['translation-ui.js','x-reading-source.js','content.js'])await page.addScriptTag({path:path.resolve('extension',name)});
  return {page,errors};
 }
 try{
+ {
+  const {page,errors}=await fixture();await page.waitForFunction(()=>events.includes('translation:end'));
+  await page.evaluate(()=>{window.postOpens=0;window.replyOpens=0;const post=document.querySelector('#post');post.querySelector('a').onclick=event=>event.preventDefault();post.addEventListener('click',event=>{if(!event.target.closest('x-local-translation'))postOpens++;});const reply=document.createElement('button');reply.dataset.testid='reply';reply.textContent='评论';reply.onclick=event=>{event.stopPropagation();replyOpens++;};post.append(reply);});
+  await page.locator('x-local-translation .translation').click();assert.equal(await page.evaluate(()=>postOpens),1,'translated text opens the native permalink even when X ignores custom-element targets');
+  await page.locator('x-local-translation').getByRole('button',{name:'原文',exact:true}).click();assert.equal(await page.evaluate(()=>postOpens),1,'translation controls must not navigate the post');
+  await page.locator('[data-testid="reply"]').click();assert.equal(await page.evaluate(()=>replyOpens),1,'native reply button must remain clickable');
+  assert.deepEqual(errors,[]);await page.close();
+ }
  {
   const {page,errors}=await fixture({delay:1400});
   await page.evaluate(()=>{document.querySelector('#native').innerHTML='Translated from English <button id="original">Show original</button>';document.querySelector('[data-testid=tweetText]').textContent='这是 Grok 已经显示的中文译文。';bindOriginal();});
@@ -48,7 +56,7 @@ try{
  }
  {
   const {page,errors}=await fixture({native:true});await page.waitForFunction(()=>events.includes('translation:end'));
-  assert.equal(await page.evaluate(()=>restores),0);
+  assert.equal(await page.evaluate(()=>restores),1,'Chinese original is requested before local fallback');
   await page.waitForFunction(()=>calls.some(m=>m.type==='OBSERVE_CONTENT'&&m.source.translation));
   const source=await page.evaluate(()=>calls.find(m=>m.type==='OBSERVE_CONTENT'&&m.source.translation).source);assert.equal(source.original,null);assert.equal(source.translation.provider,'x_grok_dom');
   assert.deepEqual(errors,[]);await page.close();
@@ -85,6 +93,18 @@ try{
   assert.equal(await page.locator('x-local-translation .pair').count(),2);assert.equal(await page.locator('x-local-translation .row-meta').count(),0);
   assert.equal(await page.locator('x-local-translation .pair').nth(1).evaluate(node=>node.style.marginTop),'1.65em');
   assert.deepEqual(errors,[]);await page.close();
+ }
+
+ {
+  const {page,errors}=await fixture({native:true,restore:true});
+  await page.waitForFunction(()=>restores===1);assert.equal(await page.locator('[data-testid=tweetText]').innerText(),'这是原本的中文帖子。');
+  assert.equal(await page.evaluate(()=>calls.filter(m=>m.type==='TRANSLATE').length),0,'Chinese originals should not be translated to English and back');assert.deepEqual(errors,[]);await page.close();
+ }
+ {
+  const {page,errors}=await fixture({nativeButton:true});
+  await page.waitForFunction(()=>window.nativeClicks===1);await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(()=>calls.filter(m=>m.type==='TRANSLATE').length),0,'available X native translation must be triggered before local translation');
+  assert.equal(await page.locator('x-local-translation').count(),0);assert.deepEqual(errors,[]);await page.close();
  }
  console.log('Passed: native translation reuse without toggling or duplicate translation, unknown original handling, local fallback, no scoring requests, excerpt/manual full-post, exact original line breaks with inline handles/links/emoji, paragraph spacing and one shared status.');
 }finally{await browser.close();}

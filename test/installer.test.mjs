@@ -7,6 +7,10 @@ test('npm-style bin symlink executes the CLI',{skip:process.platform==='win32'},
  const {spawnSync}=await import('node:child_process');const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-assistant-bin-'));
  try{const target=path.resolve(import.meta.dirname,'../bin/cli.mjs'),link=path.join(directory,'onhold-assistant');fs.symlinkSync(target,link);const result=spawnSync(process.execPath,[link,'doctor','--home',path.join(directory,'data')],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).platform,process.platform);}finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
+test('gateway starts through a symlink instead of silently exiting',{skip:process.platform==='win32'},async()=>{
+ const {spawnSync}=await import('node:child_process');const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-gateway-link-'));
+ try{const link=path.join(directory,'gateway.mjs');fs.symlinkSync(path.resolve(import.meta.dirname,'../lib/gateway.mjs'),link);const result=spawnSync(process.execPath,[link,path.join(directory,'missing-config.json')],{encoding:'utf8'});assert.equal(result.status,1);assert.match(result.stderr,/ENOENT/);}finally{fs.rmSync(directory,{recursive:true,force:true});}
+});
 test('data usage includes SQLite/WAL/SHM and excludes model files',async()=>{
  const {dataUsage}=await import('../lib/resources.mjs');const root=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-data-'));try{const database=path.join(root,'cache.sqlite3');fs.writeFileSync(database,'abc');fs.writeFileSync(database+'-wal','1234');fs.writeFileSync(database+'-shm','xy');fs.writeFileSync(path.join(root,'model.gguf'),Buffer.alloc(1024*1024));assert.equal(await dataUsage(database),9);assert.equal(await dataUsage(path.join(root,'missing.sqlite3')),0);}finally{fs.rmSync(root,{recursive:true,force:true});}
 });

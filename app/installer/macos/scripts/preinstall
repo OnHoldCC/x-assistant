@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+processes=$(/bin/ps -axo comm=) || { echo '无法检查 OnHold 运行状态，请退出应用后重试。' >&2; exit 1; }
+if printf '%s\n' "$processes" | /usr/bin/grep -Eq '/(onhold-admin-app|OnHold Assistant)$'; then
+  echo '请先退出 OnHold Admin 和 OnHold Assistant，再继续安装。' >&2
+  exit 1
+fi

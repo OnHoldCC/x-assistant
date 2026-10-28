@@ -2,18 +2,24 @@
 
 ![OnHold 助手图标](extension/assets/assistant-128.png)
 
-在本机完成网页翻译与 X 草稿一键翻译的浏览器助手。
+React + TypeScript / shadcn/ui 运营后台，Rust 数据服务，配套 CDP 浏览器插件与本机翻译。
 
 [![Mac / Windows 检查](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
 
 [功能](#功能) · [安装](#安装) · [系统架构](#系统架构) · [维护](#维护) · [许可证](#许可证) · [作者](#作者)
+
+## OnHold UI
+
+[设计规范](docs/ONHOLD-UI.md) · [组件入口](app/src/components/onhold/index.ts) · [0.9 运营口径](docs/OPERATIONS-0.9.md)
+
+基于 shadcn/ui 沉淀的 OnHold 组件与语义主题，供后台、安装引导和插件弹窗复用。执行 `npm run ui:dev`，打开 `http://127.0.0.1:1420/ui.html` 查看组件规范。
 
 ## 功能
 
 - **网页互译**：默认将外语译成简体中文，可切换目标语言。
 - **逐段展示**：按段落排队翻译，完成一段就显示一段，保留原文。
 - **白名单**：按 URL 控制自动翻译，也可以一键加入当前网站。
-- **广告风散**：默认隐藏标记为 Ad、Promoted、广告或推广的 X 广告帖；屏幕内先播放约 1.8 秒的向右吹散与 64 个旋转颗粒淡出，再收起空位。系统减少动态效果、滚动中及屏幕外直接隐藏。可在设置关闭恢复展示，正文提到广告、作者名称与引用内容不会作为广告标记。
+- **广告风散**：蓝色选中到标记为 Ad、Promoted、广告或推广的帖子时，先停留 1.5 秒，再用约 0.45 秒吹散效果收起空位。屏幕外直接隐藏；减少动态效果时保留静态停留、跳过动画。关闭过滤会恢复广告并停止后续隐藏操作。正文提到广告、作者名称与引用内容不会作为广告标记。
 - **自动翻译衔接**：优先使用 X/Grok 已显示且满足阅读目标的译文；“Show translation”入口本身不算译文。原生翻译迟到时短暂等待，仍未译出或中文阅读时仍为外文则本机补漏，不自动点击“显示原文”。
 - **X 草稿一键翻译**：直接在 X 原输入框写正文，最后一行下方显示“译为 · 目标语言 · 一键翻译”；点击后替换当前草稿，支持撤销，不自动发布。
 - **帖子边框摘要**：一行异色小字靠右显示在当前帖子上边框，点击详情展开右侧明细，可收起；草稿不请求评分或改写。
@@ -23,6 +29,21 @@
 插件新增的翻译由本机模型处理，不调用云端翻译 API；X 自身显示的译文来自 X 的原生功能。输入框、代码块和独立 `@账号` 引用跳过阅读翻译。插件不会替你自动发布帖子。
 
 ## 安装
+
+### 多端管理后台（0.9.0）
+
+主界面为运营概览、内容复盘、我的收藏、账号管理、自动化、系统日志和作者页。连接与模型配置从右上角状态灯打开。前端以 shadcn/ui 与 Radix 作为交互底座，使用 OnHold 自己的运营组件与桌面布局，后端由 Rust / SQLite 管理快照、连接与任务，Tauri 2 承载桌面和移动端。0.7.0 的 Electron 模型控制台原型已退出主流程。
+
+Mac 更新优先使用 PKG 覆盖安装包，固定替换应用程序目录中的 OnHold Admin，旧 0.7.0 原型备份保留。
+
+桌面打包默认校验并附带 **Hy-MT2、Laya 及现有离线运行环境**；统计后台可独立使用，不因模型未加载而阻止查看数据。已有翻译安装器及模型工作进程保留兼容。手机端模型内置与离线推理尚未完成，不能用桌面运行时宣称支持手机推理。
+
+- 先执行 `npm --prefix app ci`、`npm run app:build`、`npm run desktop:start`。
+- 按「安装 → 连接 → 完成」引导在 Chrome / Edge 加载助手，地址与密钥自动配对。
+- 插件保留翻译与撤销，并使用 CDP 读取当前账号资料和已加载的本人帖子，执行后台排队的采集任务。
+- 移动界面支持 HTTPS 连接 Rust 服务；Chrome/Edge 桌面插件不会在手机 Chrome 中运行。
+
+已通过 Rust 统计/任务测试、真实 CDP 夹具联动、密钥/来源校验及 375/768/1320 布局检查。Android 缺少 SDK/NDK，iOS 缺少完整 Xcode/CocoaPods 与签名配置，尚未生成 APK/IPA。构建方法与限制见 [多端打包说明](docs/DESKTOP.md)。
 
 ### 环境要求
 
@@ -95,7 +116,7 @@ node bin/cli.mjs setup --no-open
 ### 方式三：使用本地 npm 包
 
 ```sh
-npx --yes --package ./onhold-assistant-0.6.10.tgz onhold-assistant setup --no-open
+npx --yes --package ./onhold-assistant-0.8.0.tgz onhold-assistant setup --no-open
 ```
 
 当前尚未发布到 npm 注册表，`npx onhold-assistant` 还不能作为公开安装命令使用。
@@ -141,6 +162,8 @@ https://example.com/articles/*
 0.6.9：草稿只保留翻译与撤销。浏览帖子边框外上方靠右，仅显示帖子评分和参考加权互动率，点击详情展开右侧明细，再点收起折回；摘要独立留出一行空间，不覆盖上条帖子；只有明确点击评分或展开详情才请求内容参考分。账号 Analytics 与创作者状态在右上角插件的 X 数据页统一刷新。定时学习采集仍停止，已有数据保留。
 
 ## 系统架构
+
+[项目功能目录、性能优化与升级兼容](docs/PROJECT-STRUCTURE.md) 说明前后端分层、已落实的优化、后续性能重点及数据库/接口兼容规则。
 
 0.6.0 的反馈闭环、参考学习、数据条件和限制见[帖子曝光学习架构](docs/EXPOSURE-LEARNING.md)。下面的图只展示基础请求与缓存链路。
 

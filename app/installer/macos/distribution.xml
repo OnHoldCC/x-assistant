@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>OnHold Admin</title>
+  <options customize="never" require-scripts="true" hostArchitectures="@ARCH@"/>
+  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+  <volume-check><allowed-os-versions><os-version min="14.0"/></allowed-os-versions></volume-check>
+  <choices-outline><line choice="onhold"/></choices-outline>
+  <choice id="onhold" visible="false" title="OnHold Admin"><pkg-ref id="cc.onhold.admin"/></choice>
+  <pkg-ref id="cc.onhold.admin">onhold.pkg</pkg-ref>
+  <pkg-ref id="cc.onhold.admin"><must-close>
+    <app id="cc.onhold.admin"/>
+    <app id="cc.onhold.assistant"/>
+  </must-close></pkg-ref>
+</installer-gui-script>

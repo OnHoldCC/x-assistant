@@ -122,9 +122,10 @@ async function mainUnlocked(){
   if(fs.existsSync(configPath)){const config=readOwned(home);await start(config);console.log(`已安装，扩展目录：${config.extensionPath}`);open(`http://127.0.0.1:${config.port}/setup`);return;}
   const port=Number(option('port')||18427),backendPort=Number(option('backend-port')||18428),decisionPort=Number(option('decision-port')||18430);const ports=[port,backendPort,decisionPort];if(ports.some(value=>!Number.isInteger(value)||value<1024||value>65535)||new Set(ports).size!==ports.length)throw new Error('端口无效');for(const value of ports)await free(value);
   const disk=fs.statfsSync(home);if(Number(disk.bavail)*Number(disk.bsize)<8*1024**3&&!option('model'))throw new Error('翻译和评分模型安装至少需要 8 GiB 可用磁盘空间');
-  progress('准备默认决策模型；翻译模型按需下载');
+  progress(offlineDirectory?'从离线包准备全部模型与运行时':'准备默认决策模型；翻译模型按需下载');
   const decisions=await prepareDecisions(plan),model=option('model')?path.resolve(option('model')):path.join(home,'models',lock.model.name),runtime={};
   if(option('model')){if(!await verify(model,lock.model))throw Error('模型版本或 SHA-256 不匹配');Object.assign(runtime,await prepareRuntime(plan));}
+  else if(offlineDirectory){await download(lock.model,path.join(home,'models'));Object.assign(runtime,await prepareRuntime(plan));}
   const app=path.join(home,'app');fs.mkdirSync(app,{recursive:true});for(const item of ['bin','lib','extension','package.json'])fs.cpSync(path.join(packageRoot,item),path.join(app,item),{recursive:true});
   const extensionPath=path.join(home,'extension');fs.cpSync(path.join(packageRoot,'extension'),extensionPath,{recursive:true});
   if(port!==18427)for(const name of ['background.js','settings.js','manifest.json']){const file=path.join(extensionPath,name);fs.writeFileSync(file,fs.readFileSync(file,'utf8').replaceAll('18427',String(port)));}
@@ -144,7 +145,7 @@ async function mainUnlocked(){
  if(action==='status'){const value=await status(config);console.log(JSON.stringify({running:value?.instance===config.instance,extension:config.extensionPath,...(value?.instance===config.instance?{service:value}: {})},null,2));return;}
  if(action==='start'){await start(config);console.log('本机翻译服务已就绪');return;}
  if(action==='stop'){await stopOwned(config);console.log('本安装器服务已停止；模型和数据保留');return;}
- if(action==='upgrade'){progress('备份数据，升级代码并验证模型启动');const result=await upgradeInstall({home,packageRoot,version,start,patch:{translationDeferred:true}});console.log(`已升级至 ${version}，数据保留；备份：${result.backup}。请重载浏览器扩展。`);return;}
+ if(action==='upgrade'){progress('备份数据，升级代码并验证模型启动');const result=await upgradeInstall({home,packageRoot,version,start,patch:{translationDeferred:true,nodeBinary:process.execPath,...(offlineDirectory?{translationOfflineDirectory:offlineDirectory}:{})}});console.log(`已升级至 ${version}，数据保留；备份：${result.backup}。请重载浏览器扩展。`);return;}
  if(action==='uninstall'){progress('停止本安装服务并清理受管依赖与模型');const result=await uninstallInstall(home,{purgeData:process.argv.includes('--purge-data')});console.log(`服务和本安装器文件已卸载；${result.dataRetained?'数据和备份保留于 '+home:'数据已按 --purge-data 删除'}。浏览器扩展请在扩展管理页移除。`);return;}
  if(action==='replace-model'){await replaceModel(config,plan);return;}
  throw new Error('未知命令；运行 onhold-assistant help');

@@ -1,0 +1,157 @@
+@import "./onhold-tokens.css";
+
+:root {
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --ink: var(--foreground);
+  --muted: var(--muted-foreground);
+  --line: var(--border);
+  --blue: var(--primary);
+  --teal: var(--primary);
+  --red: var(--destructive);
+  --ss-font-sans: var(--font-family-sans);
+}
+html {
+  background: var(--background);
+}
+body {
+  width: 480px;
+  max-width: 100%;
+  min-width: 320px;
+  background: var(--card);
+  color: var(--foreground);
+  font-family: var(--font-family-sans);
+  border-radius: var(--radius-xl);
+  box-shadow: none;
+}
+main {
+  padding: 24px;
+}
+button,
+input,
+select,
+textarea,
+.ui-select-trigger {
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+input,
+select,
+textarea,
+.ui-select-trigger,
+.ui-select-content {
+  background: var(--card);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.tabs {
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--secondary);
+}
+.tabs .selected {
+  background: var(--card);
+  color: var(--foreground);
+}
+.tabs button {
+  font-size: 14px;
+}
+.hint,
+.toggle small,
+.stats span,
+footer,
+.model-state {
+  font-size: 12px;
+}
+.primary,
+.toggle input:checked {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.primary:hover {
+  background: var(--primary);
+  opacity: 0.9;
+}
+.toggle input {
+  min-height: 22px;
+}
+.toggle input:checked::before {
+  background: var(--primary-foreground);
+}
+.toggle {
+  min-height: 60px;
+}
+a,
+#x-weighted-rate {
+  color: var(--foreground);
+}
+.free-badge {
+  border-color: var(--border);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.free-badge::after {
+  display: none;
+}
+.eligibility-metric progress::-webkit-progress-value {
+  background: var(--primary);
+}
+.eligibility-metric progress::-moz-progress-bar {
+  background: var(--primary);
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+.ui-select-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+* {
+  scrollbar-width: auto !important;
+}
+*::-webkit-scrollbar {
+  display: initial !important;
+  width: auto !important;
+  height: auto !important;
+}
+@media (max-width: 480px) {
+  main {
+    padding: 16px;
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+.tabs button,
+.primary,
+#refresh-account,
+#save-earnings,
+.maintenance-actions button {
+  min-height: 44px;
+}
+
+.tabs {
+  margin: 12px 0 20px;
+  gap: 8px;
+  padding: 6px;
+}
+.tabs button {
+  min-height: 48px;
+}

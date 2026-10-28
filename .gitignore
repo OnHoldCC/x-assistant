@@ -18,3 +18,10 @@ __pycache__/
 /backend-key
 /work/
 .DS_Store
+/desktop/payload/
+/desktop/dist/
+/app/dist/
+/app/src-tauri/target/
+/app/src-tauri/gen/
+/backend/target/
+/desktop/

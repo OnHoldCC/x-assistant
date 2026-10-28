@@ -133,7 +133,14 @@
       }}finally{loading=false;button.disabled=false;options.onSettled?.();}
     }
     button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(rendered&&!failed)show(body.hidden);else start();});
-    host.addEventListener('click',event=>event.stopPropagation());
+    host.addEventListener('click',event=>{
+      const path=event.composedPath();
+      if(path.some(node=>node instanceof Element&&node.matches('a,button'))){event.stopPropagation();return;}
+      if(!path.includes(body)||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||getSelection()?.toString())return;
+      const article=textNode.closest('article[data-testid="tweet"]');
+      const permalink=article&&[...article.querySelectorAll('a[href]')].find(link=>link.querySelector('time')&&link.href===options.postUrl&&!link.closest('[data-testid="quoteTweet"],[data-testid="card.wrapper"]'));
+      if(permalink){event.stopPropagation();permalink.click();}
+    });
     return {host,start,remove:()=>{
       clearTimeout(retryTimer);port?.disconnect();port=null;
       if(originals.get(textNode)===saved){textNode.style.display=saved.display;originals.delete(textNode);}

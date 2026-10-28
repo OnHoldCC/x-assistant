@@ -1,8 +1,17 @@
 import {LANGUAGES} from './languages.mjs';
 import './analysis-core.js';
+import {createCdpBridge} from './cdp-bridge.js';
 import {DEFAULTS, validateSettings, translationAllowed, translationHosts, referenceOnly, translationParagraphs, translationChunks} from './core.js';
 
 const WEB_ORIGINS=['https://*/*','http://*/*'];
+const cdpBridge=createCdpBridge();
+cdpBridge.resume().catch(()=>{});
+chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
+  let origin;try{origin=new URL(sender.url).origin;}catch{return false;}
+  if(!['http://127.0.0.1:18431','http://localhost:18431'].includes(origin)||!['ONHOLD_PAIR','ONHOLD_DISCOVER'].includes(message?.type)||message.data?.endpoint!==origin)return false;
+  if(message.type==='ONHOLD_DISCOVER'){respond({ok:true,protocol:1,version:chrome.runtime.getManifest().version});return false;}
+  (async()=>{await cdpBridge.save(message.data);return await cdpBridge.connect({pickX:true});})().then(data=>respond({ok:true,data}),error=>respond({ok:false,error:error.message}));return true;
+});
 chrome.action.setIcon({path:chrome.runtime.getManifest().action.default_icon}).catch(console.warn);
 chrome.runtime.onInstalled.addListener(()=>chrome.storage.local.remove(['translationCache','postAnalysisCache','cache']));
 const ready = chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'}).then(syncWebScripts);
@@ -48,9 +57,11 @@ async function observeContent(source,sender){
  return localRequest('/observe',{...source,url:url.href});
 }
 async function accountContext(){
- const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
- if(!tab?.id||!/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||''))throw Error('请在已登录的 X 页面打开插件。');
- const value=await chrome.tabs.sendMessage(tab.id,{type:'READ_ACCOUNT_CONTEXT'});
+ const [active]=await chrome.tabs.query({active:true,currentWindow:true});
+ const status=await cdpBridge.status();
+ const tab=/^https:\/\/(x\.com|twitter\.com)\//.test(active?.url||'')?active:Number.isInteger(status.cdpTab)?await chrome.tabs.get(status.cdpTab).catch(()=>null):null;
+ if(!tab?.id||!/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||''))throw Error('请先连接 X 助手，或在已登录的 X 页面打开插件。');
+ const value=tab.id===status.cdpTab?{account:await cdpBridge.account()}:await chrome.tabs.sendMessage(tab.id,{type:'READ_ACCOUNT_CONTEXT'});
  if(!/^[A-Za-z0-9_]{1,15}$/.test(value?.account||''))throw Error('尚未识别当前 X 账号，请刷新 X 页面后重试。');
  return value.account.toLowerCase();
 }
@@ -70,7 +81,7 @@ async function accountSummary(refresh=false){
  const account=await accountContext(),saved=(await chrome.storage.local.get('xAccountSnapshots')).xAccountSnapshots||{},assumptions=(await chrome.storage.local.get('xEarningsAssumptions')).xEarningsAssumptions?.[account]||null;
  if(!refresh){
   const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
-  if(tab?.id&&new URL(tab.url).pathname==='/i/account_analytics'){
+  if(tab?.id&&/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')&&new URL(tab.url).pathname==='/i/account_analytics'){
    try{const value=await chrome.tabs.sendMessage(tab.id,{type:'READ_X_DASHBOARD',account,kind:'analytics'});if(value?.ready&&value.data?.account===account&&value.data.kind==='analytics'&&await accountContext()===account){saved[account]={...saved[account],account,analytics:value.data,observed_at:Date.now()};await chrome.storage.local.set({xAccountSnapshots:saved});}}catch{}
   }
   return {account,snapshot:saved[account]||null,assumptions};
@@ -215,6 +226,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     await ready;
     const {ownPage,xPage,allowedWeb}=await translationContext(sender);
+    if(['BOOKMARK_SAVE','BOOKMARK_GET'].includes(message.type)&&xPage)return cdpBridge.bookmark(message.data);
+    if(message.type.startsWith('CDP_')){
+      if(!ownPage)throw Error('只允许插件页面操作 CDP 连接');
+      const action={CDP_STATUS:'status',CDP_OVERVIEW:'overview',CDP_SAVE:'save',CDP_CONNECT:'connect',CDP_DISCONNECT:'disconnect',CDP_COLLECT:'collect'}[message.type];
+      if(!action)throw Error('不支持此 CDP 操作');return cdpBridge[action](message.data);
+    }
     if (message.type === 'GET_PUBLIC_CONFIG' && (xPage||allowedWeb)) return publicConfig(await getConfig(),sender.tab?.url||sender.url);
     if(message.type==='OBSERVE_CONTENT'&&(xPage||allowedWeb)){if(!xPage&&!translationAllowed(sender.tab?.url||sender.url,await getConfig()))throw new Error('当前 URL 不在白名单中');return observeContent(message.source,sender);}
     if(message.type==='ANALYZE_POST'&&(xPage||ownPage))return analyzePost(message.text,sender,message.toChinese===true,message.purpose||'post',message.account,message.draftId,message.sourceUrl,message.sourceKind,message.originalText,message.inputComplete,message.manual===true);

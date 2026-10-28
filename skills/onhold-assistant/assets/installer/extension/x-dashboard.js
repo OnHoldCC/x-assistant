@@ -39,7 +39,7 @@
   const followers=controls.find(node=>/^Verified followers|^认证关注者|^已认证关注者/i.test(node.innerText.trim()));
   if(followers){const parts=followers.innerText.replace(/^Verified followers|^认证关注者|^已认证关注者/i,'').split('/');metrics.verified_followers=XAIMetrics.parseCount(parts[0]);if(parts[1])metrics.followers=XAIMetrics.parseCount(parts[1]);}
   if(!Object.keys(metrics).length)return null;
-  const ranges=controls.filter(node=>/^(7D|2W|4W|3M|1Y)$/.test(node.innerText.trim()));
+  const ranges=controls.filter(node=>/^(1D|7D|14D|2W|28D|4W|30D|90D|3M|1Y)$/.test(node.innerText.trim()));
   const selected=ranges.find(node=>node.getAttribute('aria-pressed')==='true'||node.getAttribute('aria-selected')==='true');
   const opaque=ranges.filter(node=>!['rgba(0, 0, 0, 0)','transparent'].includes(getComputedStyle(node).backgroundColor));
   const period=(selected||opaque.length===1&&opaque[0])?.innerText.trim()||'当前 X 页面周期（未识别）';
