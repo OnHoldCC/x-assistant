@@ -22,6 +22,7 @@ pub fn dispatch(store: &Store, operation: &str, input: Value) -> Result<Value, S
         "save_bookmark" => Some("收藏已保存"),
         "remove_bookmark" => Some("收藏已移除"),
         "save_earnings" => Some("收益估算依据已更新"),
+        "save_earnings_calibration" => Some("历史收益校准已保存"),
         "save_memory_notes" => Some("运营偏好已更新"),
         _ => None,
     };
@@ -59,6 +60,9 @@ fn dispatch_inner(store: &Store, operation: &str, input: Value) -> Result<Value,
         ),
         "creator" => store.creator(text("account")?),
         "save_earnings" => store.save_earnings(text("account")?, &input, now()),
+        "save_earnings_calibration" => {
+            store.save_earnings_calibration(text("account")?, &input, now())
+        }
         "bookmarks" => store.bookmarks(
             text("account")?,
             input

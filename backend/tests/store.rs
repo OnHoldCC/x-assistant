@@ -352,3 +352,38 @@ fn automation_is_opt_in_capability_gated_and_limits_pause_every_write_until_manu
     let job = db.claim(&client, "example", at + 8 * 86400000).unwrap();
     assert_eq!(job["input"]["targets"], json!(["writer"]));
 }
+
+#[test]
+fn reward_calibration_uses_owned_exact_dates_and_keeps_manual_estimates() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Store::open(dir.path().join("reward.db")).unwrap();
+    let at = onhold_backend::store::now();
+    let snapshot: Snapshot = serde_json::from_value(json!({"handle":"example","source":"https://x.com/i/account_analytics","posts":[],"analytics":{"account":"example","period":"7D","period_key":"7d","metrics":{"impressions":{"value":600}},"series":[{"date":"2026-10-01","metrics":{"impressions":100}},{"date":"2026-10-02","metrics":{"impressions":200}},{"date":"2026-10-03","metrics":{"impressions":300}}]}})).unwrap();
+    db.ingest(snapshot, at).unwrap();
+    db.save_earnings("example", &json!({"qualified30":100,"rpmCny":2}), at)
+        .unwrap();
+    let input = json!({"observed_at":at,"payout":10.0,"currency":"USD","start_date":"2026-10-02","end_date":"2026-10-03","confirmed":true});
+    let result = db
+        .save_earnings_calibration("example", &input, at + 1)
+        .unwrap();
+    assert_eq!(result["calibration"]["impressions"], 500);
+    assert_eq!(result["calibration"]["currency"], "USD");
+    assert_eq!(result["assumptions"]["qualified30"], 100);
+    assert!(db.save_earnings_calibration("other", &input, at).is_err());
+    for (key, value) in [
+        ("currency", json!("invalid")),
+        ("confirmed", json!(false)),
+        ("payout", json!(-1)),
+        ("start_date", json!("2026-09-30")),
+        ("end_date", json!("2026-10-05")),
+    ] {
+        let mut bad = input.clone();
+        bad[key] = value;
+        assert!(db.save_earnings_calibration("example", &bad, at).is_err());
+    }
+    assert_eq!(
+        db.creator("example").unwrap()["calibration"]["impressions"],
+        500
+    );
+    assert!(db.creator("other").unwrap()["calibration"].is_null());
+}

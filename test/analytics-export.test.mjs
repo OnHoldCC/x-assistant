@@ -19,3 +19,16 @@ test('creator estimates never use total Analytics impressions or the 90-day qual
  assert.equal(creatorOutlook({account:'example',state:'enrolled'},null).amount,null);
  assert.equal(creatorOutlook({account:'example',state:'enrolled'},{qualified30:100000,rpmCny:3}).amount,300);
 });
+
+test('Analytics reward estimates use same-basis historical calibration, preserve zeros and reject missing data',async()=>{
+ const {analyticsRewardEstimate}=await import('../app/src/shared/metrics.ts');
+ const calibration={payout:20,currency:'USD',impressions:1000,start_date:'2026-10-01',end_date:'2026-10-14',period:'2W',verified_only:false,observed_at:1};
+ const summary={account:'example',snapshot:{data:{account:'example',state:'enrolled'},source:'x',observed_at:1},assumptions:null,calibration};
+ const snap={data:{series:[{date:'2026-10-15',metrics:{impressions:500}},{date:'2026-10-16',metrics:{impressions:0}}]},source:'x',observed_at:2};
+ assert.equal(analyticsRewardEstimate(snap,summary).amount,10);
+ assert.equal(analyticsRewardEstimate(snap,{...summary,calibration:{...calibration,payout:0}}).amount,0);
+ assert.equal(analyticsRewardEstimate({...snap,data:{...snap.data,verified_only:true}},summary).amount,null);
+ assert.equal(analyticsRewardEstimate({...snap,data:{series:[{date:'2026-10-15',metrics:{impressions:null}}]}},summary).amount,null);
+ assert.equal(analyticsRewardEstimate(snap,{...summary,calibration:null}).amount,null);
+ assert.equal(analyticsRewardEstimate(snap,{...summary,snapshot:{...summary.snapshot,data:{account:'example',state:'ineligible'}}}).amount,0);
+});

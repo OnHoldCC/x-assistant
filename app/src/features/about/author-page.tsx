@@ -9,6 +9,15 @@ function Github() {
 }
 const versions = [
   {
+    version: "0.9.3",
+    date: "2026-10-28",
+    items: [
+      "概览以曲线和图例展示，移除指标卡片组。",
+      "顶部进度条支持悬停明细，达标后显示金色。",
+      "历史结算校准 Analytics 收益参考，随数据自动更新。",
+    ],
+  },
+  {
     version: "0.9.2",
     date: "2026-10-28",
     items: [

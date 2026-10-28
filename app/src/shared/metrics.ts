@@ -133,3 +133,25 @@ export function creatorOutlook(
       : null,
   };
 }
+
+export function analyticsRewardEstimate(
+  snapshot: import("@/shared/types").AnalyticsSnapshot | null | undefined,
+  summary: import("@/shared/types").CreatorSummary | null | undefined,
+) {
+  const calibration = summary?.calibration;
+  const currency = calibration?.currency || "USD";
+  const blocked = creatorOutlook(summary?.snapshot?.data, null).blocked;
+  if (blocked) return { amount: 0, currency, impressions: null, calibrated: false };
+  const series = snapshot?.data.series;
+  if (!calibration || !series?.length || calibration.impressions <= 0 || !Number.isFinite(calibration.payout) || calibration.payout < 0 || calibration.verified_only !== (snapshot?.data.verified_only === true))
+    return { amount: null, currency, impressions: null, calibrated: false };
+  let impressions = 0;
+  for (const point of series) {
+    const value = point.metrics.impressions;
+    if (value == null || !Number.isSafeInteger(value) || value < 0) return { amount: null, currency, impressions: null, calibrated: false };
+    impressions += value;
+    if (!Number.isSafeInteger(impressions)) return { amount: null, currency, impressions: null, calibrated: false };
+  }
+  const amount = impressions * calibration.payout / calibration.impressions;
+  return { amount: Number.isFinite(amount) ? amount : null, currency, impressions, calibrated: true };
+}

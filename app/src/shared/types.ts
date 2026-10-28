@@ -42,6 +42,16 @@ export type EarningsAssumptions = {
   rpmCny: number;
   observed_at?: number;
 };
+export type EarningsCalibration = {
+  payout: number;
+  currency: "USD" | "CNY";
+  impressions: number;
+  start_date: string;
+  end_date: string;
+  period: string;
+  verified_only: boolean;
+  observed_at: number;
+};
 export type CreatorData = {
   account: string;
   state: "unknown" | "ineligible" | "eligible" | "enrolled";
@@ -57,6 +67,7 @@ export type CreatorSummary = {
   account: string;
   snapshot: { data: CreatorData; source: string; observed_at: number } | null;
   assumptions: EarningsAssumptions | null;
+  calibration?: EarningsCalibration | null;
 };
 export type AnalyticsSnapshot = {
   data: {

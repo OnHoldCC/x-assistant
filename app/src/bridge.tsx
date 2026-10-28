@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { FreeBadge } from "@/app/free-badge";
 import { CreatorStatus } from "@/features/overview/creator-panel";
-import type { CreatorSummary, Client, Metric, Job } from "@/shared/types";
+import type { AnalyticsSnapshot, CreatorSummary, Client, Metric, Job } from "@/shared/types";
 import { loginLabels, time } from "@/shared/operations";
 import "@/style.css";
 import "@/bridge.css";
@@ -49,6 +49,7 @@ type Overview = {
   stale?: boolean;
   error?: string;
   creator?: CreatorSummary;
+  analytics_periods?: Record<string, AnalyticsSnapshot>;
   postCount: number;
   lastCapture: number | null;
   metrics: Record<
@@ -203,7 +204,7 @@ function Popup() {
       <header>
         <Brand />
         <FreeBadge />
-        <CreatorStatus key={summary?.account} summary={summary?.creator} iconOnly />
+        <CreatorStatus key={summary?.account} summary={summary?.creator} analytics={summary?.analytics_periods} iconOnly />
         <Button
           variant="ghost"
           size="icon"

@@ -780,6 +780,136 @@
   font-size: 12px;
   font-weight: 400;
 }
+.creator-progress-trigger {
+  min-height: 36px;
+  padding-inline: 8px;
+  gap: 8px;
+  --creator-progress-color: var(--primary);
+}
+.creator-progress-track {
+  display: block;
+  width: 104px;
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--muted);
+}
+.creator-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--creator-progress-color, var(--primary));
+}
+.creator-progress-percent {
+  min-width: 30px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+[data-complete="true"] > .creator-progress-track > span,
+.creator-progress-trigger[data-complete="true"] .creator-progress-track > span {
+  background: linear-gradient(90deg, #b67b19, #ecc568, #d49a2b);
+}
+.creator-progress-tooltip {
+  width: min(300px, calc(100vw - 24px));
+  padding: 16px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 24px #0002;
+}
+.creator-progress-detail {
+  margin-top: 16px;
+}
+.creator-progress-detail > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.creator-progress-detail .creator-progress-track {
+  width: 100%;
+}
+.creator-progress-trigger.compact .creator-progress-track {
+  width: 36px;
+}
+.creator-progress-trigger.compact {
+  gap: 4px;
+  padding-inline: 4px;
+}
+.analytics-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0;
+}
+.analytics-canvas .analytics-line-chart {
+  height: clamp(320px, 45vh, 520px);
+}
+.analytics-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.analytics-legend > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.analytics-legend > button[aria-pressed="true"] {
+  background: transparent;
+  box-shadow: inset 0 -2px var(--primary);
+}
+.analytics-legend > button > span {
+  margin: 0;
+}
+.analytics-legend strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.analytics-reward {
+  display: grid;
+  gap: 12px;
+  grid-column: 1/-1;
+  padding-block: 16px;
+  border-top: 1px solid var(--border);
+}
+.reward-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.reward-amount { font-size: 28px; }
+.reward-calibration form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 16px;
+}
+.reward-calibration label { display: grid; gap: 8px; font-size: 13px; }
+.reward-calibration .calibration-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.calibration-confirm,
+.reward-calibration form > p,
+.reward-calibration form > button { grid-column: 1/-1; }
+@media (max-width: 600px) {
+  .site-header .creator-progress-track { width: 72px; }
+  .site-header .creator-progress-trigger { min-height: 44px; }
+  .analytics-canvas .analytics-line-chart { height: 320px; }
+}
 .creator-sheet {
   width: min(460px, 100vw);
   max-width: 100vw;

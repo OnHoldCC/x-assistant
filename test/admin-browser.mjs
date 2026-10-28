@@ -93,9 +93,10 @@ try{
   const official=await request('dashboard',{account:'example',days:7}).then(r=>r.json());
   const expected={'1d':10,'7d':70,'14d':70,'28d':1234,'30d':1300,'90d':4321,'365d':10000};
   assert.deepEqual(Object.keys(official.analytics_periods).sort(),Object.keys(expected).sort());
+  const revenueBasis=official.analytics_periods['14d'];const revenue=await request('save_earnings_calibration',{account:'example',observed_at:revenueBasis.observed_at,payout:14,currency:'USD',start_date:revenueBasis.data.series[0].date,end_date:revenueBasis.data.series.at(-1).date,confirmed:true});assert.equal(revenue.status,200);assert.equal((await revenue.json()).calibration.impressions,70);
   for(const [period,value] of Object.entries(expected))assert.equal(official.analytics_periods[period].data.metrics.impressions.value,value,'the selected period must not inherit stale previous-period values');
   assert.equal(await page.getByRole('button',{name:'刷新数据',exact:true}).count(),0);assert.equal(await page.getByRole('tablist',{name:'统计周期',exact:true}).count(),0);
-  for(const [period,value] of [['1D','10'],['4W','1,234'],['30D','1,300'],['3M','4,321']]){await page.getByRole('combobox',{name:'官方统计周期'}).click();await page.getByRole('option',{name:period,exact:true}).click();await page.locator('.analytics-grid > button').filter({hasText:'曝光量'}).getByText(value,{exact:true}).waitFor();}
+  for(const [period,value] of [['1D','10'],['4W','1,234'],['30D','1,300'],['3M','4,321']]){await page.getByRole('combobox',{name:'官方统计周期'}).click();await page.getByRole('option',{name:period,exact:true}).click();await page.getByLabel('选择曲线指标',{exact:true}).getByRole('button').filter({hasText:'曝光量'}).getByText(value,{exact:true}).waitFor();}
   assert.equal((await request('jobs').then(r=>r.json())).length,3,'switching official ranges uses saved snapshots without adding jobs');
   await page.screenshot({path:path.resolve('app/screenshots/official-analytics-desktop.png'),fullPage:true,animations:'disabled'});
   assert.equal(context.pages().filter(page=>page.url().startsWith('https://x.com/')).length,1,'official analytics closes only its own reader tab');

@@ -173,7 +173,7 @@ impl Store {
                 .transpose()
                 .map(|value| value.unwrap_or(Value::Null))
         };
-        let creator = json!({"account":selected,"snapshot":read_setting("creator")?,"assumptions":read_setting("earnings")?});
+        let creator = json!({"account":selected,"snapshot":read_setting("creator")?,"assumptions":read_setting("earnings")?,"calibration":read_setting("earnings-calibration")?});
         Ok(
             json!({"accounts":accounts,"account":selected,"posts":posts,"metrics":summarize(start,at),"series":series,"days":days,"start":start,"now":at,"analytics":analytics.and_then(|v|serde_json::from_str::<Value>(&v).ok()),"analytics_periods":analytics_periods,"creator":creator,"automation_block":read_setting("automation_block")?}),
         )

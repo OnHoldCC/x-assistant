@@ -339,7 +339,7 @@ export function App() {
         <SiteHeader title={active.label} mobileNavigation>
           {" "}
           <div className="top-actions">
-            <CreatorStatus key={selected} summary={data?.creator} onSaved={load} />
+            <CreatorStatus key={selected} summary={data?.creator} analytics={data?.analytics_periods} onSaved={load} />
             {isTauri() && !nativeMobile && !remote && <ExtensionUpgrade clients={clients} account={selected || null} pairing={pairing} refresh={load} />}
             <Select
               value={selected || "none"}

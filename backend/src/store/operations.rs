@@ -49,7 +49,10 @@ impl Store {
         };
         let creator = read(format!("creator:{account}"))?;
         let assumptions = read(format!("earnings:{account}"))?;
-        Ok(json!({"account":account,"snapshot":creator,"assumptions":assumptions}))
+        let calibration = read(format!("earnings-calibration:{account}"))?;
+        Ok(
+            json!({"account":account,"snapshot":creator,"assumptions":assumptions,"calibration":calibration}),
+        )
     }
     pub fn save_earnings(&self, account: &str, input: &Value, at: i64) -> Result<Value, String> {
         let account = handle(account)?;
@@ -63,6 +66,84 @@ impl Store {
             return Err("填写有效的近30天合格曝光与每千次收益（元）".into());
         }
         self.lock()?.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("earnings:{account}"),json!({"qualified30":input["qualified30"],"rpmCny":input["rpmCny"],"source":"manual","observed_at":at}).to_string()]).map_err(|e|e.to_string())?;
+        self.creator(&account)
+    }
+    pub fn save_earnings_calibration(
+        &self,
+        account: &str,
+        input: &Value,
+        at: i64,
+    ) -> Result<Value, String> {
+        let account = handle(account)?;
+        let payout = input["payout"]
+            .as_f64()
+            .filter(|n| n.is_finite() && (0.0..=1e9).contains(n))
+            .ok_or("结算金额无效")?;
+        let currency = input["currency"]
+            .as_str()
+            .filter(|value| ["USD", "CNY"].contains(value))
+            .ok_or("币种无效")?;
+        if input["confirmed"].as_bool() != Some(true) {
+            return Err("请确认结算金额对应所选统计日期".into());
+        }
+        let observed = input["observed_at"].as_i64().ok_or("缺少 Analytics 快照")?;
+        let db = self.lock()?;
+        let raw: String = db
+            .query_row(
+                "SELECT value FROM analytics WHERE handle=? AND at=?",
+                params![account, observed],
+                |r| r.get(0),
+            )
+            .map_err(|_| "未找到该账号的 Analytics 快照")?;
+        let snapshot: Value = serde_json::from_str(&raw).map_err(|_| "分析快照无效")?;
+        let from = input["start_date"].as_str().ok_or("缺少结算开始日期")?;
+        let to = input["end_date"].as_str().ok_or("缺少结算结束日期")?;
+        let start =
+            chrono::NaiveDate::parse_from_str(from, "%Y-%m-%d").map_err(|_| "结算日期无效")?;
+        let end = chrono::NaiveDate::parse_from_str(to, "%Y-%m-%d").map_err(|_| "结算日期无效")?;
+        let days = (end - start).num_days() + 1;
+        if !(1..=366).contains(&days) || from.len() != 10 || to.len() != 10 {
+            return Err("结算日期范围无效".into());
+        }
+        let all = snapshot["data"]["series"]
+            .as_array()
+            .filter(|rows| !rows.is_empty())
+            .ok_or("该快照没有逐日数据")?;
+        let series: Vec<_> = all
+            .iter()
+            .filter(|row| {
+                row["date"]
+                    .as_str()
+                    .is_some_and(|date| date >= from && date <= to)
+            })
+            .collect();
+        if series.len() as i64 != days {
+            return Err("所选日期没有完整的逐日曝光，无法校准".into());
+        }
+        let mut impressions = 0i64;
+        for point in &series {
+            impressions = impressions
+                .checked_add(
+                    point["metrics"]["impressions"]
+                        .as_i64()
+                        .filter(|n| *n >= 0)
+                        .ok_or("该周期曝光缺失，无法校准")?,
+                )
+                .ok_or("曝光总量过大")?;
+        }
+        if impressions <= 0 || impressions > 1_000_000_000_000_000 {
+            return Err("校准周期需要有效曝光".into());
+        }
+        let calibration = json!({"payout":payout,"currency":currency,"impressions":impressions,"start_date":series.first().unwrap()["date"],"end_date":series.last().unwrap()["date"],"period":snapshot["data"]["period"],"verified_only":snapshot["data"]["verified_only"].as_bool().unwrap_or(false),"observed_at":at});
+        db.execute(
+            "INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![
+                format!("earnings-calibration:{account}"),
+                calibration.to_string()
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        drop(db);
         self.creator(&account)
     }
     pub fn save_bookmark(&self, account: &str, input: &Value, at: i64) -> Result<Value, String> {

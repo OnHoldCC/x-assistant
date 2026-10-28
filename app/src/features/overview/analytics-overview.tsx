@@ -1,6 +1,5 @@
 import {
   Button,
-  Card,
   EmptyState,
   NumberValue,
   SectionTitle,
@@ -11,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/onhold";
 import { ChartContainer, ChartTooltip } from "@/components/onhold/charts";
-import { analyticsChartData } from "@/shared/metrics";
+import { analyticsChartData, analyticsRewardEstimate } from "@/shared/metrics";
 import { time } from "@/shared/operations";
 import type { AnalyticsPoint, Dashboard } from "@/shared/types";
 import {
@@ -26,6 +25,7 @@ import {
   Share2,
   UserPlus,
   Users,
+  CircleDollarSign,
 } from "lucide-react";
 import { useState } from "react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
@@ -52,6 +52,7 @@ const metrics = [
   ["bookmarks", "收藏", Bookmark],
   ["shares", "分享", Share2],
   ["posts", "发布帖子", FileText],
+  ["reward_estimate", "奖励参考", CircleDollarSign],
 ] as const;
 const color = (key: string) =>
   `var(--chart-${(metrics.findIndex(([name]) => name === key) % 5) + 1})`;
@@ -87,7 +88,9 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
     "90d",
     "365d",
   ];
-  const series = analyticsChartData(snapshot?.data.series || [], grain);
+  const reward = analyticsRewardEstimate(snapshot, data?.creator);
+  const series = analyticsChartData((snapshot?.data.series || []).map(point => ({...point, metrics:{...point.metrics, reward_estimate: reward.calibrated && point.metrics.impressions != null ? point.metrics.impressions * data!.creator!.calibration!.payout / data!.creator!.calibration!.impressions : null}})), grain);
+  if (reward.calibrated && reward.amount != null) counts.reward_estimate = {value:reward.amount,raw:"",approximate:true};
   const shown = selected
     ? metrics.filter(([key]) => key === selected)
     : metrics.filter(([key]) =>
@@ -121,7 +124,7 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
     ? metrics.find(([key]) => key === selected)?.[1] + "实际值"
     : "各指标峰值为 100，悬停查看实际值";
   return (
-    <Card className="analytics-card">
+    <section className="analytics-card analytics-canvas" aria-label="账号表现">
       <SectionTitle
         title="账号表现"
         action={
@@ -158,43 +161,6 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
           </div>
         }
       />
-      <div
-        className="analytics-grid analytics-selectors"
-        aria-label="选择曲线指标"
-      >
-        {metrics.map(([name, label, Icon], index) => (
-          <button
-            key={name}
-            type="button"
-            aria-pressed={selected === name}
-            onClick={() => setSelected(selected === name ? null : name)}
-            title={name === "engagement_rate" ? "总互动 ÷ 曝光 × 100%" : label}
-          >
-            <span>
-              <Icon aria-hidden="true" />
-              {label}
-              <i style={{ background: `var(--chart-${(index % 5) + 1})` }} />
-            </span>
-            <strong>
-              {name === "engagement_rate" ? (
-                counts[name] ? (
-                  counts[name].value.toLocaleString("zh-CN", {
-                    maximumFractionDigits: 2,
-                  }) + "%"
-                ) : (
-                  "—"
-                )
-              ) : (
-                <NumberValue
-                  value={counts[name]?.value}
-                  approximate={counts[name]?.approximate}
-                  compact
-                />
-              )}
-            </strong>
-          </button>
-        ))}
-      </div>
       <div className="analytics-chart-heading">
         <span>{description}</span>
         <Button
@@ -211,13 +177,13 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
           config={Object.fromEntries(
             shown.map(([key, label], index) => [
               key,
-              { label, color: `var(--chart-${(index % 5) + 1})` },
+              { label, color: color(key) },
             ]),
           )}
           className="analytics-line-chart"
           role="img"
           aria-label={
-            (selected
+            selected === "reward_estimate" ? "奖励参考估算趋势" : (selected
               ? metrics.find(([key]) => key === selected)?.[1]
               : "多指标") + "官方趋势"
           }
@@ -236,13 +202,13 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
               axisLine={false}
             />
             <YAxis
-              width={48}
+              width={selected === "reward_estimate" ? 76 : 48}
               tickLine={false}
               axisLine={false}
-              allowDecimals={selected === "engagement_rate"}
+              allowDecimals={selected === "engagement_rate" || selected === "reward_estimate"}
               domain={selected ? ["auto", "auto"] : ["auto", 100]}
               tickFormatter={(value) =>
-                selected === "engagement_rate"
+                selected === "reward_estimate" ? value.toLocaleString("zh-CN", {style:"currency",currency:reward.currency}) : selected === "engagement_rate"
                   ? value + "%"
                   : Math.abs(value) >= 1000
                     ? (value / 1000).toLocaleString("zh-CN", {
@@ -264,7 +230,7 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
                         <span>
                           <i
                             style={{
-                              background: `var(--chart-${(index % 5) + 1})`,
+                              background: color(key),
                             }}
                           />
                           {label}
@@ -272,7 +238,7 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
                         <b>
                           {point.metrics[key] == null
                             ? "—"
-                            : point.metrics[key]!.toLocaleString("zh-CN", {
+                            : key === "reward_estimate" ? point.metrics[key]!.toLocaleString("zh-CN", {style:"currency",currency:reward.currency}) : point.metrics[key]!.toLocaleString("zh-CN", {
                                 maximumFractionDigits:
                                   key === "engagement_rate" ? 3 : 0,
                               }) + (key === "engagement_rate" ? "%" : "")}
@@ -289,7 +255,7 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
                 name={key}
                 dataKey={key}
                 type="monotone"
-                stroke={`var(--chart-${(index % 5) + 1})`}
+                stroke={color(key)}
                 strokeDasharray={
                   index < 5 ? undefined : index % 2 ? "6 3" : "2 3"
                 }
@@ -312,6 +278,16 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
           description="采集运营数据后展示 X 官方逐日记录。"
         />
       )}
+      <div className="analytics-selectors analytics-legend" aria-label="选择曲线指标">
+        {metrics.filter(([name]) => name !== "reward_estimate" || reward.calibrated).map(([name, label, Icon]) => (
+          <button key={name} type="button" aria-pressed={selected === name} onClick={() => setSelected(selected === name ? null : name)} title={name === "engagement_rate" ? "总互动 ÷ 曝光 × 100%" : label}>
+            <i style={{ background: color(name) }} />
+            <Icon aria-hidden="true" />
+            <span>{label}</span>
+            <strong>{name === "reward_estimate" ? reward.amount == null ? "待校准" : reward.amount.toLocaleString("zh-CN",{style:"currency",currency:reward.currency}) : name === "engagement_rate" ? counts[name] ? counts[name].value.toLocaleString("zh-CN", { maximumFractionDigits: 2 }) + "%" : "—" : <NumberValue value={counts[name]?.value} approximate={counts[name]?.approximate} compact />}</strong>
+          </button>
+        ))}
+      </div>
       <p className="muted">
         {snapshot
           ? periods[period] +
@@ -321,6 +297,6 @@ export function OfficialAnalytics({ data }: { data: Dashboard | null }) {
             (snapshot.data.verified_only ? " · 仅认证用户" : "")
           : "等待首次采集"}
       </p>
-    </Card>
+    </section>
   );
 }

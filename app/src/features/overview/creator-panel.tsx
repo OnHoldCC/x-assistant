@@ -11,13 +11,17 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@/components/onhold";
 import { api } from "@/shared/api";
 import { creatorOutlook } from "@/shared/metrics";
 import { time } from "@/shared/operations";
-import type { CreatorSummary } from "@/shared/types";
+import type { AnalyticsSnapshot, CreatorSummary } from "@/shared/types";
+import { AnalyticsReward } from "./analytics-reward";
 import { useEffect, useState } from "react";
-import { Trophy } from "lucide-react";
 
 function creatorLabel(summary?: CreatorSummary | null) {
   const creator = summary?.snapshot?.data;
@@ -25,26 +29,49 @@ function creatorLabel(summary?: CreatorSummary | null) {
   return creator.state === "enrolled" ? "已开通" : creator.state === "eligible" ? "可申请" : creatorOutlook(creator, summary?.assumptions).blocked ? "未达标" : "待确认";
 }
 
-export function CreatorStatus({ summary, onSaved, iconOnly = false }: {
+export function CreatorStatus({ summary, onSaved, iconOnly = false, analytics }: {
   summary?: CreatorSummary | null;
   onSaved?: () => void;
   iconOnly?: boolean;
+  analytics?: Record<string, AnalyticsSnapshot>;
 }) {
   const label = creatorLabel(summary);
+  const creator = summary?.snapshot?.data;
+  const outlook = creatorOutlook(creator, summary?.assumptions);
+  const complete = creator?.state === "enrolled" || creator?.state === "eligible" || (outlook.progress === 100 && !outlook.blocked);
+  const progress = complete ? 100 : outlook.progress;
   return (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button className="creator-status" variant="ghost" size={iconOnly ? "icon" : "sm"} aria-label="查看创作者进度" title={"创作者进度 · " + label}>
-          <Trophy aria-hidden="true" />
-          {!iconOnly && <><span>创作者进度</span><span className="creator-status-label">{label}</span></>}
-        </Button>
-      </SheetTrigger>
+      <TooltipProvider>
+        <Tooltip delayDuration={150}>
+          <TooltipTrigger asChild>
+            <SheetTrigger asChild>
+              <Button className={"creator-status creator-progress-trigger" + (iconOnly ? " compact" : "")} variant="ghost" size="sm" aria-label="查看创作者进度" data-complete={complete}>
+                <span className="creator-progress-track" role="progressbar" aria-label="创作者资格总进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress ?? undefined} aria-valuetext={progress == null ? "尚未采集" : progress.toFixed(1) + "%"}>
+                  <span style={{ width: (progress ?? 0) + "%" }} />
+                </span>
+                <span className="creator-progress-percent">{progress == null ? "—" : progress.toLocaleString("zh-CN", { maximumFractionDigits: 1 }) + "%"}</span>
+              </Button>
+            </SheetTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="end" sideOffset={8} className="creator-progress-tooltip">
+            <strong>创作者进度 · {label}</strong>
+            {([ ["verified_followers", "认证粉丝"], ["verified_impressions", "认证主页曝光"] ] as const).map(([key, name]) => {
+              const item = creator?.[key];
+              return <div className="creator-progress-detail" key={key} data-complete={!!item && item.current.value >= item.target}>
+                <div><span>{name}</span><b>{item ? <><NumberValue value={item.current.value} approximate={item.current.approximate} /> / <NumberValue value={item.target} /></> : "尚未采集"}</b></div>
+                <span className="creator-progress-track"><span style={{ width: item ? Math.min(100, item.current.value / item.target * 100) + "%" : "0%" }} /></span>
+              </div>;
+            })}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <SheetContent className="creator-sheet">
         <SheetHeader>
           <SheetTitle>创作者中心</SheetTitle>
           <SheetDescription>{summary?.account ? "@" + summary.account + " · " : ""}资格与收益</SheetDescription>
         </SheetHeader>
-        <CreatorPanel summary={summary} onSaved={onSaved} />
+        <CreatorPanel summary={summary} onSaved={onSaved} analytics={analytics} />
       </SheetContent>
     </Sheet>
   );
@@ -54,13 +81,14 @@ export function CreatorPanel({
   summary,
   compact = false,
   onSaved,
+  analytics,
 }: {
   summary?: CreatorSummary | null;
   compact?: boolean;
   onSaved?: () => void;
+  analytics?: Record<string, AnalyticsSnapshot>;
 }) {
   const creator = summary?.snapshot?.data,
-    outlook = creatorOutlook(creator, summary?.assumptions),
     empty =
       !creator ||
       (creator.state === "unknown" &&
@@ -85,10 +113,13 @@ export function CreatorPanel({
   }, [summary?.account, summary?.assumptions?.observed_at]);
   const state = creatorLabel(summary);
   const content = empty ? (
+    <>
     <div className="creator-heading">
       <h2>创作者进度</h2>
       <span className="muted">尚未采集</span>
     </div>
+    {!!Object.keys(analytics || {}).length && <AnalyticsReward summary={summary} snapshots={analytics} onSaved={onSaved} />}
+    </>
   ) : (
     <>
       <div className="creator-heading">
@@ -149,25 +180,7 @@ export function CreatorPanel({
           );
         })}
       </div>
-      <div className="creator-earnings">
-        <span>30 天预估收益</span>
-        <strong>
-          {outlook.amount == null
-            ? "暂无估算"
-            : outlook.amount.toLocaleString("zh-CN", {
-                style: "currency",
-                currency: "CNY",
-                maximumFractionDigits: 2,
-              })}
-        </strong>
-        <small>
-          {outlook.blocked
-            ? "当前未达标，非历史到账金额"
-            : outlook.amount == null
-              ? "需填写合格曝光和历史结算单价"
-              : "按手动依据计算的情景估算，非官方结算"}
-        </small>
-      </div>
+      <AnalyticsReward summary={summary} snapshots={analytics} onSaved={onSaved} />
       {!compact && (
         <>
           <p className="muted">
@@ -184,7 +197,7 @@ export function CreatorPanel({
             </a>
           </p>
           <details className="earnings-assumptions">
-            <summary>收益估算依据</summary>
+            <summary>合格曝光手动估算</summary>
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
