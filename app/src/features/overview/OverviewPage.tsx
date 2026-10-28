@@ -11,7 +11,6 @@ import {
 } from "@/components/onhold";
 import { OfficialAnalytics } from "@/features/overview/analytics-overview";
 import { ChartAreaInteractive } from "@/features/overview/chart-area-interactive";
-import { CreatorPanel } from "@/features/overview/creator-panel";
 import { summarizePosts } from "@/shared/metrics";
 import { MetricCard, PostPerformanceTable, time } from "@/shared/operations";
 import type { Dashboard, Post } from "@/shared/types";
@@ -37,7 +36,6 @@ export function OverviewPage({
   ready,
   analyticsReady,
   goConnect,
-  load,
   setDetail,
 }: {
   data: Dashboard | null;
@@ -46,7 +44,6 @@ export function OverviewPage({
   ready: boolean;
   analyticsReady: boolean;
   goConnect: () => void;
-  load: () => Promise<void>;
   setDetail: (post: Post) => void;
 }) {
   const selected = data?.account,
@@ -78,11 +75,6 @@ export function OverviewPage({
       {overviewTab === "official" ? (
         <>
           <OfficialAnalytics key={data?.account} data={data} />
-          <CreatorPanel
-            key={data?.account}
-            summary={data?.creator}
-            onSaved={load}
-          />
           {ready && !analyticsReady && (
             <Notice tone="warning">
               请重载新版 X 助手后采集官方分析。

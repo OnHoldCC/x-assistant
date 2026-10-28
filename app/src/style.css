@@ -770,6 +770,67 @@
   font-size: 14px;
   font-weight: 600;
 }
+.creator-status {
+  flex: none;
+  gap: 6px;
+  white-space: nowrap;
+}
+.creator-status-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+}
+.creator-sheet {
+  width: min(460px, 100vw);
+  max-width: 100vw;
+  overflow: auto;
+}
+.creator-sheet .creator-panel {
+  grid-template-columns: 1fr;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  padding-top: 0;
+}
+.extension-upgrade-sheet {
+  width: min(440px, 100vw);
+  max-width: 100vw;
+  overflow: auto;
+}
+.extension-upgrade-body {
+  padding: 0 20px 20px;
+  display: grid;
+  gap: 20px;
+  font-size: 14px;
+}
+.upgrade-steps,
+.upgrade-actions,
+.upgrade-success {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.upgrade-steps {
+  color: var(--muted-foreground);
+}
+.upgrade-steps [aria-current="step"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.upgrade-actions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.extension-upgrade-body details > p,
+.extension-upgrade-body details > input,
+.extension-upgrade-body details > button {
+  margin-top: 12px;
+}
+@media (max-width: 420px) {
+  .site-header .creator-status-label {
+    display: none;
+  }
+}
 .creator-panel.creator-empty {
   display: block;
   padding-block: 16px;

@@ -55,6 +55,7 @@ pub async fn serve(mut socket: WebSocket, store: Arc<Store>, token: String) {
         return;
     }
     let _ = store.set_automation_support(&auth.client, false);
+    let _ = store.set_extension_version(&auth.client, "");
     let _ = run(&mut socket, &store, &auth).await;
     let _ = store.session_disconnected(&auth.client);
     let _ = socket.send(Message::Close(None)).await;
@@ -79,6 +80,7 @@ async fn run(socket: &mut WebSocket, store: &Store, auth: &Auth) -> Result<(), S
                         let state=value["state"].as_str().ok_or("缺少登录状态")?;
                         store.session_status(&auth.client,&auth.account,state,value["error"].as_str().unwrap_or(""),now())?;
                         store.set_automation_support(&auth.client,value["automation_supported"].as_bool().unwrap_or(false))?;
+                        store.set_extension_version(&auth.client,value["extension_version"].as_str().unwrap_or(""))?;
                         logged_in=state=="logged_in";last=Instant::now();
                         send(socket,json!({"type":"heartbeat"})).await?;
                     },

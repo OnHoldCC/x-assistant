@@ -27,6 +27,7 @@ body {
 }
 .bridge-account > div {
   min-width: 0;
+  flex: 1;
 }
 .bridge-account h1 {
   font-size: 18px;

@@ -23,6 +23,8 @@ import type { Pairing } from "@/features/connections/ConnectionSetup";
 import { ConnectionSetup } from "@/features/connections/ConnectionSetup";
 import { WorkspaceConnection } from "@/features/connections/WorkspaceConnection";
 import { ModelSettings } from "@/features/settings/model-settings";
+import { CreatorStatus } from "@/features/overview/creator-panel";
+import { ExtensionUpgrade } from "@/features/connections/ExtensionUpgrade";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { api } from "@/shared/api";
 import { PostDetail, SessionCard } from "@/shared/operations";
@@ -337,6 +339,8 @@ export function App() {
         <SiteHeader title={active.label} mobileNavigation>
           {" "}
           <div className="top-actions">
+            <CreatorStatus key={selected} summary={data?.creator} onSaved={load} />
+            {isTauri() && !nativeMobile && !remote && <ExtensionUpgrade clients={clients} account={selected || null} pairing={pairing} refresh={load} />}
             <Select
               value={selected || "none"}
               onValueChange={choose}
@@ -457,7 +461,6 @@ export function App() {
                 ready={ready}
                 analyticsReady={analyticsReady}
                 goConnect={goConnect}
-                load={load}
                 setDetail={setDetail}
               />
             )}

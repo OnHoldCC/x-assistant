@@ -1,0 +1,1 @@
+import{j as a,$ as n}from"./free-badge-C7s2H9ni.js";function o({className:e,...t}){return a.jsx("div",{"data-slot":"skeleton","aria-hidden":"true",className:n("animate-pulse rounded-md bg-accent",e),...t})}export{o as S};

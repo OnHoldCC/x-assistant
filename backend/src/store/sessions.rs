@@ -12,9 +12,9 @@ impl Store {
     pub fn connections(&self, at: i64) -> Result<Value, String> {
         let db = self.lock()?;
         let mut stmt = db
-            .prepare("SELECT c.id,c.account,c.last_seen,s.state,s.error,s.connected,s.analytics_supported FROM clients c LEFT JOIN browser_sessions s ON s.client=c.id ORDER BY c.last_seen DESC LIMIT 100")
+            .prepare("SELECT c.id,c.account,c.last_seen,s.state,s.error,s.connected,s.analytics_supported,s.extension_version FROM clients c LEFT JOIN browser_sessions s ON s.client=c.id ORDER BY c.last_seen DESC LIMIT 100")
             .map_err(|e| e.to_string())?;
-        let clients=stmt.query_map([],|r|{let last:i64=r.get(2)?;let connected=r.get::<_,Option<bool>>(5)?;Ok(json!({"id":r.get::<_,String>(0)?,"account":r.get::<_,String>(1)?,"last_seen":last,"online":at-last<60_000&&connected.unwrap_or(true),"transport":if connected.is_some(){"websocket"}else{"http"},"login_state":r.get::<_,Option<String>>(3)?.unwrap_or_else(||"unknown".into()),"error":r.get::<_,Option<String>>(4)?.unwrap_or_default(),"capture_interval_seconds":300,"analytics_supported":r.get::<_,Option<bool>>(6)?.unwrap_or(false)}))}).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        let clients=stmt.query_map([],|r|{let last:i64=r.get(2)?;let connected=r.get::<_,Option<bool>>(5)?;Ok(json!({"id":r.get::<_,String>(0)?,"account":r.get::<_,String>(1)?,"last_seen":last,"online":at-last<60_000&&connected.unwrap_or(true),"transport":if connected.is_some(){"websocket"}else{"http"},"login_state":r.get::<_,Option<String>>(3)?.unwrap_or_else(||"unknown".into()),"error":r.get::<_,Option<String>>(4)?.unwrap_or_default(),"capture_interval_seconds":300,"analytics_supported":r.get::<_,Option<bool>>(6)?.unwrap_or(false),"extension_version":r.get::<_,Option<String>>(7)?.unwrap_or_default()}))}).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
         Ok(json!(clients))
     }
     pub fn session_status(
@@ -45,6 +45,26 @@ impl Store {
             .execute(
                 "UPDATE browser_sessions SET analytics_supported=? WHERE client=?",
                 params![supported, client],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    pub fn set_extension_version(&self, client: &str, version: &str) -> Result<(), String> {
+        if !version.is_empty()
+            && (version.len() > 23
+                || version.split('.').count() > 4
+                || !version.split('.').all(|part| {
+                    !part.is_empty()
+                        && part.bytes().all(|b| b.is_ascii_digit())
+                        && part.parse::<u16>().is_ok()
+                }))
+        {
+            return Err("插件版本无效".into());
+        }
+        self.lock()?
+            .execute(
+                "UPDATE browser_sessions SET extension_version=? WHERE client=?",
+                params![version, client],
             )
             .map_err(|e| e.to_string())?;
         Ok(())

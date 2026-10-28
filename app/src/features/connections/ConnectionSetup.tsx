@@ -13,6 +13,7 @@ import type { Client } from "@/shared/types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ArrowLeft, ArrowRight, Check, Copy, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { extensionNeedsUpgrade, extensionVersion } from "@/shared/extension-version";
 export type Pairing = {
   token: string;
   endpoint: string;
@@ -38,12 +39,13 @@ export function ConnectionSetup({
     (client) =>
       client.online &&
       client.transport === "websocket" &&
-      client.login_state === "logged_in",
+      client.login_state === "logged_in" &&
+      !extensionNeedsUpgrade(client.extension_version),
   );
   useEffect(() => {
     setStep((current) => (connected ? 2 : current === 2 ? 1 : current));
     if (connected) setWaiting(false);
-  }, [connected?.id, connected?.online, connected?.login_state]);
+  }, [connected?.id, connected?.online, connected?.login_state, connected?.extension_version]);
   async function connect() {
     setMessage("");
     setWaiting(true);
@@ -89,6 +91,7 @@ export function ConnectionSetup({
         <CardTitle className="text-xl">
           {["安装 X 助手", "连接你的 X 账号", "连接成功"][step]}
         </CardTitle>
+        {step === 0 && <Badge variant="secondary">{extensionVersion}</Badge>}
         <CardDescription>
           {
             [
@@ -141,6 +144,7 @@ export function ConnectionSetup({
         )}
         {step === 1 && (
           <>
+            {clients.some(client => client.online && extensionNeedsUpgrade(client.extension_version)) && <Button variant="outline" onClick={() => setStep(0)}>更新助手至 {extensionVersion}</Button>}
             <Button onClick={connect} disabled={!pairing || !!pairing.error}>
               {waiting && <LoaderCircle className="animate-spin" />}连接 X
               助手插件

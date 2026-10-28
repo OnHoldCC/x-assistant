@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {extensionVersion} from '../app/src/shared/extension-version.ts';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
@@ -9,7 +10,7 @@ const dashboard={accounts:[{handle:'example',first_seen:at,last_seen:at},{handle
 try{
  for(let i=0;;i++){if(server.exitCode!==null)throw Error('preview exited');try{if((await fetch(base)).ok)break;}catch{}if(i>100)throw Error('preview did not start');await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,channel:'chromium'});const page=await browser.newPage({viewport:{width:1320,height:940}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(({dashboard,at})=>{
+ await page.addInitScript(({dashboard,at,extensionVersion})=>{
   window.isTauri=true;window.calls=[];window.hostAttempts=0;window.connected=false;window.firstCapture=false;window.jobs=[];window.holdEnqueue=false;
   window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
    window.calls.push({command,...args});
@@ -17,7 +18,7 @@ try{
    if(command!=='admin')throw Error('桌面本机模式不应调用远程后台');
    if(args.operation==='pairing'){if(++window.hostAttempts===1)throw Error('启动读取失败');return {extension:'/test/user-data/browser-extension',endpoint:'http://127.0.0.1:18431',mobile:false};}
    if(args.operation==='dashboard')return window.firstCapture?{...dashboard,account:args.input.account||dashboard.account}:{...dashboard,account:null,accounts:[]};
-   if(args.operation==='connections')return window.connected?[{id:'client',account:'example',online:true,transport:'websocket',login_state:'logged_in',last_seen:at,error:'',capture_interval_seconds:300,analytics_supported:true}]:[];
+   if(args.operation==='connections')return window.connected?[{id:'client',account:'example',online:true,transport:'websocket',login_state:'logged_in',last_seen:at,error:'',capture_interval_seconds:300,analytics_supported:true,extension_version:extensionVersion}]:[];
    if(args.operation==='jobs')return structuredClone(window.jobs);
    if(args.operation==='enqueue'){
     if(window.holdEnqueue)await new Promise(resolve=>window.releaseEnqueue=resolve);
@@ -25,7 +26,7 @@ try{
    }
    return {};
   }};
- },{dashboard,at});
+ },{dashboard,at,extensionVersion});
  await page.goto(base);await page.getByRole('alert').filter({hasText:'启动读取失败'}).waitFor();await page.getByRole('button',{name:'重试',exact:true}).click();await page.getByText('安装 X 助手',{exact:true}).waitFor();
  await page.getByRole('button',{name:'打开扩展管理页',exact:true}).click();await page.waitForFunction(()=>window.calls.some(c=>c.command==='open_extension_installation'));
  await page.getByRole('button',{name:'已安装，下一步',exact:false}).click();await page.getByRole('button',{name:'连接 X 助手插件',exact:true}).click();assert.ok((await page.evaluate(()=>window.calls)).some(c=>c.command==='open_browser_connection'));

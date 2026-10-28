@@ -180,7 +180,7 @@ export function createCdpBridge(){
     try{const snapshot=await capture(cdpTab);if(snapshot.handle!==cdpAccount){state='account_changed';error='X 账号已切换，请重新绑定当前账号';}}
     catch(cause){error=cause.message.slice(0,500);state=/尚未识别登录账号|先登录 X/.test(error)?'logged_out':'page_unavailable';}
     if(active!==socket||active.readyState!==WebSocket.OPEN)return;
-    active.send(JSON.stringify({type:'heartbeat',state,error,automation_supported:true}));await chrome.storage.session.set({cdpLoginState:state,cdpError:error});
+    active.send(JSON.stringify({type:'heartbeat',state,error,automation_supported:true,extension_version:chrome.runtime.getManifest().version}));await chrome.storage.session.set({cdpLoginState:state,cdpError:error});
   }
   async function openSocket(){
     if(socket?.readyState===WebSocket.OPEN)return;

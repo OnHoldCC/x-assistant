@@ -2,6 +2,40 @@ use onhold_backend::store::{Store, SCHEMA_VERSION};
 use rusqlite::Connection;
 
 #[test]
+fn version_one_upgrade_keeps_pairing_and_tracks_the_loaded_extension_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("version-one.db");
+    let store = Store::open(&file).unwrap();
+    let token = store.token().unwrap();
+    let client = uuid::Uuid::new_v4().to_string();
+    store
+        .session_status(&client, "example", "logged_in", "", 1000)
+        .unwrap();
+    drop(store);
+    let db = Connection::open(&file).unwrap();
+    db.execute(
+        "ALTER TABLE browser_sessions DROP COLUMN extension_version",
+        [],
+    )
+    .unwrap();
+    db.pragma_update(None, "user_version", 1).unwrap();
+    drop(db);
+    let store = Store::open(&file).unwrap();
+    assert_eq!(store.token().unwrap(), token);
+    assert_eq!(store.connections(1001).unwrap()[0]["extension_version"], "");
+    store.set_extension_version(&client, "1.4.2").unwrap();
+    assert_eq!(
+        store.connections(1001).unwrap()[0]["extension_version"],
+        "1.4.2"
+    );
+    for version in ["1.bad", "65536.0", "1.2.3.4.5", "1..2"] {
+        assert!(store.set_extension_version(&client, version).is_err());
+    }
+    store.set_extension_version(&client, "").unwrap();
+    assert_eq!(store.connections(1001).unwrap()[0]["extension_version"], "");
+}
+
+#[test]
 fn legacy_database_keeps_rows_pairing_and_task_defaults_on_upgrade_and_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("legacy.db");

@@ -5,12 +5,51 @@ import {
   Input,
   Notice,
   NumberValue,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
 } from "@/components/onhold";
 import { api } from "@/shared/api";
 import { creatorOutlook } from "@/shared/metrics";
 import { time } from "@/shared/operations";
 import type { CreatorSummary } from "@/shared/types";
 import { useEffect, useState } from "react";
+import { Trophy } from "lucide-react";
+
+function creatorLabel(summary?: CreatorSummary | null) {
+  const creator = summary?.snapshot?.data;
+  if (!creator || (creator.state === "unknown" && !creator.verified_followers && !creator.verified_impressions)) return "尚未采集";
+  return creator.state === "enrolled" ? "已开通" : creator.state === "eligible" ? "可申请" : creatorOutlook(creator, summary?.assumptions).blocked ? "未达标" : "待确认";
+}
+
+export function CreatorStatus({ summary, onSaved, iconOnly = false }: {
+  summary?: CreatorSummary | null;
+  onSaved?: () => void;
+  iconOnly?: boolean;
+}) {
+  const label = creatorLabel(summary);
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button className="creator-status" variant="ghost" size={iconOnly ? "icon" : "sm"} aria-label="查看创作者进度" title={"创作者进度 · " + label}>
+          <Trophy aria-hidden="true" />
+          {!iconOnly && <><span>创作者进度</span><span className="creator-status-label">{label}</span></>}
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="creator-sheet">
+        <SheetHeader>
+          <SheetTitle>创作者中心</SheetTitle>
+          <SheetDescription>{summary?.account ? "@" + summary.account + " · " : ""}资格与收益</SheetDescription>
+        </SheetHeader>
+        <CreatorPanel summary={summary} onSaved={onSaved} />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export function CreatorPanel({
   summary,
   compact = false,
@@ -44,14 +83,7 @@ export function CreatorPanel({
     );
     setError("");
   }, [summary?.account, summary?.assumptions?.observed_at]);
-  const state =
-    creator?.state === "enrolled"
-      ? "已开通"
-      : creator?.state === "eligible"
-        ? "可申请"
-        : outlook.blocked
-          ? "未达标"
-          : "待确认";
+  const state = creatorLabel(summary);
   const content = empty ? (
     <div className="creator-heading">
       <h2>创作者进度</h2>

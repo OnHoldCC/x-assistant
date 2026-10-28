@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {DatabaseSync} from 'node:sqlite';
 import {captureX} from '../extension/cdp-bridge.js';
+import {extensionVersion} from '../app/src/shared/extension-version.ts';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
 const home=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-admin-test-')),port=process.env.ONHOLD_TEST_PORT||'21429',base='http://127.0.0.1:'+port;
 const child=spawn(path.resolve('backend/target/debug/onhold-backend')+(process.platform==='win32'?'.exe':''),['--home',home,'--assets',path.resolve('app/dist'),'--port',port],{stdio:['ignore','pipe','pipe']});
@@ -15,7 +16,7 @@ try{
   const html=await fetch(base).then(r=>r.text()),token=html.match(/name="onhold-token" content="([a-f0-9]{64})"/)[1];
   const ownedDb=new DatabaseSync(path.join(home,'onhold-admin.sqlite3'));const expectedToken=ownedDb.prepare("SELECT value FROM settings WHERE key='bridge-token'").get().value;ownedDb.close();assert.ok(token===expectedToken,'the test backend port must belong to the temporary database');
   const health=await fetch(base+'/health').then(response=>response.json());
-  assert.equal(health.service,'onhold-admin');assert.equal(health.protocol,1);assert.equal(health.schema_version,1);assert.match(health.version,/^\d+\.\d+\.\d+/);
+  assert.equal(health.service,'onhold-admin');assert.equal(health.protocol,1);assert.equal(health.schema_version,2);assert.match(health.version,/^\d+\.\d+\.\d+/);
   const request=(operation,input={},headers={})=>fetch(base+'/api/admin',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token,...headers},body:JSON.stringify({operation,input})});
   assert.equal((await request('dashboard',{}, {Authorization:'Bearer invalid'})).status,401);
   assert.equal((await request('dashboard',{}, {Origin:'https://evil.example'})).status,403);
@@ -62,7 +63,7 @@ try{
   const summary=await send('CDP_OVERVIEW');assert.equal(summary.ok,true,summary.error);assert.equal(summary.data.account,'example');assert.equal(summary.data.postCount,1);assert.equal(summary.data.metrics.followers.value,1200);assert.equal(summary.data.metrics.views.value,566000);
   await popup.bringToFront();const legacySummary=await send('GET_ACCOUNT_SUMMARY');assert.equal(legacySummary.ok,true,legacySummary.error);assert.equal(legacySummary.data.account,'example','settings identify the bound X tab while the extension page is active');
   await popup.setViewportSize({width:420,height:600});await popup.reload();await popup.getByLabel('已采集数据',{exact:true}).getByText('390',{exact:true}).waitFor();await popup.locator('main.bridge-shell').screenshot({path:path.resolve('app/screenshots/plugin-metrics.png'),animations:'disabled'});
-  const client=(await request('connections').then(r=>r.json()))[0];assert.equal(client.transport,'websocket');assert.equal(client.online,true);
+  const client=(await request('connections').then(r=>r.json()))[0];assert.equal(client.transport,'websocket');assert.equal(client.online,true);for(let i=0;;i++){const connection=(await request('connections').then(r=>r.json()))[0];if(connection.extension_version===extensionVersion)break;if(i>40)throw Error('Loaded extension version was not reported');await new Promise(resolve=>setTimeout(resolve,100));}
   await page.reload();await page.getByRole('button',{name:'进入运营后台',exact:true}).click();await page.getByRole('heading',{name:'运营概览',exact:true}).waitFor();await page.getByRole('tab',{name:'观测数据',exact:true}).click();await page.getByRole('button',{name:'立即采集',exact:true}).waitFor();
   assert.equal(await page.locator('.metric-grid').evaluate(node=>getComputedStyle(node).display),'grid');
   assert.equal((await page.locator('.metric-grid').evaluate(node=>getComputedStyle(node).gridTemplateColumns)).split(' ').length,4);

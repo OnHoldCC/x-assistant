@@ -103,3 +103,7 @@ Rust 测试覆盖快照基线、未知与零、近似/精确计数切换、持�
 0.7.0 原型使用 OnHold Assistant / `cc.onhold.assistant`，因此不会被同名替换规则识别成新版。安装成功后，仅将标识与版本均匹配的 `/Applications/OnHold Assistant.app` 移到 `/Library/Application Support/OnHold/Previous Versions/upgrade.XXXXXX/OnHold Assistant.app.backup`，保留原文件以便恢复。两个应用的用户数据目录、账号数据库、配对和模型缓存不做清理。不匹配的应用、其他版本和符号链接保持原位。应用仍在运行时安装器会要求先退出，不强制终止。
 
 DMG 是拖拽安装的镜像，直接双击其中应用只会运行该副本；不要将它当作自动覆盖安装器。旧 DMG 的挂载磁盘图标也不代表又安装了一份应用。安装包尚未使用 Developer ID Installer 签名或公证，系统仍可能提示来源风险。安装关闭规则依据 [Apple Distribution XML](https://developer.apple.com/library/archive/documentation/DeveloperTools/Reference/DistributionDefinitionRef/Chapters/Distribution_XML_Ref.html)，整包覆盖与禁止重定位使用本机 `pkgbuild(1)` 的组件策略。
+
+## 插件升级引导（0.9.2）
+
+以插件运行中的 `chrome.runtime.getManifest().version` 心跳为准，不能以磁盘中已导出的 manifest 冒充浏览器已升级。新桌面启动后发现当前账号连接的是旧版或版本未知，会显示“更新助手”：先打开扩展管理页与新版目录，在原卡片重载，再检查连接。收到目标版本或更高版本的在线心跳后确认完成；未升级时保留提示。新版文件仍导出到固定 browser-extension 目录，不卸载扩展或清空设置。

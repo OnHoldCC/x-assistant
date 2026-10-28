@@ -19,7 +19,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { FreeBadge } from "@/app/free-badge";
-import { CreatorPanel } from "@/features/overview/creator-panel";
+import { CreatorStatus } from "@/features/overview/creator-panel";
 import type { CreatorSummary, Client, Metric, Job } from "@/shared/types";
 import { loginLabels, time } from "@/shared/operations";
 import "@/style.css";
@@ -203,11 +203,7 @@ function Popup() {
       <header>
         <Brand />
         <FreeBadge />
-        <StatusBadge
-          tone={ready ? "success" : connected ? "warning" : "neutral"}
-        >
-          {stateLabel}
-        </StatusBadge>
+        <CreatorStatus key={summary?.account} summary={summary?.creator} iconOnly />
         <Button
           variant="ghost"
           size="icon"
@@ -271,6 +267,9 @@ function Popup() {
                   : "先打开工作台，完成配对"}
           </p>
         </div>
+        <StatusBadge tone={ready ? "success" : connected ? "warning" : "neutral"}>
+          {stateLabel}
+        </StatusBadge>
       </section>
       {!loaded && !refreshError && <Skeleton className="h-20 w-full" />}
       {summary && (
@@ -327,7 +326,6 @@ function Popup() {
           )}
         </section>
       )}
-      <CreatorPanel compact summary={summary?.creator} />
       {!manualOpen &&
         (ready ? (
           <Button

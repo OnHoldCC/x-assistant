@@ -1,6 +1,6 @@
 use rusqlite::{Connection, TransactionBehavior};
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
     let tx = db
@@ -51,6 +51,11 @@ pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
             "browser_sessions",
             "automation_supported",
             "INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "browser_sessions",
+            "extension_version",
+            "TEXT NOT NULL DEFAULT ''",
         ),
     ] {
         let mut statement = tx

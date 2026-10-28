@@ -97,6 +97,7 @@ export type Client = {
   error: string;
   capture_interval_seconds: number;
   analytics_supported?: boolean;
+  extension_version?: string;
 };
 export type Job = {
   id: string;

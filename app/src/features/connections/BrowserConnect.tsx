@@ -1,5 +1,6 @@
 import { Brand, Button, Card } from "@/components/onhold";
 import { api } from "@/shared/api";
+import { extensionNeedsUpgrade, extensionVersion } from "@/shared/extension-version";
 import { Check, Link2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 declare const chrome: {
@@ -12,6 +13,7 @@ declare const chrome: {
       error?: string;
       data: { account: string };
       protocol?: number;
+      version?: string;
     }>;
   };
 };
@@ -36,10 +38,11 @@ export function BrowserConnect() {
             data: { endpoint: location.origin },
           });
           if (result?.ok && result.protocol === 1) {
+            if (extensionNeedsUpgrade(result.version)) throw Error(`助手 ${result.version || "版本未知"} 需更新到 ${extensionVersion}，请返回桌面端重载新版助手。`);
             installed = id;
             break;
           }
-        } catch {}
+        } catch (error) { if (error instanceof Error && error.message.includes("需更新到")) throw error; }
       }
       if (!installed)
         throw Error("未检测到新版助手，请先在扩展管理页重载助手。");

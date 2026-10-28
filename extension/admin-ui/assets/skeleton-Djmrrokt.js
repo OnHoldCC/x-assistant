@@ -1,1 +1,0 @@
-import{j as a,_ as n}from"./free-badge-DoqWGt-W.js";function o({className:e,...t}){return a.jsx("div",{"data-slot":"skeleton","aria-hidden":"true",className:n("animate-pulse rounded-md bg-accent",e),...t})}export{o as S};
