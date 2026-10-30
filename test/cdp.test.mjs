@@ -8,7 +8,7 @@ test('CDP pairing accepts only explicit local backends and valid connection keys
 });
 test('CDP reports a stopped backend, wrong service and invalid key before attaching to X',async t=>{
  const previous=globalThis.chrome;let attached=0;
- globalThis.chrome={storage:{local:{get:async()=>({cdpConfig:{endpoint:'http://127.0.0.1:18431',token:'a'.repeat(64)}})}},alarms:{onAlarm:{addListener(){}}},debugger:{onDetach:{addListener(){}},attach(){attached++;}}};
+ globalThis.chrome={storage:{local:{get:async()=>({cdpConfig:{endpoint:'http://127.0.0.1:18431',token:'a'.repeat(64)}}),set:async()=>{}},session:{remove:async()=>{},set:async()=>{}}},alarms:{onAlarm:{addListener(){}}},debugger:{onDetach:{addListener(){}},attach(){attached++;}}};
  t.after(()=>{if(previous===undefined)delete globalThis.chrome;else globalThis.chrome=previous;});
  const bridge=createCdpBridge();
  const fetch=t.mock.method(globalThis,'fetch',async()=>{throw new TypeError('Failed to fetch');});
@@ -36,8 +36,9 @@ test('popup overview scopes account data and never exposes the pairing key or po
 });
 test('a delayed detach event cannot clear a replacement connection to the same X tab',async t=>{
  const previous=globalThis.chrome;let detach,attached=true;const state={cdpTab:7,cdpAccount:'example',cdpWs:'connected'};
- globalThis.chrome={storage:{session:{get:async()=>({...state}),remove:async keys=>{for(const key of keys)delete state[key];},set:async value=>Object.assign(state,value)}},alarms:{onAlarm:{addListener(){}}},debugger:{onDetach:{addListener(handler){detach=handler;}},sendCommand:async(_target,method,input)=>{assert.equal(method,'Runtime.evaluate');assert.equal(input.expression,'0');if(!attached)throw Error('not attached');return {result:{value:0}};}}};
+ globalThis.chrome={storage:{session:{get:async()=>({...state}),remove:async keys=>{for(const key of [].concat(keys))delete state[key];},set:async value=>Object.assign(state,value)}},alarms:{onAlarm:{addListener(){}}},debugger:{onDetach:{addListener(handler){detach=handler;}},sendCommand:async(_target,method,input)=>{assert.equal(method,'Runtime.evaluate');assert.equal(input.expression,'0');if(!attached)throw Error('not attached');return {result:{value:0}};}}};
  t.after(()=>{if(previous===undefined)delete globalThis.chrome;else globalThis.chrome=previous;});
+ t.mock.method(globalThis,'setTimeout',()=>({}));
  createCdpBridge();await detach({tabId:7});assert.equal(state.cdpAccount,'example');assert.equal(state.cdpWs,'connected');
- attached=false;await detach({tabId:7});assert.equal(state.cdpAccount,undefined);assert.equal(state.cdpWs,'disconnected');
+ attached=false;await detach({tabId:7});assert.equal(state.cdpAccount,'example','temporary detach retains the account for automatic recovery');assert.equal(state.cdpTab,undefined);assert.equal(state.cdpWs,'disconnected');
 });

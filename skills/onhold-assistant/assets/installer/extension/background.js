@@ -6,6 +6,7 @@ import {DEFAULTS, validateSettings, translationAllowed, translationHosts} from '
 const WEB_ORIGINS=['https://*/*','http://*/*'];
 const cdpBridge=createCdpBridge();
 cdpBridge.resume().catch(()=>{});
+chrome.runtime.onStartup?.addListener(()=>cdpBridge.resume().catch(()=>{}));
 chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
   let origin;try{origin=new URL(sender.url).origin;}catch{return false;}
   if(!['http://127.0.0.1:18431','http://localhost:18431'].includes(origin)||!['ONHOLD_PAIR','ONHOLD_DISCOVER','ONHOLD_BROWSER_SETTINGS','ONHOLD_RELOAD'].includes(message?.type)||message.data?.endpoint!==origin)return false;

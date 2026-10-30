@@ -46,7 +46,10 @@ pub async fn serve(mut socket: WebSocket, store: Arc<Store>, token: String) {
         let _ = socket.send(Message::Close(None)).await;
         return;
     };
-    let _ = run(&mut socket, &store, &auth, &connection).await;
+    let _ = store.record_event("info", "browser.connected", Some(&auth.account), "X 助手 WebSocket 已连接");
+    let outcome = run(&mut socket, &store, &auth, &connection).await;
+    let reason = outcome.err().unwrap_or_else(|| if store.browser_connection_current(&auth.client, &connection) { "WebSocket 已关闭".into() } else { "连接已被新连接替换".into() });
+    let _ = store.record_event("info", "browser.disconnected", Some(&auth.account), &reason);
     let _ = store.disconnect_browser(&auth.client, &connection);
     let _ = socket.send(Message::Close(None)).await;
 }

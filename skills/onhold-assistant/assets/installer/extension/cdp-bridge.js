@@ -81,7 +81,7 @@ export function bridgeConfig(value){
   return {endpoint:url.origin,token:value.token};
 }
 export function createCdpBridge(){
-  let busy=false,socket=null,connecting=null,heartbeatTimer;
+  let busy=false,socket=null,connecting=null,restoring=null,heartbeatTimer,retryTimer,retryAttempt=0,stopped=false,authBlocked=false,lastPong=0,heartbeating=false;
   async function session(){const data=await chrome.storage.session.get(['cdpTab','cdpAccount']);return data;}
   async function probe(){
     const saved=await chrome.storage.local.get('cdpConfig'),config=bridgeConfig(saved.cdpConfig);
@@ -92,7 +92,7 @@ export function createCdpBridge(){
   async function call(operation,input){
     const saved=await chrome.storage.local.get('cdpConfig'),config=bridgeConfig(saved.cdpConfig);
     let response;try{response=await fetch(config.endpoint+'/api/admin',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.token},body:JSON.stringify({operation,input}),signal:AbortSignal.timeout(15000)});}catch{throw Error('无法连接 OnHold，请打开桌面端后重试');}
-    const value=await response.json();if(!response.ok)throw Error(value.error||'后台连接失败');return value;
+    const value=await response.json();if(!response.ok){if([401,403].includes(response.status)){authBlocked=true;await chrome.storage.session.set({cdpReconnectBlocked:true});}throw Error(value.error||'后台连接失败');}return value;
   }
   async function client(){const saved=await chrome.storage.local.get('cdpClient');if(saved.cdpClient)return saved.cdpClient;const id=crypto.randomUUID();await chrome.storage.local.set({cdpClient:id});return id;}
   async function capture(tab,period,creatorAccount){
@@ -213,39 +213,103 @@ export function createCdpBridge(){
     }catch(error){if(job?.input?.task_id&&error.publicationResult?.tab_closed===false){try{await call('control_automation',{account:cdpAccount,id:job.input.task_id,enabled:false});error.publicationResult.cleanup_warning+=' 当前自动化已暂停，避免继续积累页面。';}catch{}}if(job&&id)await call('finish',{id:job.id,client:id,error:error.message.slice(0,2000),result:error.publicationResult||error.automationResult}).catch(()=>{});await chrome.storage.session.set({cdpError:error.message});}finally{busy=false;}
   }
   function closeSocket(){clearInterval(heartbeatTimer);const old=socket;socket=null;old?.close();}
+  async function bounded(promise){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('X 连接检查超时，等待自动恢复')),12000);})]);}finally{clearTimeout(timer);}}
+  function retry(error){
+    if(stopped||authBlocked||retryTimer)return;
+    const delay=Math.min(30000,1000*2**Math.min(retryAttempt++,5));
+    chrome.storage.session.set({cdpWs:'disconnected',cdpError:error?.message||String(error||'连接已断开'),cdpRetryAt:Date.now()+delay}).catch(()=>{});
+    retryTimer=setTimeout(()=>{retryTimer=null;resume().catch(()=>{});},delay);
+  }
   async function heartbeat(){
-    const active=socket;if(active?.readyState!==WebSocket.OPEN)return;
-    const {cdpTab,cdpAccount}=await session();let state='logged_in',error='';
-    try{const snapshot=await capture(cdpTab);if(snapshot.handle!==cdpAccount){state='account_changed';error='X 账号已切换，请重新绑定当前账号';}
-      else {const cookies=await chrome.debugger.sendCommand({tabId:cdpTab},'Network.getCookies',{urls:['https://x.com/']});const credentials=sessionFromCookies(cookies.cookies||[]);await call('refresh_x_session',credentials);}}
-    catch(cause){error=cause.message.slice(0,500);state=/尚未识别登录账号|先登录 X/.test(error)?'logged_out':'page_unavailable';}
-    if(active!==socket||active.readyState!==WebSocket.OPEN)return;
-    active.send(JSON.stringify({type:'heartbeat',state,error,automation_supported:true,extension_version:chrome.runtime.getManifest().version}));await chrome.storage.session.set({cdpLoginState:state,cdpError:error});
+    const active=socket;if(active?.readyState!==WebSocket.OPEN||heartbeating)return;
+    if(Date.now()-lastPong>60000){closeSocket();retry(Error('WS 心跳回执超时，正在自动重连'));return;}
+    heartbeating=true;
+    try{
+      const {cdpTab,cdpAccount}=await session();let state='logged_in',error='';
+      try{const snapshot=await bounded(capture(cdpTab));if(snapshot.handle!==cdpAccount){state='account_changed';error='X 账号已切换，等待原绑定账号恢复';}
+        else {const cookies=await bounded(chrome.debugger.sendCommand({tabId:cdpTab},'Network.getCookies',{urls:['https://x.com/']}));await call('refresh_x_session',sessionFromCookies(cookies.cookies||[]));}}
+      catch(cause){error=cause.message.slice(0,500);state=/尚未识别登录账号|先登录 X/.test(error)?'logged_out':'page_unavailable';}
+      if(active!==socket||active.readyState!==WebSocket.OPEN)return;
+      active.send(JSON.stringify({type:'heartbeat',state,error,automation_supported:true,extension_version:chrome.runtime.getManifest().version}));await chrome.storage.session.set({cdpLoginState:state,cdpError:error});
+    }finally{heartbeating=false;}
   }
   async function openSocket(){
     if(socket?.readyState===WebSocket.OPEN)return;
     if(connecting)return connecting;
-    const {cdpTab,cdpAccount}=await session();if(!Number.isInteger(cdpTab)||!cdpAccount)return;
+    const {cdpTab,cdpAccount}=await session();if(!Number.isInteger(cdpTab)||!cdpAccount||stopped||authBlocked)return;
     connecting=(async()=>{
       const saved=await chrome.storage.local.get('cdpConfig'),config=bridgeConfig(saved.cdpConfig),id=await client();
       await new Promise((resolve,reject)=>{
         const active=new WebSocket(config.endpoint.replace(/^http:/,'ws:')+'/ws');socket=active;
-        const timeout=setTimeout(()=>{active.close();reject(Error('WebSocket 连接超时，请检查后台是否已更新'));},8000);
-        active.onopen=()=>active.send(JSON.stringify({token:config.token,client:id,account:cdpAccount,analytics_supported:true}));
-        active.onmessage=event=>{let value;try{value=JSON.parse(event.data);}catch{return;}
-          if(value.type==='ready'){clearTimeout(timeout);chrome.storage.session.set({cdpWs:'connected',cdpError:''});clearInterval(heartbeatTimer);heartbeatTimer=setInterval(()=>heartbeat().catch(()=>{}),20000);heartbeat().catch(()=>{});resolve();}
+        const timeout=setTimeout(()=>{reject(Error('WebSocket 连接超时，正在自动重连'));active.close();},8000);
+        active.onopen=()=>{if(active===socket&&!stopped)active.send(JSON.stringify({token:config.token,client:id,account:cdpAccount,analytics_supported:true}));};
+        active.onmessage=event=>{if(socket!==active)return;let value;try{value=JSON.parse(event.data);}catch{return;}
+          if(value.type==='ready'){clearTimeout(timeout);lastPong=Date.now();retryAttempt=0;clearTimeout(retryTimer);retryTimer=null;chrome.storage.session.set({cdpWs:'connected',cdpError:'',cdpRetryAt:null});clearInterval(heartbeatTimer);heartbeatTimer=setInterval(()=>heartbeat().catch(()=>{}),20000);heartbeat().catch(()=>{});resolve();}
+          else if(value.type==='heartbeat')lastPong=Date.now();
           else if(value.type==='capture')poll();
-          else if(value.type==='error'){clearTimeout(timeout);reject(Error(value.error||'连接被拒绝'));active.close();}
+          else if(value.type==='error'){clearTimeout(timeout);if(/密钥|配对/.test(value.error||'')){authBlocked=true;chrome.storage.session.set({cdpReconnectBlocked:true,cdpError:value.error});}reject(Error(value.error||'连接被拒绝'));active.close();}
         };
-        active.onerror=()=>{clearTimeout(timeout);reject(Error('WebSocket 连接失败，请确认后台地址及插件版本'));};
-        active.onclose=()=>{clearTimeout(timeout);if(socket===active){socket=null;clearInterval(heartbeatTimer);chrome.storage.session.set({cdpWs:'disconnected'});}reject(Error('后台连接已断开，稍后自动重连'));};
+        active.onerror=()=>{clearTimeout(timeout);reject(Error('WebSocket 连接失败，正在自动重连'));active.close();};
+        active.onclose=()=>{clearTimeout(timeout);if(socket===active){socket=null;clearInterval(heartbeatTimer);chrome.storage.session.set({cdpWs:'disconnected'});retry(Error('后台连接已断开，正在自动重连'));}reject(Error('后台连接已断开，正在自动重连'));};
       });
     })();
     try{return await connecting;}finally{connecting=null;}
   }
-  chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name==='onhold-cdp')openSocket().then(heartbeat).catch(error=>chrome.storage.session.set({cdpError:error.message}));});
-  chrome.debugger.onDetach.addListener(async source=>{const {cdpTab}=await session();if(source.tabId===cdpTab){try{await chrome.debugger.sendCommand({tabId:cdpTab},'Runtime.evaluate',{expression:'0',returnByValue:true});return;}catch{}closeSocket();await chrome.storage.session.remove(['cdpTab','cdpAccount']);await chrome.storage.session.set({cdpWs:'disconnected'});}});
-  return {resume:openSocket,async account(){const {cdpTab}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接 X 助手');return (await capture(cdpTab)).handle;},async status(){const saved=await chrome.storage.local.get('cdpConfig');return {busy,...await chrome.storage.session.get(['cdpTab','cdpAccount','cdpError','cdpWs','cdpLoginState','cdpCleanup']),endpoint:saved.cdpConfig?.endpoint||'http://127.0.0.1:18431',configured:!!saved.cdpConfig?.token};},async overview(){
+  async function resume(){
+    if(restoring)return restoring;
+    restoring=(async()=>{
+      const current=await session(),saved=await chrome.storage.local.get(['cdpAutoConnect','cdpBinding']);
+      if(stopped||saved.cdpAutoConnect===false||(await chrome.storage.session.get('cdpReconnectBlocked')).cdpReconnectBlocked)return;
+      const binding=saved.cdpBinding||(/^[a-z0-9_]{1,15}$/.test(current.cdpAccount||'')?{account:current.cdpAccount,tabId:current.cdpTab}:null);
+      if(!binding||!/^[a-z0-9_]{1,15}$/.test(binding.account||''))return;
+      await chrome.storage.local.set({cdpBinding:binding});await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});
+      if(busy){await openSocket();return;}
+      if(Number.isInteger(current.cdpTab)&&current.cdpAccount===binding.account){
+        let attached=false;
+        try{if(!usableTab(await chrome.tabs.get(current.cdpTab)))throw Error('绑定页已离开 X');await bounded(chrome.debugger.sendCommand({tabId:current.cdpTab},'Runtime.evaluate',{expression:'0',returnByValue:true}));attached=true;}catch{}
+        if(attached){await openSocket();await heartbeat();return;}
+      }
+      await connect({pickX:true,expectedAccount:binding.account,preferredTab:binding.tabId,automatic:true});
+    })();
+    try{return await restoring;}catch(error){retry(error);throw error;}finally{restoring=null;}
+  }
+  chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name==='onhold-cdp')resume().catch(error=>chrome.storage.session.set({cdpError:error.message}));});
+  chrome.debugger.onDetach.addListener(async source=>{const {cdpTab}=await session();if(source.tabId===cdpTab){try{await bounded(chrome.debugger.sendCommand({tabId:cdpTab},'Runtime.evaluate',{expression:'0',returnByValue:true}));return;}catch{}closeSocket();await chrome.storage.session.remove('cdpTab');await chrome.storage.session.set({cdpWs:'disconnected',cdpLastDisconnect:{at:Date.now(),reason:'X 调试连接已脱落'}});retry(Error('X 调试连接已脱落，正在自动恢复'));}});
+  function usableTab(tab){return Number.isInteger(tab?.id)&&/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')&&(!new URL(tab.url).hash.startsWith('#onhold-')||new URL(tab.url).hash==='#onhold-connection');}
+  async function connect({pickX=false,expectedAccount,preferredTab,automatic=false}={}){
+    if(busy||restoring&&!automatic)throw Error('连接或采集正在执行，请稍后重试');busy=true;
+    if(!automatic){stopped=false;authBlocked=false;await chrome.storage.session.remove('cdpReconnectBlocked');await chrome.storage.local.set({cdpAutoConnect:true});}
+    let attachedTab,keep=false;
+    try{
+      await probe();await call('connections',{});
+      let tabs=await chrome.tabs.query(pickX?{url:['https://x.com/*','https://twitter.com/*']}:{active:true,currentWindow:true});
+      tabs=tabs.filter(usableTab).sort((a,b)=>Number(b.id===preferredTab)-Number(a.id===preferredTab)||(b.lastAccessed||0)-(a.lastAccessed||0)).slice(0,5);
+      if(!tabs.length){const tab=await chrome.tabs.create({url:automatic?'https://x.com/home#onhold-connection':'https://x.com/home',active:false});if(automatic){await chrome.storage.local.set({cdpBinding:{account:expectedAccount,tabId:tab.id}});tabs=[tab];}else throw Error('请先登录 X，再点击「连接 X 助手插件」');}
+      closeSocket();const old=await session();await chrome.storage.session.remove('cdpTab');if(Number.isInteger(old.cdpTab))await chrome.debugger.detach({tabId:old.cdpTab}).catch(()=>{});
+      let snapshot,lastError;
+      for(const tab of tabs){
+        if(stopped)return;
+        try{try{await bounded(chrome.debugger.sendCommand({tabId:tab.id},'Runtime.evaluate',{expression:'0',returnByValue:true}));}catch{await bounded(chrome.debugger.attach({tabId:tab.id},'1.3'));}attachedTab=tab.id;snapshot=await bounded(capture(tab.id));if(expectedAccount&&snapshot.handle!==expectedAccount)throw Error('X 账号不匹配，等待原绑定账号恢复');break;}
+        catch(error){lastError=error;snapshot=null;if(attachedTab===tab.id){await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});attachedTab=undefined;}}
+      }
+      if(!snapshot)throw lastError||Error('未找到原绑定账号，等待自动恢复');
+      if(stopped)return;
+      await chrome.storage.local.set({cdpBinding:{account:snapshot.handle,tabId:attachedTab}});
+      const cookies=await bounded(chrome.debugger.sendCommand({tabId:attachedTab},'Network.getCookies',{urls:['https://x.com/']})),credentials=sessionFromCookies(cookies.cookies||[]);
+      let cachedOwner;
+      try{cachedOwner=await call('creator',{account:credentials.uid});}catch(error){if(authBlocked)throw error;}
+      if(cachedOwner?.account&&cachedOwner.account!==snapshot.handle)throw Error('X 登录 UID 与页面账号不匹配，停止恢复');
+      let refreshed=false;
+      if(cachedOwner?.account===snapshot.handle)try{await call('refresh_x_session',credentials);refreshed=true;}catch(error){if(authBlocked)throw error;}
+      if(!refreshed)await learnRequests(attachedTab,snapshot.handle,call);
+      if((await bounded(capture(attachedTab))).handle!==snapshot.handle){await call('forget_x_session',{account:snapshot.handle});throw Error('X 账号已改变，等待原绑定账号恢复');}
+      if(stopped)return;
+      await call('heartbeat',{client:await client(),account:snapshot.handle});if(stopped)return;await chrome.storage.session.set({cdpTab:attachedTab,cdpAccount:snapshot.handle,cdpError:''});
+      await chrome.storage.local.set({cdpBinding:{account:snapshot.handle,tabId:attachedTab}});if(stopped)return;await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});keep=true;
+      await openSocket();let cleanup;try{cleanup=await cleanupPublicationTabs(snapshot.handle,call,attachedTab);await chrome.storage.session.set({cdpCleanup:cleanup});}catch(error){cleanup={error:error.message};}return {account:snapshot.handle,posts:0,cleanup};
+    }catch(error){retry(error);throw error;}finally{if(!keep&&Number.isInteger(attachedTab))await chrome.debugger.detach({tabId:attachedTab}).catch(()=>{});busy=false;}
+  }
+  return {resume,async account(){const {cdpTab}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接 X 助手');return (await capture(cdpTab)).handle;},async status(){const saved=await chrome.storage.local.get('cdpConfig');return {busy,...await chrome.storage.session.get(['cdpTab','cdpAccount','cdpError','cdpWs','cdpLoginState','cdpCleanup']),endpoint:saved.cdpConfig?.endpoint||'http://127.0.0.1:18431',configured:!!saved.cdpConfig?.token};},async overview(){
     const {cdpAccount}=await session();if(!cdpAccount)return null;
     const saved=(await chrome.storage.local.get('cdpOverviewCache')).cdpOverviewCache||{};
     try{
@@ -273,16 +337,8 @@ export function createCdpBridge(){
       const {cdpAccount}=await session(),jobs=await call('jobs',{});
       if(jobs.some(job=>(!cdpAccount||job.account===cdpAccount)&&['running','rewriting'].includes(job.state)))throw Error('当前账号有执行中的任务，请等待结束后升级');
     }catch(error){busy=false;throw error;}
-  },async save(value){const config=bridgeConfig(value),previous=(await chrome.storage.local.get('cdpConfig')).cdpConfig;if(previous?.endpoint!==config.endpoint||previous?.token!==config.token)await chrome.storage.local.remove('cdpOverviewCache');await chrome.storage.local.set({cdpConfig:config});return true;},async connect({pickX=false}={}){
-    if(busy)throw Error('连接或采集正在执行，请稍后重试');busy=true;try{
-    await probe();await call('connections',{});
-    const tabs=await chrome.tabs.query(pickX?{url:['https://x.com/*','https://twitter.com/*']}:{active:true,currentWindow:true});
-    const tab=pickX?tabs.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0))[0]:tabs[0];
-    if(!tab?.id||!/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')){if(pickX)await chrome.tabs.create({url:'https://x.com/home',active:false});throw Error('请先登录 X，再点击「连接 X 助手插件」');}
-    closeSocket();const old=await session();if(Number.isInteger(old.cdpTab)){await chrome.storage.session.remove(['cdpTab','cdpAccount']);await chrome.debugger.detach({tabId:old.cdpTab}).catch(()=>{});}
-    await chrome.debugger.attach({tabId:tab.id},'1.3');
-    try{const snapshot=await capture(tab.id);await learnRequests(tab.id,snapshot.handle,call);if((await capture(tab.id)).handle!==snapshot.handle){await call('forget_x_session',{account:snapshot.handle});throw Error('X 账号已改变，请重新连接');}await call('heartbeat',{client:await client(),account:snapshot.handle});await chrome.storage.session.set({cdpTab:tab.id,cdpAccount:snapshot.handle,cdpError:''});await openSocket();await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});let cleanup;try{cleanup=await cleanupPublicationTabs(snapshot.handle,call,tab.id);await chrome.storage.session.set({cdpCleanup:cleanup});}catch(error){cleanup={error:error.message};}return {account:snapshot.handle,posts:0,cleanup};}
-    catch(error){closeSocket();await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount']);throw error;}
-    }finally{busy=false;}
-  },async disconnect(){const {cdpTab,cdpAccount}=await session();if(cdpAccount)await call('forget_x_session',{account:cdpAccount});closeSocket();if(Number.isInteger(cdpTab))await chrome.debugger.detach({tabId:cdpTab}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount','cdpError','cdpLoginState']);await chrome.storage.session.set({cdpWs:'disconnected'});await chrome.alarms.clear('onhold-cdp');return true;},async collect(){if(busy)throw Error('采集任务正在执行');const {cdpAccount}=await session();if(!cdpAccount)throw Error('请先连接 X 账号');return call('enqueue',{account:cdpAccount,action:'capture_analytics'});}};
+  },async save(value){const config=bridgeConfig(value),previous=(await chrome.storage.local.get('cdpConfig')).cdpConfig;if(previous?.endpoint!==config.endpoint||previous?.token!==config.token){closeSocket();authBlocked=false;await chrome.storage.session.remove('cdpReconnectBlocked');await chrome.storage.local.remove('cdpOverviewCache');}await chrome.storage.local.set({cdpConfig:config});return true;},connect,async disconnect(){
+    stopped=true;clearTimeout(retryTimer);retryTimer=null;closeSocket();const {cdpTab,cdpAccount}=await session();await chrome.storage.local.set({cdpAutoConnect:false});await chrome.alarms.clear('onhold-cdp');
+    try{if(cdpAccount)await call('forget_x_session',{account:cdpAccount});}finally{if(Number.isInteger(cdpTab))await chrome.debugger.detach({tabId:cdpTab}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount','cdpError','cdpLoginState','cdpRetryAt']);await chrome.storage.session.set({cdpWs:'disconnected'});}return true;
+  },async collect(){if(busy)throw Error('采集任务正在执行');const {cdpAccount}=await session();if(!cdpAccount)throw Error('请先连接 X 账号');return call('enqueue',{account:cdpAccount,action:'capture_analytics'});}};
 }
