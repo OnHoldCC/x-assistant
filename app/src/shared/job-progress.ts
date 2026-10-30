@@ -2,7 +2,12 @@ import type { Job } from "./types";
 export function jobProgress(job:Job):{value:number|null;max:number;text:string}{
   if(job.action==='capture_for_you'||job.action==='capture_notifications'){
     const batch=job.result?.reply_progress,source=job.action==='capture_notifications'?'通知':'For You';
-    if(batch&&job.state==='completed')return {value:batch.completed+batch.failed,max:batch.total||1,text:batch.total?`本轮 ${batch.completed+batch.failed}/${batch.total} · 已回复 ${batch.completed} · 失败 ${batch.failed}`:'本轮没有新的可回复帖子'};
+    if(batch&&job.state==='completed'){
+      const summary=job.input?.capture_summary;
+      const reasons=summary?([['ads','广告'],['truncated','未展开'],['source','来源缺失'],['text','正文不可用'],['own','自己的帖子'],['language','非英文原文'],['translated','已翻译内容']] as const).filter(([key])=>summary.filtered[key]>0).map(([key,label])=>`${label} ${summary.filtered[key]}`).join('，'):'';
+      const empty=summary?`已读取 ${summary.scanned} 条 · 可用候选 ${summary.eligible} 条${reasons?` · 过滤：${reasons}`:''} · 未创建评论任务`:'本轮没有新的可回复帖子';
+      return {value:batch.completed+batch.failed,max:batch.total||1,text:batch.total?`本轮 ${batch.completed+batch.failed}/${batch.total} · 已回复 ${batch.completed} · 失败 ${batch.failed}`:empty};
+    }
     return {value:job.state==='running'?null:0,max:1,text:job.state==='failed'?`${source} 采集失败，查看错误详情`:job.state==='running'?`正在读取${source}并创建逐帖回复任务`:`等待读取${source}`};
   }
   if(job.action==='follow_back'||job.action==='unfollow'){

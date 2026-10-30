@@ -32,3 +32,9 @@ test('news skips are distinct from sent posts and generation errors retain their
  const record=job({state:'completed',input:{mode:'news',stage:'skipped'},result:{sent:false,skip_reason:'没有候选新闻'}});
  assert.equal(jobLabel(record),'本轮跳过');assert.equal(jobMessage(record),'没有候选新闻');
 });
+test('empty For You batches show actual reads and filter reasons instead of implying no posts loaded',()=>{
+ const parent=job({action:'capture_for_you',state:'completed',input:{capture_summary:{scanned:3,eligible:0,filtered:{ads:1,truncated:0,source:0,text:0,own:0,language:1,translated:1}}},result:{reply_progress:{total:0,completed:0,failed:0}}});
+ assert.equal(jobProgress(parent).text,'已读取 3 条 · 可用候选 0 条 · 过滤：广告 1，非英文原文 1，已翻译内容 1 · 未创建评论任务');
+ delete parent.input.capture_summary;
+ assert.equal(jobProgress(parent).text,'本轮没有新的可回复帖子');
+});
