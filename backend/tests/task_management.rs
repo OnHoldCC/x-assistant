@@ -188,3 +188,16 @@ fn removed_published_records_still_block_duplicate_sends() {
         .unwrap()
         .is_null());
 }
+
+#[test]
+fn browser_reads_expire_without_another_queued_task_or_claim(){
+ let (_directory,store,client,at)=setup();
+ let id=store.enqueue("example",at).unwrap()["id"].as_str().unwrap().to_owned();
+ assert_eq!(store.claim(&client,"example",at).unwrap()["id"],id);
+ assert!(!store.browser_work_due("other",at+120001).unwrap());
+ assert_eq!(store.jobs().unwrap()[0]["state"],"running");
+ assert!(!store.browser_work_due("example",at+119999).unwrap());
+ assert_eq!(store.jobs().unwrap()[0]["state"],"running");
+ assert!(!store.browser_work_due("example",at+120001).unwrap());
+ let job=store.jobs().unwrap()[0].clone();assert_eq!(job["state"],"failed");assert_eq!(job["error"],"浏览器读取超时，已结束本次采集");
+}

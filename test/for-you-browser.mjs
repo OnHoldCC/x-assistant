@@ -52,7 +52,7 @@ try{
   const plan=await api('save_automation',{account:'example',action:'auto_reply',interval_minutes:5,limit:2});await api('control_automation',{account:'example',id:plan.id,enabled:true});
   const queued=await api('run_automation',{account:'example',id:plan.id});discovery={...await api('claim',{account:'example',client:process.env.ONHOLD_E2E_CLIENT}),client:process.env.ONHOLD_E2E_CLIENT};assert.equal(discovery.id,queued.id);
  }
- const batch=await collectForYou(discovery,async(op,input)=>{if(op==='automation_can_run')return backend?api(op,input):{allowed:true};assert.equal(op,'queue_feed_replies');collected=input.posts;return backend?api(op,input):{queued:input.posts.length};},'example',verify,async()=>{assert.fail('comments must never depend on a decision score');});
+ const batch=await collectForYou(discovery,async(op,input)=>{if(op==='automation_can_run')return backend?api(op,input):{allowed:true};if(op==='for_you_snapshot')return backend?api(op,input):{saved:true};assert.equal(op,'queue_feed_replies');collected=input.posts;return backend?api(op,input):{queued:input.posts.length};},'example',verify,async()=>{assert.fail('comments must never depend on a decision score');});
  assert.deepEqual(collected.map(post=>post.id),['101','102'],'explicit For You selection skips Following, duplicates, own posts, ads, truncated text');assert.equal(batch.queued,2);
  let job={id:'reply',client:'client',account:'example',action:'rewrite_publish',input:{mode:'reply',stage:'ready',source:collected[0],text:'把基础部署和可选模型分开，首次启动会更清楚。'}};
  if(backend){
@@ -71,7 +71,7 @@ try{
   const state=await api('automation',{account:'example'});assert.equal(state.tasks[0].last_job.result.reply_progress.completed,2);
   console.log('Passed: For You -> two independent backend tasks -> real Codex JSON replies -> native CDP composer -> intercepted X reply/parent receipts -> persisted completion. No live X requests.');
  }else{
-  sessionStorage.forYouPage=null;let batches=[];const pageCall=async(op,input)=>{if(op==='automation_can_run')return {allowed:true};batches.push(input.posts.map(post=>post.id));return {queued:input.posts.length};};
+  sessionStorage.forYouPage=null;let batches=[];const pageCall=async(op,input)=>{if(op==='automation_can_run')return {allowed:true};if(op==='for_you_snapshot')return {saved:true};batches.push(input.posts.map(post=>post.id));return {queued:input.posts.length};};
   const single={...discovery,input:{limit:1,known_ids:[]}};const before=feedLoads;await collectForYou(single,pageCall,'example',verify);await collectForYou({...single,input:{limit:1,known_ids:['101']}},pageCall,'example',verify);assert.deepEqual(batches,[['101'],['102']]);assert.equal(feedLoads,before+1,'the same page snapshot is consumed before refresh');await collectForYou({...single,input:{limit:1,known_ids:['101','102']}},pageCall,'example',verify);assert.equal(feedLoads,before+2,'refresh happens only after all eligible posts from the page were processed');assert.deepEqual(batches.at(-1),[]);
   const oldScoringJob={...discovery,input:{limit:1,scope:'for_you',publication_mode:'replicate',known_ids:[]}};
   await assert.rejects(collectForYou(oldScoringJob,async(op)=>{assert.equal(op,'automation_can_run');return {allowed:true};},'example',verify),/评分发文已停用/);

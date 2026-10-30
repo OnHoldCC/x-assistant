@@ -163,7 +163,11 @@ impl Store {
         Ok(json!({"saved":true}))
     }
     pub fn browser_work_due(&self, account: &str, at: i64) -> Result<bool, String> {
-        self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE account=? AND state='queued' AND (json_extract(input,'$.executor')='browser' OR action NOT IN ('capture','capture_analytics') OR NOT EXISTS(SELECT 1 FROM x_sessions s JOIN accounts a ON a.uid=s.owner_uid WHERE a.handle=jobs.account)) AND (action NOT IN ('capture_for_you','capture_notifications') OR (EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1) AND NOT EXISTS(SELECT 1 FROM settings WHERE key='automation_block:'||jobs.account))) AND (action<>'rewrite_publish' OR (json_extract(input,'$.stage')='ready' AND json_extract(input,'$.publish_at')<=?)))",params![account,at],|r|r.get(0)).map_err(|e|e.to_string())
+        let account=handle(account)?;
+        let db=self.lock()?;
+        // Interrupted reads must expire even when they prevent the next task from being queued.
+        db.execute("UPDATE jobs SET state='failed',error='浏览器读取超时，已结束本次采集',updated_at=? WHERE account=? AND state='running' AND coalesce(client,'')<>'backend' AND action IN ('capture','capture_analytics','capture_creator','capture_relationships','capture_for_you','capture_notifications') AND updated_at<?",params![at,account,at-120_000]).map_err(|e|e.to_string())?;
+        db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE account=? AND state='queued' AND (json_extract(input,'$.executor')='browser' OR action NOT IN ('capture','capture_analytics') OR NOT EXISTS(SELECT 1 FROM x_sessions s JOIN accounts a ON a.uid=s.owner_uid WHERE a.handle=jobs.account)) AND (action NOT IN ('capture_for_you','capture_notifications') OR (EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1) AND NOT EXISTS(SELECT 1 FROM settings WHERE key='automation_block:'||jobs.account))) AND (action<>'rewrite_publish' OR (json_extract(input,'$.stage')='ready' AND json_extract(input,'$.publish_at')<=?)))",params![account,at],|r|r.get(0)).map_err(|e|e.to_string())
     }
     pub fn claim(&self, client: &str, account: &str, at: i64) -> Result<Value, String> {
         self.expire_automation(at)?;

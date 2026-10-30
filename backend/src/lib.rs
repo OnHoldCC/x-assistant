@@ -150,6 +150,7 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
         ),
         "cancel_job" => store.cancel_job(text("account")?, text("id")?, now()),
         "run_automation" => store.run_automation(text("account")?, text("id")?, now()),
+        "for_you_snapshot" => store.record_for_you_snapshot(text("id")?,text("client")?,&input["snapshot"],now()),
         "queue_feed_replies" => {
             store.queue_feed_replies(text("id")?, text("client")?, &input["posts"], now())
         }

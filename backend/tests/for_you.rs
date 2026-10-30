@@ -546,3 +546,15 @@ fn comment_seconds_can_be_saved_without_enabling_or_creating_jobs(){
  assert_eq!(saved["enabled"],false);assert_eq!(saved["config"]["interval_seconds"],25);assert_eq!(saved["state"],"paused");assert_eq!(store.jobs().unwrap().as_array().unwrap().len(),before);
  assert!(store.run_automation("example",&task,at).is_err());
 }
+
+#[test]
+fn snapshot_logs_distinguish_filtered_posts_and_never_create_reply_jobs(){
+ let (_dir,store,client,task,at)=setup();store.control_automation("example",&task,true,at).unwrap();
+ let id=store.run_automation("example",&task,at).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at).unwrap();
+ let snapshot=json!({"scanned":9,"eligible":0,"filtered":{"ads":1,"truncated":0,"source":0,"text":0,"own":0,"language":8,"translated":0}});
+ assert!(store.record_for_you_snapshot(&id,"wrong-client",&snapshot,at).is_err());
+ let mut bad=snapshot.clone();bad["scanned"]=json!(8);assert!(store.record_for_you_snapshot(&id,&client,&bad,at).is_err());
+ store.record_for_you_snapshot(&id,&client,&snapshot,at+1).unwrap();
+ let jobs=store.jobs().unwrap();assert_eq!(jobs.as_array().unwrap().len(),1);assert_eq!(jobs[0]["input"]["capture_summary"]["scanned"],9);
+ let logs=store.job_logs("example",&id,&json!({})).unwrap();assert!(logs["items"].as_array().unwrap().iter().any(|log|log["message"].as_str().is_some_and(|m|m.contains("已读取 9 条帖子")&&m.contains("非英文原文 8"))));
+}

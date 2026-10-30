@@ -12,6 +12,26 @@ fn english_source(source: &Value, text: &str) -> bool {
     letters >= 10 && latin * 100 >= letters * 90 && common >= 2
 }
 impl Store {
+    pub fn record_for_you_snapshot(&self,id:&str,client:&str,value:&Value,at:i64)->Result<Value,String>{
+        let fields=[("ads","广告"),("truncated","未展开"),("source","来源缺失"),("text","正文不可用"),("own","自己的帖子"),("language","非英文原文"),("translated","已翻译内容")];
+        let scanned=value["scanned"].as_i64().filter(|n|(0..=10000).contains(n)).ok_or("采集数量无效")?;
+        let eligible=value["eligible"].as_i64().filter(|n|(0..=50).contains(n)).ok_or("候选数量无效")?;
+        let filtered=value["filtered"].as_object().filter(|v|v.len()==fields.len()).ok_or("过滤统计无效")?;
+        let mut skipped=0;let mut labels=Vec::new();
+        for (key,label) in fields {
+            let n=filtered.get(key).and_then(Value::as_i64).filter(|n|(0..=10000).contains(n)).ok_or("过滤统计无效")?;
+            skipped+=n;if n>0 {labels.push(format!("{label} {n}"));}
+        }
+        if eligible+skipped!=scanned {return Err("采集与过滤数量不一致".into());}
+        let snapshot=json!({"scanned":scanned,"eligible":eligible,"filtered":filtered});
+        let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
+        let changed=tx.execute("UPDATE jobs SET input=json_set(input,'$.capture_summary',json(?)),updated_at=? WHERE id=? AND client=? AND state='running' AND action='capture_for_you'",params![snapshot.to_string(),at,id,client]).map_err(|e|e.to_string())?;
+        if changed!=1 {return Err("采集任务不属于当前连接或已结束".into());}
+        let mut message=format!("已读取 {scanned} 条帖子 · 可用候选 {eligible} 条");
+        if !labels.is_empty(){message.push_str(&format!(" · 过滤：{}",labels.join("，")));}
+        tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'progress',?)",params![id,at,message]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;Ok(json!({"saved":true}))
+    }
     pub fn run_for_you(&self, account: &str, task: &str, at: i64) -> Result<Value, String> {
         self.expire_automation(at)?;
         let account = handle(account)?;
