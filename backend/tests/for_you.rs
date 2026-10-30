@@ -329,7 +329,7 @@ fn notification_seconds_apply_to_discovery_resume_and_each_confirmed_send(){
     for seconds in [json!(24),json!(26),json!(0),json!(-1),json!(25.5),json!("25"),json!(true)] {
         assert!(store.save_automation("example",&json!({"action":"reply_notifications","interval_seconds":seconds,"limit":1}),at).is_err());
     }
-    assert!(store.save_automation("example",&json!({"action":"auto_reply","interval_minutes":1,"interval_seconds":25,"limit":1}),at).is_err());
+    assert!(store.save_automation("example",&json!({"action":"auto_post","query":"news","interval_minutes":1,"interval_seconds":25,"limit":1}),at).is_err());
     assert!(store.save_automation("example",&json!({"action":"reply_notifications","interval_minutes":true,"interval_seconds":25,"limit":1}),at).is_err());
     let task=store.save_automation("example",&json!({"action":"reply_notifications","interval_seconds":25,"limit":2}),at).unwrap()["id"].as_str().unwrap().to_owned();
     store.control_automation("example",&task,true,at).unwrap();
@@ -535,4 +535,14 @@ fn fetched_sources_persist_and_english_news_can_omit_public_links_without_losing
         }
         assert!(store.job_logs("example",&id,&json!({})).unwrap()["items"].as_array().unwrap().iter().any(|log|log["stage"]=="sources"));
     }
+}
+
+#[test]
+fn comment_seconds_can_be_saved_without_enabling_or_creating_jobs(){
+ let (_dir,store,_client,task,at)=setup();
+ let before=store.jobs().unwrap().as_array().unwrap().len();
+ store.save_automation("example",&json!({"id":task,"action":"auto_reply","interval_minutes":1,"interval_seconds":25,"limit":1,"language":"en"}),at).unwrap();
+ let state=store.automation_state("example").unwrap();let saved=state["tasks"].as_array().unwrap().iter().find(|p|p["id"]==task).unwrap();
+ assert_eq!(saved["enabled"],false);assert_eq!(saved["config"]["interval_seconds"],25);assert_eq!(saved["state"],"paused");assert_eq!(store.jobs().unwrap().as_array().unwrap().len(),before);
+ assert!(store.run_automation("example",&task,at).is_err());
 }

@@ -149,7 +149,7 @@ watch([()=>route.query,()=>w.selected],()=>{
 },{immediate:true});
 function changeAction(value: string) {
   action.value = value;
-  if(value!=="reply_notifications" && interval.value==="25s")interval.value="1";
+  if(!["reply_notifications","auto_reply"].includes(value) && interval.value==="25s")interval.value="1";
   if (value === "auto_post") limit.value = 1;
   scope.value =
     value === "auto_post"
@@ -378,7 +378,7 @@ async function save() {
               ? "for_you"
               : scope.value,
       interval_minutes: interval.value==="25s" ? 1 : Number(interval.value),
-      ...(action.value==="reply_notifications" && interval.value==="25s" ? {interval_seconds:25} : {}),
+      ...(["reply_notifications","auto_reply"].includes(action.value) && interval.value==="25s" ? {interval_seconds:25} : {}),
       limit: limit.value,
       after_days: days.value,
       stop_at: stop,
@@ -596,7 +596,7 @@ async function save() {
                 aria-label="执行间隔"
                 :options="
                   [
-                    ...(action === 'reply_notifications' ? [['25s', '每25秒']] : []),
+                    ...(['reply_notifications','auto_reply'].includes(action) ? [['25s', '每25秒']] : []),
                     ['1', '每1分钟'],
                     ['3', '每3分钟'],
                     ['5', '每5分钟'],

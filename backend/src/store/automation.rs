@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn interval_ms(config:&Value)->i64 {
-    if config["action"]=="reply_notifications" && config["interval_seconds"]==25 {25_000}
+    if ["reply_notifications","auto_reply"].iter().any(|action|config["action"]==*action) && config["interval_seconds"]==25 {25_000}
     else {config["interval_minutes"].as_i64().unwrap_or(60)*60_000}
 }
 impl Store {
@@ -71,7 +71,7 @@ impl Store {
             return Err("自动化类型无效".into());
         }
         let seconds=input.get("interval_seconds").map(|value| {
-            value.as_i64().filter(|value|*value==25&&action=="reply_notifications").ok_or("25秒间隔仅用于通知回复")
+            value.as_i64().filter(|value|*value==25&&["reply_notifications","auto_reply"].contains(&action)).ok_or("25秒间隔仅用于评论或通知回复")
         }).transpose()?;
         let interval = if input.get("interval_minutes").is_some() {input["interval_minutes"].as_i64()} else {seconds.map(|_|1)}
             .filter(|n| (1..=10080).contains(n))
