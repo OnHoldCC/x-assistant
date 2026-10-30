@@ -31,6 +31,43 @@ fn window(points: &[Point], start: i64, end: i64) -> Window {
     }
 }
 
+fn covered_analytics_periods(periods: &mut serde_json::Map<String, Value>, at: i64) {
+    let sources = periods.values().cloned().collect::<Vec<_>>();
+    let today = chrono::DateTime::from_timestamp_millis(at + 8 * 3_600_000).map(|date|date.date_naive());
+    for source in sources {
+        if source["data"]["series_source"] != "x_analytics_csv" { continue; }
+        let Some(rows) = source["data"]["series"].as_array() else { continue; };
+        let Some(end) = rows.last().and_then(|point|point["date"].as_str()).and_then(|date|chrono::NaiveDate::parse_from_str(date,"%Y-%m-%d").ok()) else { continue; };
+        for days in [1,7,14,28,30,90,365] {
+            let key = format!("{days}d");
+            if days == 1 && Some(end) != today { continue; }
+            if periods.get(&key).is_some_and(|current|current["observed_at"].as_i64().unwrap_or(0) >= source["observed_at"].as_i64().unwrap_or(0)) { continue; }
+            let Some(start) = end.checked_sub_days(chrono::Days::new(days-1)) else { continue; };
+            let (start_text,end_text) = (start.to_string(),end.to_string());
+            let selected = rows.iter().filter(|point|point["date"].as_str().is_some_and(|date|date>=start_text.as_str()&&date<=end_text.as_str())).cloned().collect::<Vec<_>>();
+            if selected.len() != days as usize || selected.iter().enumerate().any(|(index,point)|point["date"]!=json!(start.checked_add_days(chrono::Days::new(index as u64)).unwrap().to_string())) { continue; }
+            let mut metrics = serde_json::Map::new();
+            for name in ["followers","verified_followers"] {
+                if let Some(count) = source["data"]["metrics"].get(name) { metrics.insert(name.into(),count.clone()); }
+            }
+            for name in ["impressions","engagements","profile_visits","likes","replies","reposts","bookmarks","shares","new_follows","unfollows","posts","video_views","media_views"] {
+                let sum = selected.iter().try_fold(0_i64,|sum,point|sum.checked_add(point["metrics"][name].as_i64()?));
+                if let Some(value) = sum.filter(|value|*value>=0&&*value<=1_000_000_000_000_000) { metrics.insert(name.into(),json!({"value":value,"approximate":false,"raw":value.to_string()})); }
+            }
+            if let (Some(impressions),Some(engagements)) = (metrics.get("impressions").and_then(|value|value["value"].as_f64()),metrics.get("engagements").and_then(|value|value["value"].as_f64())) {
+                if impressions>0.0 { metrics.insert("engagement_rate".into(),json!({"value":engagements/impressions*100.0,"approximate":false,"raw":""})); }
+            }
+            let mut snapshot = source.clone();
+            snapshot["data"]["period"] = json!(key);
+            snapshot["data"]["period_key"] = json!(key);
+            snapshot["data"]["derived_from"] = source["data"]["period_key"].clone();
+            snapshot["data"]["series"] = json!(selected);
+            snapshot["data"]["metrics"] = json!(metrics);
+            periods.insert(key,snapshot);
+        }
+    }
+}
+
 impl Store {
     pub fn dashboard(&self, account: Option<&str>, days: u32, at: i64) -> Result<Value, String> {
         if ![1, 7, 30].contains(&days) {
@@ -160,6 +197,7 @@ impl Store {
                 serde_json::from_str::<Value>(&raw).map_err(|e| e.to_string())?,
             );
         }
+        covered_analytics_periods(&mut analytics_periods, at);
         let read_setting = |prefix: &str| -> Result<Value, String> {
             let raw: Option<String> = db
                 .query_row(
@@ -183,6 +221,34 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn long_csv_covers_short_filters_without_stale_totals_fake_zeroes_or_fake_years() {
+        let end=chrono::NaiveDate::from_ymd_opt(2026,10,30).unwrap();
+        let start=end-chrono::Days::new(89);
+        let series=(0..90).map(|index|json!({"date":(start+chrono::Days::new(index)).to_string(),"metrics":{"impressions":index+1,"likes":0,"engagements":2,"replies":if index==89{Value::Null}else{json!(1)},"new_follows":1,"unfollows":2}})).collect::<Vec<_>>();
+        let wide=json!({"observed_at":2,"source":"https://x.com/i/account_analytics","data":{"period":"3M","period_key":"90d","series_source":"x_analytics_csv","verified_only":true,"series":series,"metrics":{"likes":{"value":999},"replies":{"value":999}}}});
+        let mut periods=serde_json::Map::from_iter([("90d".into(),wide.clone()),("7d".into(),json!({"observed_at":1,"data":{"metrics":{"likes":{"value":999}}}})),("14d".into(),json!({"observed_at":3,"data":{"metrics":{"likes":{"value":777}}}}))]);
+        let at=end.and_hms_opt(12,0,0).unwrap().and_utc().timestamp_millis();
+        covered_analytics_periods(&mut periods,at);
+        assert_eq!(periods["7d"]["data"]["series"].as_array().unwrap().len(),7);
+        assert_eq!(periods["7d"]["data"]["metrics"]["impressions"]["value"],609);
+        assert_eq!(periods["7d"]["data"]["metrics"]["likes"]["value"],0);
+        assert!(periods["7d"]["data"]["metrics"].get("replies").is_none());
+        assert_eq!(periods["7d"]["data"]["metrics"]["engagement_rate"]["value"],json!(14.0/609.0*100.0));
+        assert_eq!(periods["7d"]["data"]["verified_only"],true);
+        assert_eq!(periods["7d"]["data"]["derived_from"],"90d");
+        assert_eq!(periods["14d"]["data"]["metrics"]["likes"]["value"],777);
+        assert_eq!(periods["30d"]["data"]["metrics"]["new_follows"]["value"],30);
+        assert_eq!(periods["28d"]["data"]["series"].as_array().unwrap().len(),28);
+        assert_eq!(periods["1d"]["data"]["series"][0]["date"],"2026-10-30");
+        assert!(!periods.contains_key("365d"));
+        let mut gap=wide;
+        gap["data"]["series"].as_array_mut().unwrap().remove(88);
+        let mut incomplete=serde_json::Map::from_iter([("90d".into(),gap)]);
+        covered_analytics_periods(&mut incomplete,at+86400000);
+        assert!(!incomplete.contains_key("7d"),"gaps never become complete short windows");
+        assert!(!incomplete.contains_key("1d"),"yesterday never becomes today's metric");
+    }
     fn reference_window(points: &[Point], start: i64, end: i64) -> Window {
         let eligible: Vec<_> = points.iter().filter(|p| p.at <= end).collect();
         let latest = eligible.last().copied();

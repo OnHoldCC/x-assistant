@@ -1,8 +1,9 @@
 Runtime and model are downloaded directly from official sources and SHA-256 verified.
 llama.cpp (MIT): https://github.com/ggml-org/llama.cpp/tree/b11669
 Hy-MT2-1.8B-GGUF (Apache-2.0): https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/blob/a0c709d9fac510f2c807aa3af52872340dc37a4a/LICENSE.txt
-Browser React/Radix bundle notices: extension/THIRD_PARTY_LICENSES.txt
+Browser Vue/Naive UI bundle notices: extension/admin-ui/THIRD_PARTY_LICENSES.txt
 Node.js runtime: MIT and bundled third-party notices, https://nodejs.org/ . Reuse a compatible system runtime or download a verified private official binary through the Skill bootstrap. This installer does not change third-party licenses.
+RSS XML parsing: quick-xml 0.42.0 (MIT), https://github.com/tafia/quick-xml . News source references: 60s hot-topics (MIT), https://github.com/vikiboss/60s-skills ; news-aggregator-skill RSS workflow, https://github.com/cclank/news-aggregator-skill . External news and platform content retains its original rights.
 Original project code: OnHold Assistant Source-Available License 1.0, see LICENSE. Free distribution and own commercial-account use are allowed; resale, paid bundles and paid access to the software require separate written permission. Third-party licenses are unchanged.
 
 Nunito font (SIL OFL): extension/assets/OFL-Nunito.txt
@@ -13,13 +14,11 @@ Assistant icon: X logo with a separate blue assistant badge. X is a trademark of
 jieba 0.42.1 (MIT): https://github.com/fxsjy/jieba .
 Mobile external links: Tauri Opener (MIT/Apache-2.0), https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/opener .
 Application shell: Tauri (MIT/Apache-2.0), https://github.com/tauri-apps/tauri .
-Admin frontend: React (MIT), https://github.com/facebook/react ; shadcn/ui (MIT), https://github.com/shadcn-ui/ui ; Radix UI (MIT), https://github.com/radix-ui/primitives ; Lucide icons (ISC), https://github.com/lucide-icons/lucide . OnHold business components and layouts are maintained in app/src/shared/operations.tsx.
-
-shadcn/ui component source license:
+Admin frontend: Soybean Admin 2.3.0 (MIT), https://github.com/soybeanjs/soybean-admin ; Vue (MIT), https://github.com/vuejs/core ; Naive UI (MIT), https://github.com/tusen-ai/naive-ui ; ECharts (Apache-2.0), https://github.com/apache/echarts . Soybean source packages and MIT license: app/vendor/soybean/. Business pages: app/src/views/onhold/.
 
 MIT License
 
-Copyright (c) 2023 shadcn
+Copyright (c) 2021 Soybean
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

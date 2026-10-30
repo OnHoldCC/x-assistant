@@ -5,26 +5,19 @@
 ```text
 app/
   src/
-    main.tsx                 # 后台启动入口
-    bridge.tsx               # 浏览器插件弹窗入口
-    ui.tsx                   # OnHold 组件展示入口
-    app/                     # 应用外壳、导航、全局连接与刷新
-    features/
-      overview/              # 观测趋势、官方 Analytics、创作者进度
-      posts/                 # 内容复盘、话题对比、运营记忆
-      accounts/              # 账号列表与账号操作
-      jobs/                  # 采集任务记录、筛选与重试
-      bookmarks/             # 收藏与标签
-      automation/            # 回关与取消关注计划
-      connections/           # 安装引导、浏览器配对、远程工作空间
-      settings/              # 模型设置
-      logs/                  # 系统日志
-      about/                 # 作者与版本说明
-    shared/                  # API 传输、数据类型、指标口径、共用业务组件
-    components/onhold/       # OnHold 通用组件入口
-    components/ui/           # shadcn 基础组件
-    hooks/                   # 通用 React hooks
-    styles/                  # 主题变量与公共样式
+    main.ts                  # Vue 后台启动入口
+    bridge.ts                # Naive UI 插件弹窗入口
+    ui.ts                    # 原生组件预览入口
+    layouts/                 # Soybean 原版布局、导航、页签、主题抽屉
+    views/onhold/            # 业务页面、连接、模型与共享业务状态
+    router/                  # Soybean 路由与现有链接兼容
+    store/                   # Soybean Pinia 框架状态
+    theme/                   # Soybean 原生主题设置
+    components/              # Soybean 原生通用组件
+    shared/                  # 保留 API 传输、数据类型与指标计算
+    hooks/common/            # Soybean 通用组合函数，包括 useEcharts
+    styles/                  # 原版样式与保留字体、必要的内容布局
+  vendor/soybean/             # 直接复用的原版源码包和 MIT 许可
   src-tauri/                 # 原生宿主、模型进程、密钥、插件导出
 backend/
   src/
@@ -53,17 +46,17 @@ design/references/           # 原参考图，保留文件名；不进入运行�
 docs/                        # 架构与发布说明
 ```
 
-页面专有逻辑放在对应 `features`，多个功能实际共用的能力放在 `shared`；通用 UI 不调用业务 API。原生宿主负责系统能力，Rust Store 负责数据规则，HTTP、WebSocket 和 Tauri 继续复用同一套 Store。
+页面专有逻辑放在 `views/onhold`，多个功能实际共用的能力放在 `shared`；通用 UI 不调用业务 API。原生宿主负责系统能力，Rust Store 负责数据规则，HTTP、WebSocket 和 Tauri 继续复用同一套 Store。
 
-当前将前端 1,287 行的主入口拆为启动入口、应用外壳和四个页面；Rust 743 行的 Store 拆为数据库入口与功能模块。公共 `Store` 方法、CLI 路径、API operation、插件脚本加载顺序和用户数据位置保持兼容。本次没有更改产品版本号。
+前端已迁入 Soybean Admin 的 Vue 框架，业务页面按路由延迟加载；Rust 743 行的 Store 拆为数据库入口与功能模块。公共 `Store` 方法、CLI 路径、API operation、插件脚本加载顺序和用户数据位置保持兼容。本次没有更改产品版本号。
 
-## 已落实的性能改动
+## 保留的性能策略（历史测量不代表 Vue 版性能）
 
 | 改动 | 作用与验证 |
 | --- | --- |
 | 页面按功能延迟加载 | 内容复盘等页面不预先加载运营图表。相同空数据夹具、独立浏览器上下文下，内容复盘首次加载 JS 从 837,443 字节降至 443,473 字节，约减少 47%；这是未压缩 JS 资源总量，不是整个应用体积或启动耗时。 |
 | 自动刷新串行执行 | 完成本轮请求后才安排下一轮，保留隐藏页面暂停、请求序号保护和采集时加快刷新的行为。浏览器时钟测试覆盖请求耗时 30 秒时不叠加自动请求。手动动作仍可触发即时刷新。 |
-| 页面内复用帖子计算 | 过滤、排序、话题分组移入内容复盘；使用 `useMemo`，概览也复用重点帖和汇总计算，避免其他页面及无关状态触发重复计算。 |
+| 页面内复用帖子计算 | 过滤、排序、话题分组移入内容复盘；使用 Vue `computed`，概览也复用重点帖和汇总计算，避免其他页面及无关状态触发重复计算。 |
 | 统计窗口二分定位 | 历史记录按时间加载一次，预计算精度变化边界；窗口查询由扫描全部历史改为二分定位，不再为每个窗口分配候选数组。差分测试覆盖空历史、窗口边界、缺失值、零和负增量及精度切换，保持原统计口径。 |
 | 远程 HTTP 客户端复用 | Tauri 宿主共用一个 reqwest Client，允许连接池复用；保留每次地址/密钥校验、15 秒超时与禁止重定向。 |
 

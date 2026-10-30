@@ -1,5 +1,5 @@
 (() => {
-  if (globalThis.__xAIStampLoaded||location.hash==='#onhold-dashboard-reader') return;
+  if (globalThis.__xAIStampLoaded||['#onhold-dashboard-reader','#onhold-publisher','#onhold-reply'].includes(location.hash)) return;
   globalThis.__xAIStampLoaded = true;
   let config = {enabled: false, autoTranslate: false, threshold: 0.85};
   let generation = 0;
@@ -40,7 +40,7 @@
     return {text, node:textNode, postUrl:link, moreNode, readFull:!!moreNode&&!!link&&timed, key:`${link}\n${text}`};
   }
 
-  if(['#x-local-full-reader','#onhold-dashboard-reader'].includes(location.hash)) {
+  if(['#x-local-full-reader','#onhold-dashboard-reader','#onhold-publisher','#onhold-reply'].includes(location.hash)) {
     const clicked=new WeakSet();
     chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       if(message.type!=='READ_FULL_POST'||sender.id!==chrome.runtime.id)return;

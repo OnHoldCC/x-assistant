@@ -1,11 +1,15 @@
 import {runAutomation} from './automation.js';
+import {collectNotificationReplies} from './notifications.js';
+import {collectForYou} from './for-you.js';
+import {runPublication,cleanupPublicationTabs} from './publisher.js';
+import {collectRelationships} from './relationships.js';
 import {captureAnalyticsCsv,parseAnalyticsCsv} from './analytics-export.js';
 import {learnRequests,sessionFromCookies} from './request-capture.js';
-export function captureX(requestedPeriod){
+export function captureX(requestedPeriod,verifiedCreatorAccount){
   if(!['x.com','twitter.com'].includes(location.hostname)||location.protocol!=='https:')throw Error('请打开 X 页面后连接（当前来源：'+location.origin+'）');
   const path=document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')||'';
-  const account=(path.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]||document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]')?.innerText.match(/@([A-Za-z0-9_]{1,15})/)?.[1]||'').toLowerCase();
-  if(!account)throw Error('尚未识别登录账号，请先登录 X');
+  const account=(path.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]||document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]')?.innerText.match(/@([A-Za-z0-9_]{1,15})/)?.[1]||(location.pathname==='/i/jf/creators/original_content_rewards'&&/^[a-z0-9_]{1,15}$/.test(verifiedCreatorAccount||'')?verifiedCreatorAccount:'')).toLowerCase();
+  if(!account)throw Error('尚未识别登录账号（页面：'+location.pathname+'，标题：'+document.title.slice(0,80)+'）');
   function count(raw){
     const found=raw?.replace(/[\u200b-\u200f]/g,'').match(/(\d{1,3}(?:[,\u00a0\u202f ]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*([KMB](?![A-Za-z])|[千万亿])?/i);if(!found||!found[2]&&found[1].includes('.'))return null;
     const unit=(found[2]||'').toUpperCase(),value=Math.round(Number(found[1].replace(/[,\u00a0\u202f ]/g,''))*({K:1e3,M:1e6,B:1e9,'千':1e3,'万':1e4,'亿':1e8}[unit]||1));
@@ -59,10 +63,13 @@ export function captureX(requestedPeriod){
   if(location.pathname==='/i/jf/creators/original_content_rewards'){
     const scope=document.querySelector('[data-testid="primaryColumn"]')||document.querySelector('main')||document.body,text=scope.innerText.replace(/\s+/g,' ');
     const followers=text.match(/Have at least\s+([\d,.]+\s*[KMB]?)\s+Verified followers\s+([\d,.]+\s*[KMB]?)/i),impressions=text.match(/Have at least\s+([\d,.]+\s*[KMB]?)\s+Verified Home Timeline impressions in the last\s+(\d+)\s+days\s+([\d,.]+\s*[KMB]?)/i);
-    if(followers&&impressions){const followerTarget=count(followers[1]),currentFollowers=count(followers[2]),targetImpressions=count(impressions[1]),currentImpressions=count(impressions[3]);
-      if(followerTarget?.value&&currentFollowers&&targetImpressions?.value&&currentImpressions)creator={account,state:/Check back later|Ineligible|不符合/i.test(text)?'ineligible':'unknown',verified_followers:{current:currentFollowers,target:followerTarget.value},verified_impressions:{current:currentImpressions,target:targetImpressions.value,days:Number(impressions[2]),exclude_replies:/Does not include replies/i.test(text)}};
+    const followerTarget=followers&&count(followers[1]),currentFollowers=followers&&count(followers[2]),targetImpressions=impressions&&count(impressions[1]),currentImpressions=impressions&&count(impressions[3]);
+    const enrolled=/Original Content Rewards|原创内容奖励/i.test(text)&&/Enrolled|已开通|已加入/i.test(text);
+    if(followerTarget?.value&&currentFollowers||targetImpressions?.value&&currentImpressions||enrolled){
+      creator={account,state:enrolled?'enrolled':/Check back later|Ineligible|不符合/i.test(text)?'ineligible':'unknown'};
+      if(followerTarget?.value&&currentFollowers)creator.verified_followers={current:currentFollowers,target:followerTarget.value};
+      if(targetImpressions?.value&&currentImpressions)creator.verified_impressions={current:currentImpressions,target:targetImpressions.value,days:Number(impressions[2]),exclude_replies:/Does not include replies/i.test(text)};
     }
-    if(!creator&&/Original Content Rewards|原创内容奖励/i.test(text)&&/Enrolled|已开通|已加入/i.test(text))creator={account,state:'enrolled'};
   }
   return {handle:account,source:location.origin+location.pathname,profile,posts,analytics,creator};
 }
@@ -88,9 +95,14 @@ export function createCdpBridge(){
     const value=await response.json();if(!response.ok)throw Error(value.error||'后台连接失败');return value;
   }
   async function client(){const saved=await chrome.storage.local.get('cdpClient');if(saved.cdpClient)return saved.cdpClient;const id=crypto.randomUUID();await chrome.storage.local.set({cdpClient:id});return id;}
-  async function capture(tab,period){
+  async function capture(tab,period,creatorAccount){
     const info=await chrome.tabs.get(tab);if(!/^https:\/\/(x\.com|twitter\.com)\//.test(info.url||''))throw Error('当前标签页已离开 X，采集暂停');
-    const response=await chrome.debugger.sendCommand({tabId:tab},'Runtime.evaluate',{expression:'('+captureX.toString()+')('+(period?JSON.stringify(period):'')+')',returnByValue:true,awaitPromise:true});
+    if(creatorAccount){
+      const cookies=await chrome.debugger.sendCommand({tabId:tab},'Network.getCookies',{urls:['https://x.com/']});
+      const identity=sessionFromCookies(cookies.cookies||[]),owner=await call('creator',{account:identity.uid});
+      if(owner.account!==creatorAccount)throw Error('X 账号已切换，未采集资格数据');
+    }
+    const response=await chrome.debugger.sendCommand({tabId:tab},'Runtime.evaluate',{expression:'('+captureX.toString()+')('+(period?JSON.stringify(period):'undefined')+','+JSON.stringify(creatorAccount||null)+')',returnByValue:true,awaitPromise:true});
     if(response.exceptionDetails||!response.result?.value)throw Error(response.exceptionDetails?.exception?.description||'X 页面尚未准备好');return response.result.value;
   }
   async function backgroundPage(account,analytics,onSnapshot,creatorPage=false,onlyPeriod=null,deadline=Date.now()+80000){
@@ -109,7 +121,7 @@ export function createCdpBridge(){
         if(networkFailed)throw Error('X 分析请求失败，请稍后重试；已采到的周期已保存');
         try{const value=await capture(tab.id);if(value.handle!==account)throw Error('X 账号已切换');
           if(!pending.size&&Date.now()-lastNetwork>=750&&Date.now()-started>=1000&&!value.analytics?.loading&&Object.keys(value.analytics?.metrics||{}).length&&value.analytics?.period_key&&(!period||value.analytics.period_key===period))return value;
-        }catch(error){if(error.message==='X 账号已切换')throw error;lastError=error.message;}
+        }catch(error){if(error.message.startsWith('X 账号已切换'))throw error;lastError=error.message;}
         await pause();
       }
       throw Error('官方分析 '+(period||'当前周期')+' 采集未完成：'+lastError);
@@ -117,45 +129,57 @@ export function createCdpBridge(){
     try{
       await chrome.debugger.attach({tabId:tab.id},'1.3');attached=true;
       await chrome.debugger.sendCommand({tabId:tab.id},'Page.enable');
-      if(analytics){chrome.debugger.onEvent.addListener(network);await chrome.debugger.sendCommand({tabId:tab.id},'Network.enable');}
+      if(analytics)chrome.debugger.onEvent.addListener(network);
+      if(analytics||creatorPage)await chrome.debugger.sendCommand({tabId:tab.id},'Network.enable');
       const navigation=await chrome.debugger.sendCommand({tabId:tab.id},'Page.navigate',{url:creatorPage?'https://x.com/i/jf/creators/original_content_rewards#onhold-dashboard-reader':analytics?'https://x.com/i/account_analytics#onhold-dashboard-reader':'https://x.com/'+account+'#onhold-dashboard-reader'});
       if(navigation.errorText)throw Error('X 页面加载失败：'+navigation.errorText);
       if(analytics){
         const initial=await settled(),available=initial.analytics.available_periods;
-        const periods=['1d','7d','14d','28d','30d','90d','365d'].filter(period=>available.includes(period)&&(!onlyPeriod||period===onlyPeriod));
-        if(!periods.length)throw Error('未识别 X 官方分析周期，请更新助手后重试');
-        let latest;
+        const periods=(onlyPeriod?[onlyPeriod]:['365d','90d']).filter(period=>available.includes(period));
+        if(!periods.length)throw Error('X 未提供 3M 或 1Y 周期，无法采集至少三个月的趋势');
+        let latest,lastError;
         for(const period of periods){
+         try{
           if(Date.now()>=deadline)throw Error('官方分析采集超时，请重试；已采到的周期已保存');
           networkFailed=false;const selection=await capture(tab.id,period);if(selection.handle!==account)throw Error('X 账号已切换');
           latest=await settled(period);
           const exported=await chrome.debugger.sendCommand({tabId:tab.id},'Runtime.evaluate',{expression:'('+captureAnalyticsCsv.toString()+')()',returnByValue:true,awaitPromise:true});
           if(exported.exceptionDetails||typeof exported.result?.value!=='string')throw Error(exported.exceptionDetails?.exception?.description||'X 官方 CSV 未获取');
           latest.analytics.series=parseAnalyticsCsv(exported.result.value);latest.analytics.series_source='x_analytics_csv';latest.analytics.granularity='day';
+          const expected=Number(period.slice(0,-1)),series=latest.analytics.series;
+          if(series.length<expected||series.some((point,index)=>index&&Date.parse(point.date+'T00:00:00Z')-Date.parse(series[index-1].date+'T00:00:00Z')!==86400000))throw Error('X 官方 '+period+' CSV 逐日数据不完整，未作为完整周期保存');
           for(const name of Object.keys(latest.analytics.series[0].metrics).filter(name=>!['engagement_rate','net_follows'].includes(name))){
             if(latest.analytics.series.every(point=>point.metrics[name]!=null)){const value=latest.analytics.series.reduce((sum,point)=>sum+point.metrics[name],0);latest.analytics.metrics[name]={value,raw:String(value),approximate:false};}
           }
           await onSnapshot(latest);
+          return latest;
+         }catch(error){if(error.message.startsWith('X 账号已切换'))throw error;lastError=error;}
         }
-        return latest;
+        throw lastError||Error('未取得至少三个月的完整 CSV');
       }
       let lastError='页面未显示账号数据';
       for(let i=0;i<(creatorPage?40:60)&&Date.now()<deadline;i++){
-        try{const value=await capture(tab.id);if(value.handle!==account)throw Error('X 账号已切换');if(creatorPage?value.creator: value.posts.length>0&&Object.keys(value.profile).length)return value;}catch(error){if(error.message==='X 账号已切换')throw error;lastError=error.message;}
+        try{const value=await capture(tab.id,undefined,creatorPage?account:undefined);if(value.handle!==account)throw Error('X 账号已切换');if(creatorPage?value.creator: value.posts.length>0&&Object.keys(value.profile).length)return value;}catch(error){if(error.message.startsWith('X 账号已切换'))throw error;lastError=error.message;}
         await new Promise(resolve=>setTimeout(resolve,500));
       }
-      throw Error((creatorPage?'创作者进度':'个人主页')+'采集未完成：'+lastError);
+      const info=creatorPage?await chrome.tabs.get(tab.id):null;
+      throw Error((creatorPage?'创作者进度':'个人主页')+'采集未完成：'+lastError+(info?'（页面：'+new URL(info.url).pathname+'，标题：'+(info.title||'').slice(0,80)+'）':''));
     }finally{if(analytics)chrome.debugger.onEvent.removeListener(network);if(attached)await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});await chrome.tabs.remove(tab.id).catch(()=>{});}
   }
   async function collect(automatic=false,analytics=false){
-    const deadline=Date.now()+100000;
+    const deadline=Date.now()+85000;
     const {cdpTab,cdpAccount}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接当前 X 标签页');
     let snapshot=await capture(cdpTab);if(snapshot.handle!==cdpAccount)throw Error('X 账号已切换，请在插件中重新连接');
     const save=async value=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已切换，本次采集已取消');await call('ingest',value);};
-    if(automatic)snapshot=await backgroundPage(cdpAccount,analytics,save,false,null,Math.min(deadline,Date.now()+80000));
-    if(!automatic||!analytics)await save(snapshot);
-    if(automatic&&!analytics)await backgroundPage(cdpAccount,true,save,false,'7d',deadline);
-    if(automatic){const creator=await backgroundPage(cdpAccount,false,null,true,null,deadline);await save(creator);}
+    let failure;
+    try{
+      if(automatic)snapshot=await backgroundPage(cdpAccount,analytics,save,false,null,Math.min(deadline,Date.now()+80000));
+      if(!automatic||!analytics)await save(snapshot);
+      if(automatic&&!analytics)await backgroundPage(cdpAccount,true,save,false,null,deadline);
+    }catch(error){failure=error;}
+    // Qualification needs its own time budget even when analytics fails.
+    if(automatic)try{await save(await backgroundPage(cdpAccount,false,null,true,null,Date.now()+25000));}catch(error){failure||=error;}
+    if(failure)throw failure;
     await call('heartbeat',{client:await client(),account:snapshot.handle});return snapshot;
   }
   async function poll(){
@@ -166,13 +190,27 @@ export function createCdpBridge(){
       const localBlock=(await chrome.storage.session.get('automationBlock')).automationBlock;
       if(localBlock?.account===cdpAccount){const state=await call('automation',{account:cdpAccount});if(state.resumed_at>localBlock.at)await chrome.storage.session.remove('automationBlock');else if(!state.block)await call('automation_block',{account:cdpAccount,reason:localBlock.reason});}
       job=await call('claim',{client:id,account:cdpAccount});if(job){
-       if(['follow_back','unfollow'].includes(job.action)){
+       if(job.action==='capture_creator'){
+        const value=await backgroundPage(cdpAccount,false,null,true,null,Date.now()+30000);
+        if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变，未保存资格数据');
+        await call('ingest',value);await call('finish',{id:job.id,client:id});
+       }else if(job.action==='capture_notifications'){
+        job.client=id;await collectNotificationReplies(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});await call('finish',{id:job.id,client:id});
+       }else if(job.action==='capture_for_you'){
+        job.client=id;await collectForYou(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});await call('finish',{id:job.id,client:id});
+       }else if(job.action==='capture_relationships'){
+        job.client=id;await collectRelationships(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});await call('finish',{id:job.id,client:id});
+       }else if(job.action==='rewrite_publish'){
+        job.client=id;const outcome=await runPublication(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});
+        if(outcome.tab_closed===false&&job.input?.task_id){await call('control_automation',{account:cdpAccount,id:job.input.task_id,enabled:false});outcome.cleanup_warning+=' 当前自动化已暂停，避免继续积累页面。';}
+        await call('finish',{id:job.id,client:id,result:outcome});
+       }else if(['follow_back','unfollow'].includes(job.action)){
         job.client=id;const outcome=await runAutomation(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});
         await call('finish',{id:job.id,client:id,result:outcome,error:outcome.blocked?outcome.reason:undefined});
        }else{if(!['capture','capture_analytics'].includes(job.action))throw Error('不支持此采集任务类型');await collect(true,job.action==='capture_analytics');await call('finish',{id:job.id,client:id});}
       }
       await chrome.storage.session.set({cdpError:''});
-    }catch(error){if(job&&id)await call('finish',{id:job.id,client:id,error:error.message.slice(0,2000),result:error.automationResult}).catch(()=>{});await chrome.storage.session.set({cdpError:error.message});}finally{busy=false;}
+    }catch(error){if(job?.input?.task_id&&error.publicationResult?.tab_closed===false){try{await call('control_automation',{account:cdpAccount,id:job.input.task_id,enabled:false});error.publicationResult.cleanup_warning+=' 当前自动化已暂停，避免继续积累页面。';}catch{}}if(job&&id)await call('finish',{id:job.id,client:id,error:error.message.slice(0,2000),result:error.publicationResult||error.automationResult}).catch(()=>{});await chrome.storage.session.set({cdpError:error.message});}finally{busy=false;}
   }
   function closeSocket(){clearInterval(heartbeatTimer);const old=socket;socket=null;old?.close();}
   async function heartbeat(){
@@ -207,7 +245,7 @@ export function createCdpBridge(){
   }
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name==='onhold-cdp')openSocket().then(heartbeat).catch(error=>chrome.storage.session.set({cdpError:error.message}));});
   chrome.debugger.onDetach.addListener(async source=>{const {cdpTab}=await session();if(source.tabId===cdpTab){try{await chrome.debugger.sendCommand({tabId:cdpTab},'Runtime.evaluate',{expression:'0',returnByValue:true});return;}catch{}closeSocket();await chrome.storage.session.remove(['cdpTab','cdpAccount']);await chrome.storage.session.set({cdpWs:'disconnected'});}});
-  return {resume:openSocket,async account(){const {cdpTab}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接 X 助手');return (await capture(cdpTab)).handle;},async status(){const saved=await chrome.storage.local.get('cdpConfig');return {busy,...await chrome.storage.session.get(['cdpTab','cdpAccount','cdpError','cdpWs','cdpLoginState']),endpoint:saved.cdpConfig?.endpoint||'http://127.0.0.1:18431',configured:!!saved.cdpConfig?.token};},async overview(){
+  return {resume:openSocket,async account(){const {cdpTab}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接 X 助手');return (await capture(cdpTab)).handle;},async status(){const saved=await chrome.storage.local.get('cdpConfig');return {busy,...await chrome.storage.session.get(['cdpTab','cdpAccount','cdpError','cdpWs','cdpLoginState','cdpCleanup']),endpoint:saved.cdpConfig?.endpoint||'http://127.0.0.1:18431',configured:!!saved.cdpConfig?.token};},async overview(){
     const {cdpAccount}=await session();if(!cdpAccount)return null;
     const saved=(await chrome.storage.local.get('cdpOverviewCache')).cdpOverviewCache||{};
     try{
@@ -224,15 +262,26 @@ export function createCdpBridge(){
     if(input?.remove)return call('remove_bookmark',{account:cdpAccount,author:input.author,id:input.id});
     return call('save_bookmark',{...input,account:cdpAccount});
 
+  },async rewrite(source){
+    const {cdpTab,cdpAccount}=await session();
+    if(!Number.isInteger(cdpTab)||!cdpAccount||(await capture(cdpTab)).handle!==cdpAccount)throw Error('请先连接当前 X 账号');
+    return call('enqueue_rewrite',{account:cdpAccount,source});
+  },async prepareReload(){
+    if(busy)throw Error('助手正在执行任务，请等待结束后升级');
+    busy=true;
+    try{
+      const {cdpAccount}=await session(),jobs=await call('jobs',{});
+      if(jobs.some(job=>(!cdpAccount||job.account===cdpAccount)&&['running','rewriting'].includes(job.state)))throw Error('当前账号有执行中的任务，请等待结束后升级');
+    }catch(error){busy=false;throw error;}
   },async save(value){const config=bridgeConfig(value),previous=(await chrome.storage.local.get('cdpConfig')).cdpConfig;if(previous?.endpoint!==config.endpoint||previous?.token!==config.token)await chrome.storage.local.remove('cdpOverviewCache');await chrome.storage.local.set({cdpConfig:config});return true;},async connect({pickX=false}={}){
     if(busy)throw Error('连接或采集正在执行，请稍后重试');busy=true;try{
     await probe();await call('connections',{});
     const tabs=await chrome.tabs.query(pickX?{url:['https://x.com/*','https://twitter.com/*']}:{active:true,currentWindow:true});
     const tab=pickX?tabs.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0))[0]:tabs[0];
-    if(!tab?.id||!/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')){if(pickX)await chrome.tabs.create({url:'https://x.com/home',active:true});throw Error('请先登录 X，再点击「连接 X 助手插件」');}
+    if(!tab?.id||!/^https:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')){if(pickX)await chrome.tabs.create({url:'https://x.com/home',active:false});throw Error('请先登录 X，再点击「连接 X 助手插件」');}
     closeSocket();const old=await session();if(Number.isInteger(old.cdpTab)){await chrome.storage.session.remove(['cdpTab','cdpAccount']);await chrome.debugger.detach({tabId:old.cdpTab}).catch(()=>{});}
     await chrome.debugger.attach({tabId:tab.id},'1.3');
-    try{const snapshot=await capture(tab.id);await learnRequests(tab.id,snapshot.handle,call);if((await capture(tab.id)).handle!==snapshot.handle){await call('forget_x_session',{account:snapshot.handle});throw Error('X 账号已改变，请重新连接');}await call('heartbeat',{client:await client(),account:snapshot.handle});await chrome.storage.session.set({cdpTab:tab.id,cdpAccount:snapshot.handle,cdpError:''});await openSocket();await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});return {account:snapshot.handle,posts:0};}
+    try{const snapshot=await capture(tab.id);await learnRequests(tab.id,snapshot.handle,call);if((await capture(tab.id)).handle!==snapshot.handle){await call('forget_x_session',{account:snapshot.handle});throw Error('X 账号已改变，请重新连接');}await call('heartbeat',{client:await client(),account:snapshot.handle});await chrome.storage.session.set({cdpTab:tab.id,cdpAccount:snapshot.handle,cdpError:''});await openSocket();await chrome.alarms.create('onhold-cdp',{periodInMinutes:0.5});let cleanup;try{cleanup=await cleanupPublicationTabs(snapshot.handle,call,tab.id);await chrome.storage.session.set({cdpCleanup:cleanup});}catch(error){cleanup={error:error.message};}return {account:snapshot.handle,posts:0,cleanup};}
     catch(error){closeSocket();await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount']);throw error;}
     }finally{busy=false;}
   },async disconnect(){const {cdpTab,cdpAccount}=await session();if(cdpAccount)await call('forget_x_session',{account:cdpAccount});closeSocket();if(Number.isInteger(cdpTab))await chrome.debugger.detach({tabId:cdpTab}).catch(()=>{});await chrome.storage.session.remove(['cdpTab','cdpAccount','cdpError','cdpLoginState']);await chrome.storage.session.set({cdpWs:'disconnected'});await chrome.alarms.clear('onhold-cdp');return true;},async collect(){if(busy)throw Error('采集任务正在执行');const {cdpAccount}=await session();if(!cdpAccount)throw Error('请先连接 X 账号');return call('enqueue',{account:cdpAccount,action:'capture_analytics'});}};

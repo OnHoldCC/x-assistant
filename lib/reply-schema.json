@@ -1,0 +1,1 @@
+{"type":"object","properties":{"schema_version":{"type":"integer","enum":[1]},"text":{"type":"string","minLength":1,"maxLength":120}},"required":["schema_version","text"],"additionalProperties":false}

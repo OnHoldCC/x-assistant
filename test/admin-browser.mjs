@@ -26,7 +26,7 @@ try{
  };
  assert.equal((await request('dashboard',{}, {Authorization:'Bearer invalid'})).status,401);
  assert.equal((await request('dashboard',{}, {Origin:'https://evil.example'})).status,403);
- assert.equal((await fetch(base+'/health').then(r=>r.json())).schema_version,4);
+ assert.equal((await fetch(base+'/health').then(r=>r.json())).schema_version,5);
  const extension=path.join(home,'extension');fs.cpSync(path.join(root,'extension'),extension,{recursive:true});
  const manifest=JSON.parse(fs.readFileSync(path.join(extension,'manifest.json')));manifest.host_permissions.push(base+'/*');fs.writeFileSync(path.join(extension,'manifest.json'),JSON.stringify(manifest));
  context=await chromium.launchPersistentContext(path.join(home,'browser'),{headless:true,channel:'chromium',viewport:{width:1320,height:940},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
@@ -45,6 +45,7 @@ try{
   return route.fulfill({contentType:'text/html;charset=utf-8',body:`<a data-testid="AppTabBar_Profile_Link" href="/example">Profile</a><main>Fixture X page</main><script>${script}</script>`});
  });
  const x=await context.newPage();await x.goto('https://x.com/example');
+ await x.waitForFunction(()=>[...document.fonts].some(face=>face.family.replaceAll('"','')==='Launch Rounded'&&face.status==='loaded'));
  const popup=await context.newPage();await popup.goto('chrome-extension://efnelpfiicmcfahpkoidcegnebndoiad/admin-ui/bridge.html');
  const send=(type,data)=>popup.evaluate(({type,data})=>chrome.runtime.sendMessage({type,data}),{type,data});
  assert.equal((await send('CDP_SAVE',{endpoint:base,token})).ok,true);

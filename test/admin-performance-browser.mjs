@@ -67,20 +67,20 @@ try {
       },
     };
   });
-  await page.goto(base + "/#posts");
+  await page.goto(base + "/#tasks");
   await page
-    .getByRole("searchbox", { name: "搜索帖子", exact: true })
+    .getByRole("searchbox", { name: "搜索任务", exact: true })
     .waitFor();
   await page.waitForFunction(() => window.dashboardCalls === 1);
   assert.ok(
-    assets.some((url) => /\/PostsPage-/.test(url)),
-    "content review loads its own page chunk",
+    assets.some((url) => /\/Tasks-/.test(url)),
+    "task records loads its own page chunk",
   );
   assert.ok(
     !assets.some((url) =>
-      /\/(OverviewPage|chart-area-interactive|charts)-/.test(url),
+      /\/(Overview|Analytics|echarts)-/.test(url),
     ),
-    "content review does not load analytics charts",
+    "task records does not load analytics charts",
   );
   await page.clock.runFor(30_000);
   assert.equal(

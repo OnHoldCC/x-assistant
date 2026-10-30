@@ -155,3 +155,32 @@ export function analyticsRewardEstimate(
   const amount = impressions * calibration.payout / calibration.impressions;
   return { amount: Number.isFinite(amount) ? amount : null, currency, impressions, calibrated: true };
 }
+
+export function unsettledRewardEstimate(
+  snapshots: Record<string, import("@/shared/types").AnalyticsSnapshot>,
+  summary: import("@/shared/types").CreatorSummary | null | undefined,
+  today = new Date().toISOString().slice(0, 10),
+) {
+  const calibration = summary?.calibration;
+  const empty = { amount: null, currency: calibration?.currency || "USD", start: null, end: today, through: null };
+  if (!calibration) return { ...empty, reason: "待添加上次结算" };
+  const startTime = Date.parse(calibration.end_date + "T00:00:00Z") + 86400000;
+  if (!Number.isFinite(startTime) || startTime > Date.parse(today + "T00:00:00Z"))
+    return { ...empty, reason: "结算周期尚未结束" };
+  const start = new Date(startTime).toISOString().slice(0, 10);
+  const points = new Map<string, import("@/shared/types").AnalyticsPoint>();
+  for (const snapshot of Object.values(snapshots).sort((a, b) => a.observed_at - b.observed_at)) {
+    if ((snapshot.data.verified_only === true) !== calibration.verified_only) continue;
+    for (const point of snapshot.data.series || [])
+      if (point.date >= start && point.date <= today) points.set(point.date, point);
+  }
+  const series = [...points.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const through = series.at(-1)?.date || null;
+  // Today's export may lag; never fill a missing earlier day with zero.
+  for (let at = startTime; at < Date.parse(today + "T00:00:00Z"); at += 86400000)
+    if (!points.has(new Date(at).toISOString().slice(0, 10)))
+      return { ...empty, start, through, reason: "本期逐日数据不完整，请采集官方分析" };
+  const estimate = analyticsRewardEstimate({ data: { series, verified_only: calibration.verified_only }, observed_at: 0, source: "x" }, summary);
+  return { amount: estimate.amount, currency: estimate.currency, start, end: today, through,
+    reason: estimate.amount == null ? "等待本期官方曝光数据" : through !== today ? "今日数据尚未更新" : "今日数据持续更新" };
+}

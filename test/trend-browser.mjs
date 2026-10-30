@@ -15,26 +15,12 @@ try{
   const value=operation==='dashboard'?{accounts:[{handle:'example',first_seen:at,last_seen:at}],account:'example',posts:[],analytics:null,days:7,...fixture}:operation==='pairing'?{}:[];
   return route.fulfill({json:value});
  });
- const visit=async()=>{await page.goto(base);await page.getByRole('heading',{name:'运营概览',exact:true}).waitFor();await page.getByRole('tab',{name:'观测数据',exact:true}).click();};
- await visit();await page.getByRole('status').filter({hasText:'尚未采到浏览量数据'}).waitFor();assert.equal(await page.getByRole('img',{name:'浏览量观测净增趋势'}).count(),0);
- fixture.metrics={views:metric(947)};await visit();await page.getByRole('status').filter({hasText:'已采到数据，等待对比'}).waitFor();
- const point=(label,value,approximate=false)=>({at,label,values:{views:value},approximate:{views:approximate}});
- for(const value of [0,12,-3]){
-  fixture.series=[point('10/26',null),point('10/27',null),point('10/28',value)];await visit();
-  await page.getByRole('status').filter({hasText:'浏览量净增 '+value}).waitFor();
-  assert.equal(await page.getByRole('img',{name:'浏览量观测净增趋势'}).count(),0,'one point is a compact summary, not a full chart');
-  if(value===0)await page.screenshot({path:'app/screenshots/trend-single-zero.png',fullPage:true,animations:'disabled'});
+ const visit=async()=>{await page.goto(base);await page.getByRole('region',{name:'账号与帖子观测',exact:true}).waitFor();};
+ for(const metrics of [{},{views:metric(947)},{views:metric(0)}]){
+  fixture.metrics=metrics;fixture.series=[];await visit();
+  assert.equal(await page.getByRole('heading',{name:'观测趋势',exact:true}).count(),0);
+  assert.equal(await page.locator('.welcome').count(),0);assert.equal(await page.getByText('重点帖子',{exact:true}).count(),0);assert.equal(await page.getByRole('tablist',{name:'统计来源',exact:true}).count(),0);await page.getByRole('img',{name:'趋势数据尚未采集',exact:true}).waitFor();
  }
- for(const values of [[0,0,0],[1,12,8],[-3,-1,-2]]){
-  fixture.series=values.map((value,i)=>point('10/'+(26+i),value));await visit();
-  const chart=page.getByRole('img',{name:'浏览量观测净增趋势',exact:true});await chart.waitFor();await chart.locator('.recharts-area-dots circle').first().waitFor();
-  assert.equal(await chart.locator('.recharts-area-dots circle').count(),3);
-  const d=await chart.locator('.recharts-area-curve').getAttribute('d');assert.ok(d.includes('C'),'monotone interpolation renders a smooth curve');
-  const bounds=await chart.boundingBox();for(const dot of await chart.locator('.recharts-area-dots circle').all()){const r=await dot.boundingBox();assert.ok(r.y>=bounds.y&&r.y+r.height<=bounds.y+bounds.height);}
-  if(values[0]===1)await page.screenshot({path:'app/screenshots/trend-curve-desktop.png',fullPage:true,animations:'disabled'});
- }
- fixture.series=[point('10/26',0),point('10/27',null),point('10/28',4)];await visit();await page.locator('.recharts-area-dots circle').first().waitFor();assert.equal(await page.locator('.recharts-area-dots circle').count(),2,'missing observations must never become fake zero points');
- fixture.series=[point('10/28',0,true)];await visit();await page.getByRole('status').filter({hasText:'浏览量净增 ≈0'}).waitFor();
- await page.setViewportSize({width:375,height:812});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
- console.log('Passed: missing metric vs missing comparison, compact single zero/positive/negative observations and smooth zero/positive/negative curves, missing-day gaps, approximation labels and mobile width.');
+ await page.setViewportSize({width:375,height:812});await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+ console.log('Passed: observed overview omits the removed welcome/trend panels for missing, zero and populated metrics, and fits mobile width.');
 }finally{if(browser)await browser.close();if(server.exitCode===null){const exited=once(server,'exit');server.kill('SIGTERM');await exited;}}

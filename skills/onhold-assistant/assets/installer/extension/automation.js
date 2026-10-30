@@ -54,7 +54,7 @@ export async function runAutomation(job,call,owner,verify){
  try{
   await chrome.debugger.attach({tabId:tab.id},'1.3');attached=true;chrome.debugger.onEvent.addListener(network);await chrome.debugger.sendCommand({tabId:tab.id},'Network.enable');await chrome.debugger.sendCommand({tabId:tab.id},'Page.enable');
   let targets=input.targets||[];
-  if(job.action==='follow_back'&&input.scope==='automation_owned'){
+  if(job.action==='follow_back'&&input.scope==='automation_owned'&&!Array.isArray(input.targets)){
    await chrome.debugger.sendCommand({tabId:tab.id},'Page.navigate',{url:'https://x.com/'+owner+'/followers#onhold-dashboard-reader'});
    let ready=false;
    for(let attempt=0;attempt<30;attempt++){let page;try{page=await inspect(owner,'candidates');}catch{await pause(300);continue;}if(page.blocked){await block(page.reason);return result;}if(page.owner!==owner)throw Error('账号已改变');if(page.ready){targets=page.targets||[];ready=true;break;}await pause(300);}

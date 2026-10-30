@@ -1,4 +1,6 @@
 pub mod http;
+pub mod models;
+pub mod news;
 pub mod store;
 mod ws;
 
@@ -17,6 +19,10 @@ pub fn dispatch(store: &Store, operation: &str, input: Value) -> Result<Value, S
     let label = match operation {
         "ingest" => Some("采集数据已更新"),
         "enqueue" => Some("采集任务已排队"),
+        "enqueue_rewrite" => Some("一键改写发布已排队"),
+        "update_job" => Some("任务已更新"),
+        "delete_job" => Some("任务已移除，执行记录已保留"),
+        "delete_automation" => Some("自动化任务已删除"),
         "claim" if outcome.as_ref().is_ok_and(|v| !v.is_null()) => Some("任务开始执行"),
         "finish" => Some("任务执行结束"),
         "save_bookmark" => Some("收藏已保存"),
@@ -99,6 +105,19 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
         ),
         "connections" => store.connections(now()),
         "jobs" => store.jobs(),
+        "job_records" => store.job_records(text("account")?, &input),
+        "job_logs" => store.job_logs(text("account")?, text("id")?, &input),
+        "update_job" => store.update_job(text("account")?, text("id")?, &input, now()),
+        "delete_job" => store.delete_job(text("account")?, text("id")?, now()),
+        "enqueue_rewrite" => store.enqueue_rewrite(text("account")?, &input["source"], now()),
+        "schedule_publication" => store.schedule_publication(
+            text("account")?,
+            text("id")?,
+            input["run_at"].as_i64().ok_or("发布时间无效")?,
+            now(),
+        ),
+        "retry_rewrite" => store.retry_rewrite(text("account")?, text("id")?, now()),
+        "begin_publish" => store.begin_publish(text("id")?, text("client")?, now()),
         "enqueue" => store.enqueue_action(
             text("account")?,
             match input.get("action") {
@@ -117,14 +136,24 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
         "heartbeat" => store.heartbeat(text("client")?, text("account")?, now()),
         "claim" => store.claim(text("client")?, text("account")?, now()),
         "automation" => store.automation_state(text("account")?),
+        "news_queue" => store.news_queue(text("account")?, &input),
+        "relationships" => store.relationships(text("account")?, &input),
+        "sync_relationships" => store.sync_relationships(text("account")?, &input, now()),
+        "save_relationship_page" => store.save_relationship_page(text("account")?, &input, now()),
         "save_automation" => store.save_automation(text("account")?, &input, now()),
+        "delete_automation" => store.delete_automation(text("account")?, text("id")?),
         "control_automation" => store.control_automation(
             text("account")?,
             text("id")?,
             input["enabled"].as_bool().ok_or("任务状态无效")?,
             now(),
         ),
+        "cancel_job" => store.cancel_job(text("account")?, text("id")?, now()),
         "run_automation" => store.run_automation(text("account")?, text("id")?, now()),
+        "queue_feed_replies" => {
+            store.queue_feed_replies(text("id")?, text("client")?, &input["posts"], now())
+        }
+        "queue_notification_follows" => store.queue_notification_follows(text("id")?, text("client")?, &input["targets"], now()),
         "automation_progress" => {
             store.automation_progress(text("id")?, text("client")?, text("target")?, now())
         }
@@ -132,10 +161,27 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
         "automation_block" => store.block_automation(text("account")?, text("reason")?, now()),
         "resume_automation" => store.resume_automation(text("account")?, now()),
         "finish" => {
+            if let Some(value) = store.finish_publication(
+                text("id")?,
+                text("client")?,
+                &input["result"],
+                input.get("error").and_then(Value::as_str),
+                now(),
+            )? {
+                return Ok(value);
+            }
             if let Some(value) = store.finish_automation(
                 text("id")?,
                 text("client")?,
                 &input["result"],
+                input.get("error").and_then(Value::as_str),
+                now(),
+            )? {
+                return Ok(value);
+            }
+            if let Some(value) = store.finish_for_you(
+                text("id")?,
+                text("client")?,
                 input.get("error").and_then(Value::as_str),
                 now(),
             )? {

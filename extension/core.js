@@ -1,6 +1,6 @@
 import {LANGUAGES} from './languages.mjs';
 export const DEFAULTS = Object.freeze({
-  enabled: false, autoTranslate: true, allWebsites: false, composeTranslate: true, composeTarget: 'en', readingTarget:'zh', postAnalysis: false, hideAds: true, collectMetrics: false,
+  enabled: false, autoTranslate: false, allWebsites: false, composeTranslate: false, composeTarget: 'en', readingTarget:'zh', postAnalysis: false, hideAds: true, collectMetrics: false,
   translationAllowlist:['https://x.com/home','https://x.com/*/status/*','https://twitter.com/home','https://twitter.com/*/status/*'],
   mode: 'local', provider: 'chat', endpoint: '', model: '', apiKey: '',
   threshold: 0.85, dailyLimit: 100
@@ -83,9 +83,9 @@ export function validateSettings(input) {
   if (!input || typeof input !== 'object') throw new Error('设置格式不正确。');
   const config = {
     enabled: input.enabled === true,
-    autoTranslate: input.autoTranslate !== false,
-    allWebsites: input.allWebsites === true,
-    composeTranslate: input.composeTranslate !== false,
+    autoTranslate: false,
+    allWebsites: false,
+    composeTranslate: false,
     postAnalysis: false,
     hideAds: input.hideAds !== false,
     collectMetrics: input.collectMetrics !== false,

@@ -1,0 +1,1 @@
+import{s as e}from"./onhold-vue-BwEsA1MS.js";let r=!1;function t(){if(e&&window.CSS&&!r&&(r=!0,"registerProperty"in window?.CSS))try{CSS.registerProperty({name:"--n-color-start",syntax:"<color>",inherits:!1,initialValue:"#0000"}),CSS.registerProperty({name:"--n-color-end",syntax:"<color>",inherits:!1,initialValue:"#0000"})}catch{}}export{t as u};

@@ -30,7 +30,7 @@ export function userRecords(value){
 }
 
 export function sessionFromCookies(cookies){
-  const allowed=cookies.filter(cookie=>['auth_token','ct0','twid'].includes(cookie.name));
+  const allowed=cookies.filter(cookie=>['auth_token','ct0','twid'].includes(cookie.name)).sort((a,b)=>a.name.localeCompare(b.name));
   const get=name=>allowed.find(cookie=>cookie.name===name)?.value;
   let twid;try{twid=decodeURIComponent(get('twid')||'');}catch{throw Error('X 登录态无效，请重新登录');}
   const uid=twid.match(/^u=([1-9]\d{0,19})$/)?.[1];

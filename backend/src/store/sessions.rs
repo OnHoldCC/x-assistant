@@ -1,6 +1,34 @@
 use super::*;
 
 impl Store {
+    pub(crate) fn connect_browser(&self, client: &str, account: &str, analytics: bool, at: i64) -> Result<Uuid, String> {
+        let mut connections = self.browser_connections.lock().map_err(|_| "连接状态暂不可用")?;
+        self.session_status(client, account, "logged_in", "", at)?;
+        self.set_analytics_support(client, analytics)?;
+        self.set_automation_support(client, false)?;
+        self.set_extension_version(client, "")?;
+        let connection = Uuid::new_v4();
+        connections.insert(client.to_owned(), connection);
+        Ok(connection)
+    }
+    pub(crate) fn browser_connection_current(&self, client: &str, connection: &Uuid) -> bool {
+        self.browser_connections.lock().is_ok_and(|connections| connections.get(client) == Some(connection))
+    }
+    pub(crate) fn browser_heartbeat(&self, client: &str, connection: &Uuid, account: &str, value: &Value, at: i64) -> Result<(), String> {
+        let connections = self.browser_connections.lock().map_err(|_| "连接状态暂不可用")?;
+        if connections.get(client) != Some(connection) { return Err("连接已被替换".into()); }
+        self.session_status(client, account, value["state"].as_str().ok_or("缺少登录状态")?, value["error"].as_str().unwrap_or(""), at)?;
+        self.set_automation_support(client, value["automation_supported"].as_bool().unwrap_or(false))?;
+        self.set_extension_version(client, value["extension_version"].as_str().unwrap_or(""))
+    }
+    pub(crate) fn disconnect_browser(&self, client: &str, connection: &Uuid) -> Result<(), String> {
+        let mut connections = self.browser_connections.lock().map_err(|_| "连接状态暂不可用")?;
+        if connections.get(client) == Some(connection) {
+            self.session_disconnected(client)?;
+            connections.remove(client);
+        }
+        Ok(())
+    }
     pub fn heartbeat(&self, client: &str, account: &str, at: i64) -> Result<Value, String> {
         if Uuid::parse_str(client).is_err() {
             return Err("连接标识无效".into());
@@ -87,5 +115,40 @@ impl Store {
             )
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::*;
+
+    #[test]
+    fn superseded_socket_cannot_invalidate_a_running_collection() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(directory.path().join("db")).unwrap();
+        let at = now();
+        store.ingest(serde_json::from_value::<Snapshot>(json!({"uid":"123","handle":"fixture","source":"https://x.com/fixture","profile":{},"posts":[]})).unwrap(), at).unwrap();
+        let client = Uuid::new_v4().to_string();
+        let heartbeat = json!({"state":"logged_in","automation_supported":true,"extension_version":"1.5.13"});
+        let old = store.connect_browser(&client, "fixture", true, at).unwrap();
+        store.browser_heartbeat(&client, &old, "fixture", &heartbeat, at).unwrap();
+        let task = store.save_automation("fixture", &json!({"action":"auto_reply","interval_minutes":1,"limit":1}), at).unwrap()["id"].as_str().unwrap().to_owned();
+        store.control_automation("fixture", &task, true, at).unwrap();
+        let job = store.run_automation("fixture", &task, at).unwrap()["id"].as_str().unwrap().to_owned();
+        assert_eq!(store.claim(&client, "fixture", at).unwrap()["id"], job);
+
+        let current = store.connect_browser(&client, "fixture", true, at + 1).unwrap();
+        store.browser_heartbeat(&client, &current, "fixture", &heartbeat, at + 1).unwrap();
+        assert!(!store.browser_connection_current(&client, &old));
+        assert!(store.browser_connection_current(&client, &current));
+        assert!(store.browser_heartbeat(&client, &old, "fixture", &json!({"state":"account_changed"}), at + 2).is_err());
+        store.disconnect_browser(&client, &old).unwrap();
+        assert_eq!(store.connections(at + 2).unwrap()[0]["online"], true);
+        let posts = json!([{"id":"999","author":"writer","url":"https://x.com/writer/status/999","text":"This is a useful improvement for the workflow.","complete":true}]);
+        assert_eq!(store.queue_feed_replies(&job, &client, &posts, at + 3).unwrap()["queued"], 1);
+
+        store.disconnect_browser(&client, &current).unwrap();
+        assert_eq!(store.connections(at + 4).unwrap()[0]["online"], false);
+        assert!(store.queue_feed_replies(&job, &client, &posts, at + 4).is_err());
     }
 }

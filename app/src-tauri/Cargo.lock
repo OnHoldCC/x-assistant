@@ -2630,7 +2630,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "onhold-admin-app"
-version = "0.9.3"
+version = "0.9.5"
 dependencies = [
  "axum",
  "onhold-backend",
@@ -2651,6 +2651,7 @@ version = "0.8.0"
 dependencies = [
  "axum",
  "chrono",
+ "quick-xml",
  "reqwest",
  "rusqlite",
  "serde",
@@ -2994,6 +2995,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
 dependencies = [
  "memchr",
+ "serde",
 ]
 
 [[package]]

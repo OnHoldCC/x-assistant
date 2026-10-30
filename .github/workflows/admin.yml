@@ -1,4 +1,4 @@
-name: Verify React TypeScript Rust admin
+name: Verify Vue TypeScript Rust admin
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read

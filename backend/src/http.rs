@@ -18,6 +18,7 @@ struct Api {
     assets: PathBuf,
     port: u16,
     token: String,
+    models: Option<Arc<crate::models::Runtime>>,
 }
 const EXTENSIONS: [&str; 2] = [
     "chrome-extension://efnelpfiicmcfahpkoidcegnebndoiad",
@@ -123,10 +124,16 @@ async fn call(State(api): State<Api>, headers: HeaderMap, body: Bytes) -> Respon
     };
     let pairing = request.operation == "pairing";
     let port = api.port;
-    let result = tokio::task::spawn_blocking(move || {
-        dispatch(&api.store, &request.operation, request.input)
-    })
-    .await;
+    let result = if let Some(models) = api
+        .models
+        .as_ref()
+        .filter(|_| crate::models::is_operation(&request.operation))
+    {
+        Ok(models.call(&request.operation, request.input).await)
+    } else {
+        tokio::task::spawn_blocking(move || dispatch(&api.store, &request.operation, request.input))
+            .await
+    };
     match result {
         Ok(Ok(mut value)) => {
             if pairing {
@@ -201,16 +208,28 @@ async fn asset(State(api): State<Api>, req: Request) -> Response {
         .unwrap()
 }
 pub fn router(store: Arc<Store>, assets: PathBuf, port: u16) -> Result<Router, String> {
+    router_with_models(store, assets, port, None)
+}
+pub fn router_with_models(
+    store: Arc<Store>,
+    assets: PathBuf,
+    port: u16,
+    models: Option<Arc<crate::models::Runtime>>,
+) -> Result<Router, String> {
     let state = Api {
         token: store.token()?,
         store,
         assets,
         port,
+        models,
     };
     Ok(Router::new()
         .route(
             "/health",
-            get(|| async { Json(json!({"service":"onhold-admin","version":env!("CARGO_PKG_VERSION"),"protocol":1,"schema_version":crate::store::SCHEMA_VERSION})) }),
+            get(|| async {
+                let extension: Value = serde_json::from_str(include_str!("../../extension/manifest.json")).expect("valid bundled extension manifest");
+                Json(json!({"service":"onhold-admin","version":env!("CARGO_PKG_VERSION"),"protocol":1,"schema_version":crate::store::SCHEMA_VERSION,"source_commit":option_env!("ONHOLD_SOURCE_COMMIT").unwrap_or("workspace"),"extension_version":extension["version"]}))
+            }),
         )
         .route("/api/admin", post(call))
         .route("/ws", get(websocket))

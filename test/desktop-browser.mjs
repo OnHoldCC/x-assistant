@@ -9,7 +9,7 @@ const at=Date.now(),metric=value=>({value,delta:null,approximate:false,delta_app
 const dashboard={accounts:[{handle:'example',first_seen:at,last_seen:at},{handle:'other',first_seen:at,last_seen:at}],account:'example',posts:[],metrics:{followers:metric(0),views:metric(0),replies:metric(null)},series:[],days:7,analytics:null};
 try{
  for(let i=0;;i++){if(server.exitCode!==null)throw Error('preview exited');try{if((await fetch(base)).ok)break;}catch{}if(i>100)throw Error('preview did not start');await new Promise(r=>setTimeout(r,100));}
- browser=await chromium.launch({headless:true,channel:'chromium'});const page=await browser.newPage({viewport:{width:1320,height:940}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ browser=await chromium.launch({headless:true,channel:'chromium'});const page=await browser.newPage({viewport:{width:1320,height:940}}),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(({dashboard,at,extensionVersion})=>{
   window.isTauri=true;window.calls=[];window.hostAttempts=0;window.connected=false;window.firstCapture=false;window.jobs=[];window.holdEnqueue=false;
   window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
@@ -19,6 +19,8 @@ try{
    if(args.operation==='pairing'){if(++window.hostAttempts===1)throw Error('启动读取失败');return {extension:'/test/user-data/browser-extension',endpoint:'http://127.0.0.1:18431',mobile:false};}
    if(args.operation==='dashboard')return window.firstCapture?{...dashboard,account:args.input.account||dashboard.account}:{...dashboard,account:null,accounts:[]};
    if(args.operation==='connections')return window.connected?[{id:'client',account:'example',online:true,transport:'websocket',login_state:'logged_in',last_seen:at,error:'',capture_interval_seconds:300,analytics_supported:true,extension_version:extensionVersion}]:[];
+   if(args.operation==='job_records'){const pageInput=args.input,rows=(window.jobs).filter(job=>job.account===pageInput.account&&(!pageInput.source||pageInput.source==='all'||(pageInput.source==='automation'?!!job.input?.task_id:!job.input?.task_id))&&(pageInput.state==='all'||job.state===pageInput.state)&&[job.id,job.action,job.error,job.input?.text,job.input?.source?.text].join(' ').toLowerCase().includes(pageInput.search.trim().toLowerCase()));const offset=Math.min(pageInput.offset,Math.floor(Math.max(0,rows.length-1)/20)*20);return {items:structuredClone(rows.slice(offset,offset+20)),total:rows.length,offset};}
+   if(args.operation==='job_logs')return {items:[{id:1,at:Date.now(),stage:'created',message:'任务已创建'}],total:1,offset:0};
    if(args.operation==='jobs')return structuredClone(window.jobs);
    if(args.operation==='enqueue'){
     if(window.holdEnqueue)await new Promise(resolve=>window.releaseEnqueue=resolve);
@@ -30,19 +32,23 @@ try{
  await page.goto(base);await page.getByRole('alert').filter({hasText:'启动读取失败'}).waitFor();await page.getByRole('button',{name:'重试',exact:true}).click();await page.getByText('安装 X 助手',{exact:true}).waitFor();
  await page.getByRole('button',{name:'打开扩展管理页',exact:true}).click();await page.waitForFunction(()=>window.calls.some(c=>c.command==='open_extension_installation'));
  await page.getByRole('button',{name:'已安装，下一步',exact:false}).click();await page.getByRole('button',{name:'连接 X 助手插件',exact:true}).click();assert.ok((await page.evaluate(()=>window.calls)).some(c=>c.command==='open_browser_connection'));
- await page.evaluate(()=>{window.connected=true;window.firstCapture=true;});await page.getByRole('button',{name:'进入运营后台',exact:true}).waitFor({timeout:6000});
- await page.evaluate(()=>window.connected=false);await page.getByText('连接你的 X 账号',{exact:true}).waitFor({timeout:6000});assert.equal(await page.getByRole('button',{name:'进入运营后台',exact:true}).count(),0,'disconnected onboarding must return to the connection step');
- await page.evaluate(()=>window.connected=true);await page.getByRole('button',{name:'进入运营后台',exact:true}).click({timeout:6000});await page.getByRole('heading',{name:'运营概览',exact:true}).waitFor();
- await page.getByRole('tab',{name:'账号分析',exact:true}).click();await page.getByRole('button',{name:'采集运营数据',exact:true}).click();assert.equal((await page.evaluate(()=>window.jobs))[0].action,'capture_analytics');await page.getByText('@example 采集已排队',{exact:true}).waitFor();
- await page.goto(base+'/#tasks');await page.getByRole('table',{name:'采集任务记录',exact:true}).getByText('采集官方分析',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'新建采集任务',exact:true}).count(),0);assert.ok(await page.getByRole('link',{name:'自动化',exact:true}).first().evaluate(n=>n.getBoundingClientRect().height)>=48);
+ await page.evaluate(()=>{window.connected=true;window.firstCapture=true;});await page.getByRole('region',{name:'账号与帖子观测',exact:true}).waitFor({timeout:6000});
+ await page.waitForFunction(()=>window.jobs.length===1);assert.equal((await page.evaluate(()=>window.jobs))[0].action,'capture_analytics','connection enters the dashboard and starts collection without extra confirmation');
+ await page.waitForFunction(()=>document.querySelector('button[aria-busy="true"]'));assert.equal(await page.getByText('@example 采集已排队',{exact:true}).count(),0,'capture feedback stays on the button');
+ await page.goto(base+'/#tasks');await page.getByRole('region',{name:'任务记录列表',exact:true}).getByText('采集官方分析',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'新建采集任务',exact:true}).count(),0);assert.ok(await page.getByRole('menuitem',{name:'自动化任务配置',exact:true}).first().evaluate(n=>n.getBoundingClientRect().height)>=40);
  await page.evaluate(()=>{window.jobs[0].state='failed';window.jobs[0].error='分析页不可用';});assert.equal(await page.getByRole('button',{name:'刷新数据',exact:true}).count(),0);await page.getByText('分析页不可用',{exact:true}).waitFor({timeout:6000});await page.getByRole('button',{name:'重新采集',exact:true}).click();assert.equal((await page.evaluate(()=>window.jobs))[0].action,'capture_analytics','retry preserves the original task type');
  await page.evaluate(()=>window.jobs[0].state='completed');
- await page.getByRole('link',{name:'运营概览',exact:true}).first().click();await page.getByRole('tab',{name:'观测数据',exact:true}).click();
- await page.evaluate(()=>window.holdEnqueue=true);await page.getByRole('button',{name:'立即采集',exact:true}).click({timeout:6000});await page.waitForFunction(()=>typeof window.releaseEnqueue==='function');
+ await page.getByRole('menuitem',{name:'运营概览',exact:true}).first().click();
+ await page.evaluate(()=>window.holdEnqueue=true);await page.getByRole('button',{name:'采集运营数据',exact:true}).click({timeout:6000});await page.waitForFunction(()=>typeof window.releaseEnqueue==='function');
  const before=(await page.evaluate(()=>window.calls)).filter(c=>c.operation==='enqueue').length;
- await page.getByRole('combobox',{name:'当前账号',exact:true}).click();await page.getByRole('option',{name:'@other',exact:true}).click();await page.getByRole('combobox',{name:'当前账号',exact:true}).getByText('@other',{exact:true}).waitFor();
- assert.equal(await page.getByRole('button',{name:'立即采集',exact:true}).isDisabled(),true,'a dashboard refresh must not unlock an in-flight submission');
- await page.evaluate(()=>window.releaseEnqueue());await page.getByRole('status').filter({hasText:'@example 采集已排队'}).waitFor();await page.waitForFunction(()=>window.calls.filter(c=>c.operation==='dashboard').at(-1)?.input.account==='other');
- assert.equal(await page.getByRole('combobox',{name:'当前账号',exact:true}).getByText('@other',{exact:true}).isVisible(),true,'completed old-account submissions must refresh the current account');assert.equal((await page.evaluate(()=>window.calls)).filter(c=>c.operation==='enqueue').length,before);
- assert.deepEqual(errors,[]);console.log('Passed: desktop native bootstrap retry, installation/connection commands, disconnect recovery during onboarding, official analytics enqueue/retry, pending submission and account switching.');
+ await page.getByRole('combobox',{name:'当前账号',exact:true}).click();await page.getByRole('option',{name:'@other',exact:true}).click();await page.locator('.workspace-account').getByText('@other',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'采集运营数据',exact:true}).isDisabled(),true,'a dashboard refresh must not unlock an in-flight submission');
+ await page.evaluate(()=>window.releaseEnqueue());await page.waitForFunction(()=>!document.querySelector('button[aria-busy="true"]'));assert.equal(await page.getByText('@example 采集已排队',{exact:true}).count(),0);await page.waitForFunction(()=>window.calls.filter(c=>c.operation==='dashboard').at(-1)?.input.account==='other');
+ assert.equal(await page.locator('.workspace-account').getByText('@other',{exact:true}).isVisible(),true,'completed old-account submissions must refresh the current account');assert.equal((await page.evaluate(()=>window.calls)).filter(c=>c.operation==='enqueue').length,before);
+ const previewContext=await browser.newContext(),preview=await previewContext.newPage();preview.on('pageerror',e=>errors.push(e.message));
+ await preview.context().route('**/api/admin',route=>{const {operation}=route.request().postDataJSON();return route.fulfill({json:operation==='dashboard'?dashboard:operation==='pairing'?{}:[]});});
+ await preview.goto(base);await preview.getByRole('button',{name:'稍后设置',exact:true}).click();await preview.getByRole('region',{name:'账号与帖子观测',exact:true}).waitFor();
+ await preview.reload();await preview.getByRole('region',{name:'账号与帖子观测',exact:true}).waitFor();assert.equal(await preview.getByRole('button',{name:'稍后设置',exact:true}).count(),0,'skipping setup survives reload');
+ const reopened=await preview.context().newPage();await reopened.goto(base);await reopened.getByRole('region',{name:'账号与帖子观测',exact:true}).waitFor();assert.equal(await reopened.getByRole('button',{name:'稍后设置',exact:true}).count(),0,'reopening the preview does not require pairing');
+ assert.deepEqual(errors,[]);console.log('Passed: desktop native bootstrap retry, installation/connection commands, disconnect recovery during onboarding, official analytics enqueue/retry, pending submission and account switching, persistent setup skip across reload and new tabs.');
 }finally{if(browser)await browser.close();if(server.exitCode===null){const exited=once(server,'exit');server.kill('SIGTERM');await exited;}}

@@ -1,0 +1,129 @@
+use onhold_backend::store::{now, Store};
+use serde_json::{json,Value};
+
+fn setup() -> (tempfile::TempDir,Store,String,String,i64) {
+    let dir=tempfile::tempdir().unwrap();let store=Store::open(dir.path().join("db")).unwrap();let at=now();
+    store.ingest(serde_json::from_value(json!({"handle":"example","source":"https://x.com/example","profile":{},"posts":[]})).unwrap(),at).unwrap();
+    let client=uuid::Uuid::new_v4().to_string();
+    store.session_status(&client,"example","logged_in","",at).unwrap();
+    store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,"1.5.17").unwrap();
+    let task=store.save_automation("example",&json!({"action":"auto_post","query":"current entertainment","news_source":"mixed","interval_minutes":10,"limit":5,"include_source_link":false}),at).unwrap()["id"].as_str().unwrap().to_owned();
+    store.control_automation("example",&task,true,at).unwrap();
+    (dir,store,client,task,at)
+}
+fn start(store:&Store,task:&str,at:i64)->String {
+    let run=store.run_automation("example",task,at).unwrap();
+    assert_eq!(run["job_ids"].as_array().unwrap().len(),1,"even older limit=5 plans process one item");
+    let id=run["id"].as_str().unwrap().to_owned();assert_eq!(store.claim_rewrite(at).unwrap()["id"],id);id
+}
+fn feed(count:usize,at:i64)->Value {
+    json!({"source":"mixed","retrieved_at":at,"counts":{"bbc":count},"errors":[],"items":(0..count).map(|i|json!({"kind":"article","platform":"bbc","title":format!("Current performance {i}"),"url":format!("https://www.bbc.com/news/articles/fixture{i}"),"published_at":(at/1000-60)*1000,"summary":"A performance was announced."})).collect::<Vec<_>>()})
+}
+#[test]
+fn batch_survives_restart_consumes_one_and_refills_only_after_terminal_jobs() {
+    let (dir,store,_client,task,at)=setup();let id=start(&store,&task,at);
+    assert!(store.news_batch_feed(&id,None,at).unwrap().is_none());
+    let first=store.news_batch_feed(&id,Some(&feed(3,at)),at).unwrap().unwrap();
+    assert_eq!(first["items"].as_array().unwrap().len(),1);assert_eq!(first["remaining"],2);
+    assert_eq!(store.news_batch_feed(&id,Some(&feed(5,at)),at).unwrap().unwrap()["batch_id"],first["batch_id"]);
+    assert_eq!(store.news_queue("example",&json!({})).unwrap()["total"],3);
+    store.save_generated(&id,Err("verification failed"),at+1).unwrap();drop(store);
+    let store=Store::open(dir.path().join("db")).unwrap();
+    let id=start(&store,&task,at+2);let second=store.news_batch_feed(&id,None,at+2).unwrap().unwrap();
+    assert_eq!(second["batch_id"],first["batch_id"]);assert_ne!(second["items"][0]["url"],first["items"][0]["url"]);assert_eq!(second["remaining"],1);
+    store.save_generated(&id,Ok(&json!({"schema_version":1,"news":null,"text":""})),at+3).unwrap();
+    let id=start(&store,&task,at+4);let third=store.news_batch_feed(&id,None,at+4).unwrap().unwrap();assert_eq!(third["remaining"],0);
+    store.save_generated(&id,Err("generation failed"),at+5).unwrap();
+    let id=start(&store,&task,at+6);assert!(store.news_batch_feed(&id,None,at+6).unwrap().is_none());
+    let next=store.news_batch_feed(&id,Some(&feed(4,at)),at+6).unwrap().unwrap();
+    assert_ne!(next["batch_id"],first["batch_id"]);assert_eq!(next["items"][0]["title"],"Current performance 3");
+    let list=store.news_queue("example",&json!({})).unwrap();assert_eq!(list["total"],4);assert_eq!(list["batch"]["total"],1);
+    assert!(list["items"].as_array().unwrap().iter().any(|r|r["state"]=="skipped"));
+    assert_eq!(store.news_queue("other",&json!({})).unwrap()["total"],0);
+}
+#[test]
+fn generated_text_stays_processing_until_a_verified_receipt_arrives() {
+    let (_dir,store,client,task,at)=setup();let id=start(&store,&task,at);
+    let feed=store.news_batch_feed(&id,Some(&feed(1,at)),at).unwrap().unwrap();store.record_news_feed(&id,&feed,at).unwrap();
+    let item=&feed["items"][0];
+    store.save_generated(&id,Ok(&json!({"schema_version":1,"news":{"title":item["title"],"url":item["url"],"published_at":chrono::DateTime::from_timestamp_millis(item["published_at"].as_i64().unwrap()).unwrap().to_rfc3339(),"summary":"A performance was announced."},"text":"A performance was announced."})),at+1).unwrap();
+    let queued=store.news_queue("example",&json!({})).unwrap();assert_eq!(queued["items"][0]["state"],"processing");assert_eq!(queued["items"][0]["posted_to_x"],false);
+    assert_eq!(store.claim(&client,"example",at+2).unwrap()["id"],id);store.begin_publish(&id,&client,at+3).unwrap();
+    assert!(store.finish_publication(&id,&client,&json!({"url":"https://x.com/other/status/123"}),None,at+4).is_err());
+    assert!(store.news_queue("example",&json!({})).unwrap()["items"][0]["posted_to_x"].is_null());
+    store.finish_publication(&id,&client,&json!({"url":"https://x.com/example/status/123","tab_closed":true}),None,at+4).unwrap();
+    let list=store.news_queue("example",&json!({})).unwrap();assert_eq!(list["items"][0]["state"],"published");assert_eq!(list["items"][0]["posted_to_x"],true);assert_eq!(list["batch"]["counts"]["published"],1);
+}
+#[test]
+fn expired_batch_is_skipped_and_history_is_paginated() {
+    let (_dir,store,client,task,at)=setup();let id=start(&store,&task,at);
+    store.news_batch_feed(&id,Some(&feed(25,at)),at).unwrap();store.save_generated(&id,Err("failed"),at+1).unwrap();
+    assert_eq!(store.news_queue("example",&json!({})).unwrap()["items"].as_array().unwrap().len(),20);
+    assert_eq!(store.news_queue("example",&json!({"offset":20})).unwrap()["items"].as_array().unwrap().len(),5);
+    let later=at+49*3600000;store.session_status(&client,"example","logged_in","",later).unwrap();
+    let id=start(&store,&task,later);assert!(store.news_batch_feed(&id,None,later).unwrap().is_none());
+    let fresh=json!({"items":[{"kind":"topic","platform":"weibo","title":"New topic","url":"https://s.weibo.com/weibo/new","published_at":null}],"counts":{"weibo":1},"retrieved_at":later});
+    store.news_batch_feed(&id,Some(&fresh),later).unwrap();
+    let list=store.news_queue("example",&json!({"offset":20})).unwrap();assert!(list["items"].as_array().unwrap().iter().any(|r|r["reason"]=="热点已超过48小时"));
+}
+
+#[test]
+fn preexisting_news_is_skipped_before_another_model_call() {
+    let (_dir,store,_client,task,at)=setup();let legacy=start(&store,&task,at);
+    let candidate=feed(1,at)["items"][0].clone();
+    store.save_generated(&legacy,Ok(&json!({"schema_version":1,"news":{"title":candidate["title"],"url":candidate["url"],"published_at":chrono::DateTime::from_timestamp_millis(candidate["published_at"].as_i64().unwrap()).unwrap().to_rfc3339(),"summary":"A performance was announced."},"text":"A performance was announced."})),at+1).unwrap();
+    store.cancel_job("example",&legacy,at+2).unwrap();
+    let id=start(&store,&task,at+3);let selected=store.news_batch_feed(&id,Some(&feed(2,at)),at+3).unwrap().unwrap();
+    assert_eq!(selected["items"][0]["url"],"https://www.bbc.com/news/articles/fixture1");
+    let list=store.news_queue("example",&json!({})).unwrap();assert_eq!(list["batch"]["counts"]["skipped"],1);
+    assert!(list["items"].as_array().unwrap().iter().any(|r|r["reason"]=="该新闻已有发文任务"));
+}
+
+#[test]
+fn list_orders_news_by_publication_time_and_unknown_hotlists_by_capture_time() {
+    let (_dir,store,_client,task,at)=setup();let id=start(&store,&task,at);
+    let mut input=feed(2,at);input["items"][0]["published_at"]=json!(at-7200000);input["items"][1]["published_at"]=json!(at-3600000);
+    input["items"].as_array_mut().unwrap().push(json!({"kind":"topic","platform":"weibo","title":"Live hot topic","url":"https://s.weibo.com/weibo?q=live","published_at":null}));
+    store.news_batch_feed(&id,Some(&input),at).unwrap();
+    let list=store.news_queue("example",&json!({})).unwrap();
+    assert_eq!(list["items"][0]["item"]["platform"],"weibo");assert_eq!(list["items"][1]["item"]["url"],input["items"][1]["url"]);assert_eq!(list["items"][2]["item"]["url"],input["items"][0]["url"]);
+}
+
+#[test]
+fn already_published_news_keeps_the_historical_x_receipt_in_the_new_list() {
+    let (_dir,store,client,task,at)=setup();let legacy=start(&store,&task,at);
+    let item=feed(1,at)["items"][0].clone();
+    store.save_generated(&legacy,Ok(&json!({"schema_version":1,"news":{"title":item["title"],"url":item["url"],"published_at":chrono::DateTime::from_timestamp_millis(item["published_at"].as_i64().unwrap()).unwrap().to_rfc3339(),"summary":"A performance was announced."},"text":"A performance was announced."})),at+1).unwrap();
+    store.claim(&client,"example",at+2).unwrap();store.begin_publish(&legacy,&client,at+3).unwrap();
+    store.finish_publication(&legacy,&client,&json!({"url":"https://x.com/example/status/234"}),None,at+4).unwrap();
+    let id=start(&store,&task,at+5);store.news_batch_feed(&id,Some(&feed(2,at)),at+5).unwrap();
+    let list=store.news_queue("example",&json!({})).unwrap();
+    let old=list["items"].as_array().unwrap().iter().find(|row|row["item"]["url"]==item["url"]).unwrap();
+    assert_eq!(old["state"],"published");assert_eq!(old["posted_to_x"],true);assert_eq!(old["published_url"],"https://x.com/example/status/234");assert_eq!(list["batch"]["counts"]["published"],1);
+    let filtered=store.news_queue("example",&json!({"channel":"bbc","state":"published"})).unwrap();assert_eq!(filtered["total"],1);assert_eq!(filtered["items"][0]["published_url"],old["published_url"]);
+}
+
+#[test]
+fn channel_and_execution_filters_apply_before_pagination_and_validate_inputs() {
+    let (_dir,store,_client,task,at)=setup();let id=start(&store,&task,at);
+    let mut input=feed(25,at);input["items"].as_array_mut().unwrap().push(json!({"kind":"topic","platform":"weibo","title":"Another topic","url":"https://s.weibo.com/weibo?q=another","published_at":null}));
+    store.news_batch_feed(&id,Some(&input),at).unwrap();
+    let bbc=store.news_queue("example",&json!({"channel":"bbc","state":"pending","offset":20})).unwrap();assert_eq!(bbc["total"],24);assert_eq!(bbc["items"].as_array().unwrap().len(),4);assert_eq!(bbc["offset"],20);
+    let weibo=store.news_queue("example",&json!({"channel":"weibo","state":"pending","offset":20})).unwrap();assert_eq!(weibo["total"],1);assert_eq!(weibo["items"].as_array().unwrap().len(),1);assert_eq!(weibo["offset"],0);assert_eq!(weibo["batch"]["total"],26);
+    let active=store.news_queue("example",&json!({"state":"processing"})).unwrap();assert_eq!(active["total"],1);assert_eq!(active["items"][0]["job_id"],id);
+    store.save_generated(&id,Err("generation failed"),at+1).unwrap();
+    assert_eq!(store.news_queue("example",&json!({"channel":"bbc","state":"failed"})).unwrap()["total"],1);
+    assert_eq!(store.news_queue("example",&json!({"channel":"weibo","state":"published"})).unwrap()["total"],0);
+    assert_eq!(store.news_queue("other",&json!({"channel":"bbc","state":"failed"})).unwrap()["total"],0);
+    for invalid in [json!({"channel":"unknown"}),json!({"channel":true}),json!({"state":"completed"}),json!({"state":null})] {assert!(store.news_queue("example",&invalid).is_err());}
+}
+
+#[test]
+fn uncertain_sends_have_their_own_filter_and_never_count_as_published() {
+    let (_dir,store,client,task,at)=setup();let id=start(&store,&task,at);
+    let feed=store.news_batch_feed(&id,Some(&feed(1,at)),at).unwrap().unwrap();store.record_news_feed(&id,&feed,at).unwrap();let item=&feed["items"][0];
+    store.save_generated(&id,Ok(&json!({"schema_version":1,"news":{"title":item["title"],"url":item["url"],"published_at":chrono::DateTime::from_timestamp_millis(item["published_at"].as_i64().unwrap()).unwrap().to_rfc3339(),"summary":"A performance was announced."},"text":"A performance was announced."})),at+1).unwrap();
+    store.claim(&client,"example",at+2).unwrap();store.begin_publish(&id,&client,at+3).unwrap();store.finish_publication(&id,&client,&json!({}),Some("未收到发布回执，请核对"),at+4).unwrap();
+    let list=store.news_queue("example",&json!({"state":"uncertain"})).unwrap();assert_eq!(list["total"],1);assert_eq!(list["batch"]["counts"]["uncertain"],1);assert!(list["items"][0]["posted_to_x"].is_null());
+    assert_eq!(store.news_queue("example",&json!({"state":"published"})).unwrap()["total"],0);assert_eq!(store.news_queue("example",&json!({"state":"failed"})).unwrap()["total"],0);
+}

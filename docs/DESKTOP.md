@@ -1,6 +1,6 @@
 # OnHold 运营后台与多端应用
 
-0.9.0 使用 React + TypeScript、shadcn/ui 官方 dashboard-01 布局、Radix 交互与 X 业务数据、Rust/Axum/SQLite 数据服务及 Tauri 2 原生宿主。0.7.0 的 Electron 模型控制台原型已退出主流程。
+0.9.0 使用 Vue 3 + TypeScript、Soybean Admin 原版布局、Naive UI 交互与 X 业务数据、Rust/Axum/SQLite 数据服务及 Tauri 2 原生宿主。0.7.0 的 Electron 模型控制台原型已退出主流程。
 
 界面包含运营概览、账号管理、内容分析、CDP 连接、采集任务与连接设置。数据从配套插件采集的实际 X 页面获取，不预置示例账号。浏览量、评论数、评论率及加权参考值分别展示；缺失计数不补零，缩写计数标记估算。
 
@@ -15,6 +15,8 @@ npm run desktop:start
 ```
 
 单独运行 Rust Web 后台：
+
+已在本机安装 macOS 常驻服务时，使用 [本机后台常驻服务](LOCAL-BACKEND-SERVICE.md) 管理，不要重复启动 18431 端口。
 
 ```sh
 npm run backend:start -- --home /path/onhold-data --port 18431
@@ -64,7 +66,7 @@ Rust 测试覆盖快照基线、未知与零、近似/精确计数切换、持�
 
 ## 运营页面与组件规划（0.8.3）
 
-本次按 Marketing Skills 的 [social](https://github.com/coreyhaines31/marketingskills/blob/main/skills/social/SKILL.md)（2.4.0）、[analytics](https://github.com/coreyhaines31/marketingskills/blob/main/skills/analytics/SKILL.md)（2.2.1）与 [onboarding](https://github.com/coreyhaines31/marketingskills/blob/main/skills/onboarding/SKILL.md)（2.0.2）规划，读取日期 2026-10-27。应用在既有 Tauri 项目内接入 shadcn 源码，参考 tauri-ui 的桌面交互原则，没有覆盖重建 Rust 服务。
+早期规划按 Marketing Skills 的 [social](https://github.com/coreyhaines31/marketingskills/blob/main/skills/social/SKILL.md)（2.4.0）、[analytics](https://github.com/coreyhaines31/marketingskills/blob/main/skills/analytics/SKILL.md)（2.2.1）与 [onboarding](https://github.com/coreyhaines31/marketingskills/blob/main/skills/onboarding/SKILL.md)（2.0.2）规划，读取日期 2026-10-27。当时采用 shadcn 源码；当前已迁入 Soybean Admin 的 Vue 框架，继续使用既有 Tauri 与 Rust 服务。
 
 | 页面 | 要回答的问题 | 已实现内容 | 数据来源与限制 |
 | --- | --- | --- | --- |
@@ -76,7 +78,7 @@ Rust 测试覆盖快照基线、未知与零、近似/精确计数切换、持�
 
 指标服务于触达、互动、转化与数据质量四类决策。当前没有独立访客、归因订单或合格收益数据，因此没有虚构转化率、用户画像或收益。官方快照内同周期的主页访问/曝光只作为访问事件比率。可比帖评论率只汇总同次观测且评论与浏览数据可读的帖子，不把缺失项补零。
 
-`app/src/shared/operations.tsx` 中的 MetricCard、SessionCard、PostPerformanceTable 与 PostDetail 是 OnHold 自有业务组件。`components/ui/` 保存可维护的 shadcn 基础组件源码；业务状态不进入基础层。桌面沿用 dashboard-01 结构，手机改为底部导航、内容与任务卡片，功能和数据口径见 [移动端与 CDP 助手](MOBILE-OPERATIONS.md)。电脑首次安装按安装、连接、完成逐步显示，手机先连接 HTTPS 工作空间。
+`app/src/views/onhold/` 保存业务页面，直接使用 Naive UI 原生组件。`layouts/` 和 `vendor/soybean/` 复用 Soybean Admin 原版框架，手机使用框架原生侧栏抽屉与横向滚动表格，功能和数据口径见 [移动端与 CDP 助手](MOBILE-OPERATIONS.md)。电脑首次安装按安装、连接、完成逐步显示，手机先连接 HTTPS 工作空间。
 
 首次激活以“真实账号已绑定、长连接在线、首次采集完成”为目标，不以打开引导页或点击连接按钮冒充成功。后续发布日历、草稿队列与转化归因仍需对应数据和执行能力，本版不显示尚未实现的操作入口。
 

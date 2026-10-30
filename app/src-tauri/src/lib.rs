@@ -223,6 +223,8 @@ pub fn run() {
             #[cfg(desktop)]
             tauri::async_runtime::spawn(onhold_backend::store::run_x_sync(store.clone()));
             app.manage(models::ModelGate(Arc::new(tokio::sync::Semaphore::new(1))));
+            #[cfg(desktop)]
+            tauri::async_runtime::spawn(models::run_rewrite_queue(app.handle().clone(), store.clone()));
             let mut events=store.subscribe_logs();let app_handle=app.handle().clone();
             tauri::async_runtime::spawn(async move {loop {match events.recv().await {Ok(event)=>{let _=app_handle.emit("system-log",event);},Err(tokio::sync::broadcast::error::RecvError::Lagged(_))=>continue,Err(_)=>break}}});
             let _=store.record_event("info","startup",None,"OnHold 已启动");

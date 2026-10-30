@@ -1,0 +1,10 @@
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /usr/local/bin/uv
+RUN uv pip install --system --no-cache --torch-backend cpu 'laya[serve]==0.4.15' 'jieba==0.42.1'
+WORKDIR /opt/onhold
+COPY lib/ lib/
+COPY docker/scoring.py docker/scoring.py
+COPY LICENSE THIRD_PARTY_NOTICES.txt ./
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=2 ONHOLD_MODEL_THREADS=2 TOKENIZERS_PARALLELISM=false ONHOLD_DECISION_HOST=0.0.0.0 HOME=/data
+USER 1000:1000
+CMD ["python", "docker/scoring.py"]

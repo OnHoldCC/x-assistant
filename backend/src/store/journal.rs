@@ -1,5 +1,17 @@
 use super::*;
 impl Store {
+    pub fn job_logs(&self, account: &str, id: &str, input: &Value) -> Result<Value, String> {
+        let account = handle(account)?;
+        let offset = input.get("offset").map_or(Some(0), Value::as_i64).filter(|n| *n >= 0).ok_or("日志页码无效")?;
+        let db = self.lock()?;
+        let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND account=?)",params![id,account],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if !exists { return Err("找不到当前账号的任务".into()); }
+        let total: i64 = db.query_row("SELECT COUNT(*) FROM job_log WHERE job_id=?",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        let offset = offset.min((total.saturating_sub(1)/20)*20);
+        let mut statement = db.prepare("SELECT id,at,stage,message FROM job_log WHERE job_id=? ORDER BY id LIMIT 20 OFFSET ?").map_err(|e|e.to_string())?;
+        let rows = statement.query_map(params![id,offset],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"at":r.get::<_,i64>(1)?,"stage":r.get::<_,String>(2)?,"message":r.get::<_,String>(3)?}))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        Ok(json!({"items":rows,"total":total,"offset":offset}))
+    }
     pub fn export_account(&self, account: &str) -> Result<Value, String> {
         let account = handle(account)?;
         let db = self.lock()?;

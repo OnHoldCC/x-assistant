@@ -1,37 +1,47 @@
 import {LANGUAGES} from './languages.mjs';
 import './analysis-core.js';
 import {createCdpBridge} from './cdp-bridge.js';
-import {DEFAULTS, validateSettings, translationAllowed, translationHosts, referenceOnly, translationParagraphs, translationChunks} from './core.js';
+import {DEFAULTS, validateSettings, translationAllowed, translationHosts} from './core.js';
 
 const WEB_ORIGINS=['https://*/*','http://*/*'];
 const cdpBridge=createCdpBridge();
 cdpBridge.resume().catch(()=>{});
 chrome.runtime.onMessageExternal.addListener((message,sender,respond)=>{
   let origin;try{origin=new URL(sender.url).origin;}catch{return false;}
-  if(!['http://127.0.0.1:18431','http://localhost:18431'].includes(origin)||!['ONHOLD_PAIR','ONHOLD_DISCOVER'].includes(message?.type)||message.data?.endpoint!==origin)return false;
-  if(message.type==='ONHOLD_DISCOVER'){respond({ok:true,protocol:1,version:chrome.runtime.getManifest().version});return false;}
-  (async()=>{await cdpBridge.save(message.data);return await cdpBridge.connect({pickX:true});})().then(data=>respond({ok:true,data}),error=>respond({ok:false,error:error.message}));return true;
+  if(!['http://127.0.0.1:18431','http://localhost:18431'].includes(origin)||!['ONHOLD_PAIR','ONHOLD_DISCOVER','ONHOLD_BROWSER_SETTINGS','ONHOLD_RELOAD'].includes(message?.type)||message.data?.endpoint!==origin)return false;
+  if(message.type==='ONHOLD_DISCOVER'){respond({ok:true,protocol:1,version:chrome.runtime.getManifest().version,browserSettings:true,reload:true});return false;}
+  (async()=>{
+    if(['ONHOLD_BROWSER_SETTINGS','ONHOLD_RELOAD'].includes(message.type)){
+      const saved=(await chrome.storage.local.get('cdpConfig')).cdpConfig;
+      if(!saved?.token||saved.endpoint!==origin||saved.token!==message.data.token)throw Error('请先连接当前后台的 X 助手插件。');
+      if(message.type==='ONHOLD_RELOAD'){
+        await cdpBridge.prepareReload();
+        setTimeout(()=>chrome.runtime.reload(),250);
+        return {reloading:true};
+      }
+      if(Object.hasOwn(message.data,'hideAds')){
+        if(typeof message.data.hideAds!=='boolean')throw Error('广告设置无效');
+        await saveSettings({...await getConfig(),hideAds:message.data.hideAds});
+      }
+      return {hideAds:(await getConfig()).hideAds,translationEnabled:false};
+    }
+    await cdpBridge.save(message.data);return await cdpBridge.connect({pickX:true});
+  })().then(data=>respond({ok:true,data,version:chrome.runtime.getManifest().version}),error=>respond({ok:false,error:error.message}));return true;
 });
 chrome.action.setIcon({path:chrome.runtime.getManifest().action.default_icon}).catch(console.warn);
 chrome.runtime.onInstalled.addListener(()=>chrome.storage.local.remove(['translationCache','postAnalysisCache','cache']));
 const ready = chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'}).then(syncWebScripts);
 let revision = 0;
-const getConfig = async () => ({...DEFAULTS, ...(await chrome.storage.local.get('config')).config,enabled:false,collectMetrics:false,postAnalysis:false});
-const publicConfig = (config,url) => ({enabled: config.enabled, autoTranslate: config.autoTranslate&&(!url||translationAllowed(url,config)), translatePageAllowed:!url||translationAllowed(url,config), allWebsites:config.allWebsites, composeTranslate:config.composeTranslate, composeTarget:config.composeTarget, readingTarget:config.readingTarget, languages:LANGUAGES, collectMetrics:config.collectMetrics, postAnalysis:config.postAnalysis, hideAds:config.hideAds, mode: config.mode, threshold: config.threshold});
-const inferenceTasks=[];let activeInference=0;
-function scheduleInference(task, priority=false) {
-  return new Promise((resolve,reject)=>{
-    inferenceTasks[priority?'unshift':'push']({task,resolve,reject});runInference();
-  });
-}
-function runInference() {
-  while(activeInference<2&&inferenceTasks.length){
-    const item=inferenceTasks.shift();activeInference++;
-    Promise.resolve().then(item.task).then(item.resolve,item.reject).finally(()=>{activeInference--;runInference();});
-  }
+const getConfig = async () => ({...DEFAULTS, ...(await chrome.storage.local.get('config')).config,enabled:false,autoTranslate:false,composeTranslate:false,allWebsites:false,collectMetrics:false,postAnalysis:false});
+const publicConfig = (config,url) => ({enabled: config.enabled, autoTranslate: config.autoTranslate&&(!url||translationAllowed(url,config)), translatePageAllowed:false, allWebsites:config.allWebsites, composeTranslate:config.composeTranslate, composeTarget:config.composeTarget, readingTarget:config.readingTarget, languages:LANGUAGES, collectMetrics:config.collectMetrics, postAnalysis:config.postAnalysis, hideAds:config.hideAds, mode: config.mode, threshold: config.threshold});
+async function saveSettings(value){
+ const config=validateSettings(value);revision++;
+ await chrome.storage.local.set({config,lastError:''});
+ await syncWebScripts();await activateWebTabs();await notifyTabs();
+ return publicConfig(await getConfig());
 }
 async function localRequest(route,body,signal){
- const response=await fetch('http://127.0.0.1:18427'+route,{method:'POST',credentials:'omit',redirect:'error',signal:signal||AbortSignal.timeout(120000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const response=await fetch('http://127.0.0.1:18427'+route,{method:'POST',credentials:'omit',redirect:'error',signal:signal||AbortSignal.timeout(120000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(error=>{if(error instanceof TypeError)throw Error('本地模型服务未连接，请在后台「账号与模型」查看或启用模型。');throw error;});
  const value=await response.json();if(!response.ok)throw new Error(value.error||'本机接口未完成请求');return value;
 }
 async function migrateBrowserData(){
@@ -40,13 +50,14 @@ async function migrateBrowserData(){
  await chrome.storage.local.remove(['translationCache','postAnalysisCache','cache']);
 }
 const analysisRequests=new Map();
-async function analyzePost(text,sender,toChinese=false,purpose='post',account,draftId,sourceUrl,sourceKind,originalText,inputComplete,manual=false){
+async function analyzePost(text,sender,toChinese=false,purpose='post',account,draftId,sourceUrl,sourceKind,originalText,inputComplete,manual=false,timeoutMs=180000){
+ if(toChinese)throw new Error('机器翻译已停用。');
  if(typeof text!=='string'||!text.trim()||text.length>24000)throw new Error('评分支持 1–24000 字符的正文。');
  if(!(await getConfig()).postAnalysis&&!(manual&&purpose==='post'))throw new Error('推文分析已关闭。');
  if(!await chrome.permissions.contains({origins:['http://127.0.0.1:18427/*']}))throw new Error('请先保存插件设置，允许访问本机模型。');
  if(!['post','draft'].includes(purpose))throw new Error('无效的分析用途');
  const tab=(sender.tab?.id??'settings')+':'+purpose,control=new AbortController(),atRevision=revision;analysisRequests.get(tab)?.abort();analysisRequests.set(tab,control);
- try{const value=await localRequest('/analyze',{text,to_chinese:toChinese,purpose,account,draft_id:draftId,source_url:sourceUrl,input_source:sourceKind,original_text:originalText,input_complete:inputComplete},AbortSignal.any([control.signal,AbortSignal.timeout(180000)]));if(atRevision!==revision)throw new Error('设置已改变，分析取消');return value;}finally{if(analysisRequests.get(tab)===control)analysisRequests.delete(tab);}
+ try{const value=await localRequest('/analyze',{text,to_chinese:toChinese,purpose,account,draft_id:draftId,source_url:sourceUrl,input_source:sourceKind,original_text:originalText,input_complete:inputComplete},AbortSignal.any([control.signal,AbortSignal.timeout(timeoutMs)]));if(atRevision!==revision)throw new Error('设置已改变，分析取消');return value;}finally{if(analysisRequests.get(tab)===control)analysisRequests.delete(tab);}
 }
 if(chrome.alarms)chrome.alarms.clear('onhold-learning-snapshots');
 async function observeContent(source,sender){
@@ -104,7 +115,7 @@ async function syncWebScripts() {
   if(config.allWebsites&&!granted){config={...config,allWebsites:false};await chrome.storage.local.set({config});}
   const registered=await chrome.scripting.getRegisteredContentScripts({ids:['local-page-translation']});
   if(config.allWebsites&&granted&&matches.length) {
-    const script={id:'local-page-translation',matches,excludeMatches:['*://x.com/*','*://twitter.com/*'],js:['translation-ui.js','page-content.js'],runAt:'document_idle',persistAcrossSessions:true};
+    const script={id:'local-page-translation',matches,excludeMatches:['*://x.com/*','*://twitter.com/*'],js:['onhold-ui.js','translation-ui.js','page-content.js'],runAt:'document_idle',persistAcrossSessions:true};
     if(registered.length)await chrome.scripting.updateContentScripts([script]);else await chrome.scripting.registerContentScripts([script]);
   } else if(registered.length)await chrome.scripting.unregisterContentScripts({ids:['local-page-translation']});
 }
@@ -113,7 +124,7 @@ async function activateWebTabs() {
   const patterns=translationHosts(config);if(!patterns.length)return;
   const tabs=await chrome.tabs.query({url:patterns});
   await Promise.allSettled(tabs.filter(tab=>!/^https?:\/\/(x\.com|twitter\.com)\//.test(tab.url||'')).map(tab=>
-    chrome.scripting.executeScript({target:{tabId:tab.id},files:['translation-ui.js','page-content.js']})));
+    chrome.scripting.executeScript({target:{tabId:tab.id},files:['onhold-ui.js','translation-ui.js','page-content.js']})));
 }
 chrome.permissions.onRemoved.addListener(()=>{revision++;syncWebScripts().then(notifyTabs).catch(()=>{});});
 
@@ -123,75 +134,8 @@ async function notifyTabs() {
   await Promise.allSettled(tabs.map(tab => chrome.tabs.sendMessage(tab.id, {type: 'CONFIG_CHANGED', config:publicConfig(config,tab.url)})));
 }
 
-async function readFullPost(postUrl, expectedRevision, cancelled=()=>false) {
-  if(typeof postUrl!=='string'||!/^https:\/\/(x\.com|twitter\.com)\/(?:[^/?#]+\/status|i\/web\/status)\/\d+$/.test(postUrl)) throw new Error('无法定位长帖，请打开帖子详情后重试。');
-  const tab=await chrome.tabs.create({url:postUrl+'#x-local-full-reader',active:false});
-  try {
-    for(let attempt=0;attempt<50;attempt++) {
-      if(expectedRevision!==revision||cancelled())throw new Error('全文读取已取消。');
-      try {
-        const data=await chrome.tabs.sendMessage(tab.id,{type:'READ_FULL_POST',postId:postUrl.split('/').at(-1)});
-        if(data?.ready&&typeof data.text==='string'&&data.text.trim())return data.text;
-      } catch(error) {if(error.message.includes('设置已'))throw error;}
-      await new Promise(resolve=>setTimeout(resolve,300));
-    }
-    throw new Error('X 暂未返回全文；未把摘要当作全文翻译，请打开帖子后重试。');
-  } finally {await chrome.tabs.remove(tab.id).catch(()=>{});}
-}
-
-async function translate(text, expectedRevision, automatic, readFull, postUrl, target='zh', draft=false, progress=()=>{}, cancelled=()=>false) {
-  if(!Object.hasOwn(LANGUAGES,target))throw new Error('不支持的目标语言。');
-  const check=()=>{if(expectedRevision!==revision||cancelled())throw new Error('翻译已取消。');};check();
-  if(automatic&&!(draft?(await getConfig()).composeTranslate:(await getConfig()).autoTranslate))throw new Error('自动翻译已暂停。');
-  if(typeof text!=='string'||!text.trim()||text.length>12000)throw new Error('本地翻译支持 1–12000 字符的正文。');
-  if(!await chrome.permissions.contains({origins:['http://127.0.0.1:18427/*']}))throw new Error('请先在设置里保存，允许访问本机翻译服务。');
-  if(readFull)text=await readFullPost(postUrl,expectedRevision,cancelled);check();
-  if(text.length>12000)throw new Error('全文超过 12000 字符，请分段查看。');
-  const {sourceLines,sourceBreaks}=translationParagraphs(text),started=performance.now();
-  if(sourceLines.length>200)throw new Error('正文段落超过 200 段，请分块查看。');
-  const paragraphs=sourceLines.map(()=>null);
-  const paragraphCached=paragraphs.map(line=>line!==null),paragraphMs=sourceLines.map(()=>null),paragraphSkipped=sourceLines.map(referenceOnly);
-  let source_lang='auto';
-  progress({kind:'source',sourceLines,sourceBreaks,expanded:!!readFull});
-  const jobs=sourceLines.map(async(line,index)=>{
-    if(paragraphSkipped[index]){paragraphs[index]=line;paragraphCached[index]=false;progress({kind:'paragraph',index,text:line,referenceOnly:true,unchanged:true});return Promise.resolve();}
-    const chunks=await Promise.all(translationChunks(line).map(chunk=>scheduleInference(async()=>{
-      check();let response,data;
-      for(;;){
-      try{response=await fetch('http://127.0.0.1:18427/translate',{
-        method:'POST',credentials:'omit',redirect:'error',signal:AbortSignal.timeout(120000),
-        headers:{'Content-Type':'application/json'},body:JSON.stringify({text:chunk,target_lang:target,purpose:draft?'draft':'reading'})
-      });}catch(cause){
-        const error=new Error(cause.name==='TimeoutError'?'本机翻译超时，请稍后重试。':'本机翻译服务未连接，请先启动本地模型。');error.retryable=cause.name!=='TimeoutError';throw error;
-      }
-      data=await response.json();
-      if(response.status===503&&data.code==='TRANSLATION_PREPARING'){
-       const deadline=Date.now()+20*60*1000;
-       for(;;){
-        check();if(Date.now()>deadline)throw Error('翻译模型准备时间较长，请在翻译状态查看进度后重试。');
-        const state=await fetch('http://127.0.0.1:18427/metrics',{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000)}).then(response=>response.json());
-        if(state.translation_loaded)break;if(state.translation_state==='error')throw Error(state.translation_error||'翻译模型准备失败，请重试。');
-        await new Promise(resolve=>setTimeout(resolve,3000));
-       }
-       continue;
-      }
-      break;
-      }
-      if(!response.ok){const error=new Error(data.error||`本机翻译返回 HTTP ${response.status}`);error.retryable=response.status===503||String(data.error).includes('服务未就绪');throw error;}
-      if(typeof data.text!=='string'||!data.text.trim()||data.text.length>24000)throw new Error('译文格式不正确。');
-      check();return data;
-    },draft)));
-      paragraphs[index]=chunks.map(data=>data.text.replace(/[ \t]*[\r\n]+[ \t]*/g,' ')).join(' ');
-      paragraphCached[index]=chunks.every(data=>data.cached===true);paragraphMs[index]=chunks.reduce((sum,data)=>sum+(data.elapsed_ms||0),0);
-      const data=chunks.find(data=>data.source_lang&&data.source_lang!=='zh')||chunks[0];
-      if(data.source_lang&&(source_lang==='auto'||source_lang==='zh'))source_lang=data.source_lang;
-      progress({kind:'paragraph',index,text:paragraphs[index],source_lang,cached:paragraphCached[index],elapsed_ms:paragraphMs[index]});
-  });
-  const results=await Promise.allSettled(jobs);check();
-  const value={target_lang:target,text:paragraphs.map((line,index)=>line===null?'':sourceBreaks[index]+line).join(''),paragraphs,source_lang,elapsed_ms:Math.round(performance.now()-started)};
-  if(value.text.length>24000)throw new Error('全文译文过长，请分段查看。');
-  const failure=results.find(result=>result.status==='rejected');if(failure)throw failure.reason;
-  return {...value,sourceLines,sourceBreaks,expanded:!!readFull,cached:paragraphCached.every((cached,index)=>cached||paragraphSkipped[index]),paragraphCached,paragraphMs,paragraphSkipped};
+async function translate() {
+  throw new Error('机器翻译已停用。');
 }
 
 async function translationContext(sender) {
@@ -226,6 +170,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     await ready;
     const {ownPage,xPage,allowedWeb}=await translationContext(sender);
+    if(message.type==='QUEUE_REWRITE'&&xPage)return cdpBridge.rewrite(message.data);
     if(['BOOKMARK_SAVE','BOOKMARK_GET'].includes(message.type)&&xPage)return cdpBridge.bookmark(message.data);
     if(message.type.startsWith('CDP_')){
       if(!ownPage)throw Error('只允许插件页面操作 CDP 连接');
@@ -262,7 +207,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const currentRevision=revision;
       const config=await getConfig();
       if(!config.composeTranslate)throw new Error('发帖翻译已关闭。');
-      return translate(message.text,currentRevision,true,false,null,message.targetLang||config.composeTarget,true);
+      return translate(message.text,currentRevision,true,false,null,message.targetLang||config.composeTarget,true,undefined,undefined,message.regenerate===true);
     }
     if (!ownPage) throw new Error('该操作仅限扩展设置页。');
     if(message.type==='SAVE_EARNINGS_ASSUMPTIONS'){
@@ -289,13 +234,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return {config: await getConfig(), usage: extra.usage, lastError: extra.lastError || ''};
     }
     if (message.type === 'SAVE_SETTINGS') {
-      const config = validateSettings(message.config);
-      revision++;
-      await chrome.storage.local.set({config, lastError: ''});
-      await syncWebScripts();
-      await activateWebTabs();
-      await notifyTabs();
-      return publicConfig(await getConfig());
+      return saveSettings(message.config);
     }
     if (message.type === 'CLEAR_CACHE') {
       revision++;

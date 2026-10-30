@@ -18,14 +18,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port: u16 = option("--port")
         .unwrap_or_else(|| onhold_backend::DEFAULT_PORT.to_string())
         .parse()?;
+    if args.iter().any(|arg| arg == "--health-check") {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(4))
+            .build()?
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await?
+            .error_for_status()?;
+        return Ok(());
+    }
+    if let Some(file) = std::env::var_os("ONHOLD_MODEL_KEY_FILE") {
+        use std::io::Write;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&file) {
+            Ok(mut file) => file.write_all(
+                format!(
+                    "{}{}",
+                    uuid::Uuid::new_v4().simple(),
+                    uuid::Uuid::new_v4().simple()
+                )
+                .as_bytes(),
+            )?,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let key = std::fs::read_to_string(file)?;
+        if key.len() != 64 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("模型内部密钥无效，已保留原文件，请检查安装数据".into());
+        }
+    }
     let store = Arc::new(Store::open(home.join("onhold-admin.sqlite3"))?);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
+    let bind = option("--bind").unwrap_or_else(|| "127.0.0.1".into());
+    let listener = tokio::net::TcpListener::bind((bind.as_str(), port)).await?;
+    let models = Arc::new(onhold_backend::models::Runtime::new(home, store.clone()));
+    tokio::spawn(models.clone().run_rewrite_queue());
     tokio::spawn(onhold_backend::store::run_x_sync(store.clone()));
     println!("OnHold Rust 后台：http://127.0.0.1:{port}");
-    axum::serve(listener, http::router(store, assets, port)?)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    axum::serve(
+        listener,
+        http::router_with_models(store, assets, port, Some(models))?,
+    )
+    .with_graceful_shutdown(async {
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! { _=term.recv()=>{}, _=tokio::signal::ctrl_c()=>{} }
+        }
+        #[cfg(not(unix))]
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
     Ok(())
 }

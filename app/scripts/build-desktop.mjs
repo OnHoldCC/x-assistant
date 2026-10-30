@@ -15,7 +15,18 @@ try{
   }
   const args=process.argv.slice(2);if(at>=0)args.splice(at-2,2);
   if(args.includes('--target'))throw Error('包含离线模型时，请在对应系统和架构原生构建');
-  const config={bundle:{resources:{'../dist/':'web/','../../extension/':'extension/',[bundle+'/']:'offline/'}}};
+  console.log('[打包] 构建界面并同步当前安装器');
+  for(const step of [
+    [path.join(root,'node_modules/typescript/bin/tsc'),'--noEmit'],
+    [path.join(root,'node_modules/vite/bin/vite.js'),'build'],
+    [path.join(root,'../scripts/sync-installer.mjs')],
+  ]){
+    const result=spawnSync(process.execPath,step,{cwd:root,stdio:'inherit',env:process.env,windowsHide:true});
+    if(result.error)throw result.error;if(result.status!==0)throw Error('打包准备失败：'+path.basename(step[0]));
+  }
+  const extensionVersion=JSON.parse(fs.readFileSync(path.join(root,'../extension/manifest.json'))).version;
+  if(JSON.parse(fs.readFileSync(path.join(root,'../skills/onhold-assistant/assets/installer/extension/manifest.json'))).version!==extensionVersion)throw Error('随包扩展未同步');
+  const config={build:{beforeBuildCommand:''},bundle:{resources:{'../dist/':'web/','../../extension/':'extension/',[path.join(bundle,'assets')+'/']:'offline/assets/','../../skills/onhold-assistant/':'offline/skill/',[path.join(bundle,'LICENSE')]:'offline/LICENSE',[path.join(bundle,'THIRD_PARTY_NOTICES.txt')]:'offline/THIRD_PARTY_NOTICES.txt'}}};
   const result=spawnSync(process.execPath,[path.join(root,'node_modules/@tauri-apps/cli/tauri.js'),'build','--config',JSON.stringify(config),...args],{cwd:root,stdio:'inherit',env:process.env,windowsHide:true});
   if(result.error)throw result.error;process.exitCode=result.status??1;
   if(result.status===0&&process.platform==='darwin'){

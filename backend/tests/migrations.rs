@@ -67,6 +67,8 @@ fn legacy_database_keeps_rows_pairing_and_task_defaults_on_upgrade_and_reopen() 
         INSERT INTO settings VALUES('bridge-token','saved-pairing-key');
         CREATE TABLE accounts(handle TEXT PRIMARY KEY,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL);
         INSERT INTO accounts VALUES('example',1,2);
+        CREATE TABLE posts(id TEXT PRIMARY KEY,handle TEXT NOT NULL REFERENCES accounts(handle),text TEXT NOT NULL,created_at TEXT,hashtags TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL);
+        INSERT INTO posts VALUES('123','example','keep this legacy post',NULL,'[]',1,2);
         CREATE TABLE jobs(id TEXT PRIMARY KEY,account TEXT NOT NULL,action TEXT NOT NULL,state TEXT NOT NULL,client TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,error TEXT,result TEXT);
         INSERT INTO jobs VALUES('old-job','example','capture','completed',NULL,1,2,NULL,NULL);
         CREATE TABLE browser_sessions(client TEXT PRIMARY KEY,state TEXT NOT NULL,error TEXT NOT NULL,connected INTEGER NOT NULL);
@@ -77,6 +79,10 @@ fn legacy_database_keeps_rows_pairing_and_task_defaults_on_upgrade_and_reopen() 
         assert_eq!(store.token().unwrap(), "saved-pairing-key");
         assert_eq!(store.jobs().unwrap()[0]["id"], "old-job");
         assert_eq!(store.dashboard(None, 7, 3).unwrap()["account"], "example");
+        assert_eq!(
+            store.dashboard(None, 7, 3).unwrap()["posts"][0]["text"],
+            "keep this legacy post"
+        );
         drop(store);
         let db = Connection::open(&file).unwrap();
         assert_eq!(
@@ -172,5 +178,36 @@ fn failed_migration_rolls_back_tables_and_version() {
         )
         .unwrap(),
         0
+    );
+}
+
+#[test]
+fn orphaned_legacy_posts_cancel_migration_without_changing_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("orphaned.db");
+    let db = Connection::open(&file).unwrap();
+    db.execute_batch("PRAGMA foreign_keys=OFF;
+        CREATE TABLE accounts(handle TEXT PRIMARY KEY,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL);
+        CREATE TABLE posts(id TEXT PRIMARY KEY,handle TEXT NOT NULL REFERENCES accounts(handle),text TEXT NOT NULL,created_at TEXT,hashtags TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL);
+        INSERT INTO posts VALUES('123','missing','keep this orphaned post',NULL,'[]',1,2);").unwrap();
+    assert!(Store::open(&file).err().unwrap().contains("外键校验失败"));
+    assert_eq!(
+        db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT text FROM posts", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "keep this orphaned post"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        2
     );
 }

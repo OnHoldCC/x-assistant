@@ -69,6 +69,7 @@ pub struct Window {
 pub struct Store {
     db: Mutex<Connection>,
     events: tokio::sync::broadcast::Sender<Value>,
+    browser_connections: Mutex<HashMap<String, Uuid>>,
 }
 impl Store {
     pub fn open(file: impl AsRef<Path>) -> Result<Self, String> {
@@ -76,6 +77,26 @@ impl Store {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let mut db = Connection::open(file.as_ref()).map_err(|e| e.to_string())?;
+        let compatibility: Value = serde_json::from_str(include_str!("../../extension/compatibility.json")).map_err(|e| e.to_string())?;
+        let version_parts = |version: &str| -> Option<Vec<u16>> {
+            let mut parts = version.split('.').map(|p| p.parse::<u16>().ok()).collect::<Option<Vec<_>>>()?;
+            if parts.is_empty() || parts.len() > 4 { return None; }
+            parts.resize(4, 0);
+            Some(parts)
+        };
+        let minimum = version_parts(compatibility["minimumVersion"].as_str().ok_or("缺少最低插件版本")?).ok_or("最低插件版本无效")?;
+        db.create_scalar_function("extension_compatible", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, move |context| {
+            let version: String = context.get(0)?;
+            Ok(version_parts(&version).is_some_and(|parts| parts >= minimum))
+        }).map_err(|e| e.to_string())?;
+        db.create_scalar_function("extension_notification_follows", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, move |context| {
+            let version: String = context.get(0)?;
+            Ok(version_parts(&version).is_some_and(|parts| parts.as_slice() >= [1,5,14,0].as_slice()))
+        }).map_err(|e| e.to_string())?;
+        db.create_scalar_function("automation_interval_ms", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, |context| {
+            let raw:Option<String>=context.get(0)?;
+            Ok(raw.map_or(0,|raw|automation::interval_ms(&serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null))))
+        }).map_err(|e|e.to_string())?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -84,12 +105,16 @@ impl Store {
         }
         db.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
+        // The accounts rebuild temporarily removes parent rows; migration checks all references before committing.
+        db.execute_batch("PRAGMA foreign_keys=OFF;")
+            .map_err(|e| e.to_string())?;
         schema::migrate(&mut db)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
             .map_err(|e| e.to_string())?;
         Ok(Self {
             db: Mutex::new(db),
             events: tokio::sync::broadcast::channel(256).0,
+            browser_connections: Mutex::new(HashMap::new()),
         })
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
@@ -119,9 +144,14 @@ mod schema;
 pub use schema::SCHEMA_VERSION;
 mod automation;
 mod dashboard;
+mod for_you;
 mod identities;
 mod ingest;
 mod jobs;
+mod publications;
+mod news_queue;
+mod relationships;
+pub use publications::validate_rewrite;
 mod journal;
 mod operations;
 mod sessions;

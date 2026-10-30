@@ -29,3 +29,9 @@
 3. 从账号页断开，下一轮应停止，已有帖子不删除。重新登录、连接后恢复。
 
 自动检查：`cargo test --manifest-path backend/Cargo.toml --locked`、`cargo check --manifest-path app/src-tauri/Cargo.toml --locked`、`npm test`、`npm run app:build`、`npm run installer:check`。Rust 夹具覆盖无浏览器采集、重启恢复、手动队列、限流、失效、账号隔离、撤销竞态和未知结构保留旧数据；Node 夹具覆盖 CDP 请求学习、Cookie 变化及清理临时标签页。这些夹具不代替真实 X 账号联调。
+
+2026-10-28 复验：Rust 后台 23 项、桌面宿主 5 项、Node 65 项通过；Node 的 Windows 专属检查跳过，Rust 浏览器夹具由 `test/admin-browser.mjs` 单独启动。前端构建、桌面编译和安装器同步检查通过。`test/admin-browser.mjs` 在隔离 Chromium 中验证了 CDP 学习、后台采集、UID 路由、手动分析任务、关闭 X 标签页后继续采集，以及撤销凭证后保留历史数据。该集成测试替换了外部 X 响应，不代表真实账号接口已验证。
+
+复验发现 CDP 返回相同 Cookie 的顺序可能变化，原先直接比较拼接字符串会误报「登录态已改变」。现已固定排序并加入回归检查；凭证值实际变化仍会拒绝连接。真实 X 私有接口响应适配和浏览器完全退出后的连续采集仍待实测。
+
+复验还覆盖了带已有帖子记录的旧库升级：重建账号表时暂缓外键约束，在提交前执行完整外键检查，升级后重新启用约束。有效帖子及配对密钥保留；孤立帖子会使升级回滚，原数据不变。界面预览只使用旧库的只读快照，不升级原库。

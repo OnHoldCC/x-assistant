@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "OnHold 助手",
-  "version": "1.4.4",
+  "version": "1.5.17",
   "minimum_chrome_version": "120",
-  "description": "X 账号分析、创作者进度、收藏标签与自动化助手。",
+  "description": "X 账号分析、一键改写、定时发布与自动化助手。",
   "permissions": [
     "storage",
     "scripting",
@@ -54,6 +54,7 @@
         "x-reading-source.js",
         "content.js",
         "onhold-ui.js",
+        "editor-text.js",
         "compose.js",
         "post-border.js"
       ],
@@ -73,8 +74,8 @@
         "assets/nunito-variable.ttf"
       ],
       "matches": [
-        "https://x.com/*",
-        "https://twitter.com/*"
+        "https://*/*",
+        "http://*/*"
       ]
     }
   ]

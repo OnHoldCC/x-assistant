@@ -41,6 +41,7 @@ test('identities remain strings, missing relationship flags stay unknown and coo
  assert.equal(users[0].uid,'1900000000000000123');assert.equal(users[0].handle,'example');assert.equal(users[0].following,true);assert.equal(users[0].followed_by,null);
  const cookies=[{name:'auth_token',value:'test-auth'},{name:'ct0',value:'test-csrf'},{name:'twid',value:'u%3D1900000000000000123'}];
  assert.equal(sessionFromCookies(cookies).uid,'1900000000000000123');
+ assert.deepEqual(sessionFromCookies([...cookies].reverse()),sessionFromCookies(cookies));
  assert.throws(()=>sessionFromCookies(cookies.filter(cookie=>cookie.name!=='auth_token')));
  assert.throws(()=>sessionFromCookies([...cookies.filter(cookie=>cookie.name!=='twid'),{name:'twid',value:'u=invalid'}]));
 });

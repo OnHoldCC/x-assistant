@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 import phrases
 
-torch.set_num_threads(4)
+torch.set_num_threads(max(1,min(4,int(os.environ.get('ONHOLD_MODEL_THREADS','4')))))
 try:
     agent=laya.load(sys.argv[1],device='auto')
 except RuntimeError as error:
@@ -34,4 +34,4 @@ async def post_candidates(body: CandidateRequest):
 def runtime_info():
     return {'device':{'mps':'Metal','cuda':'CUDA','xpu':'Intel XPU','cpu':'CPU'}.get(agent.device.type,str(agent.device))}
 
-uvicorn.run(app,host='127.0.0.1',port=int(sys.argv[2]),log_level='warning')
+uvicorn.run(app,host=os.environ.get('ONHOLD_DECISION_HOST','127.0.0.1'),port=int(sys.argv[2]),log_level='warning')

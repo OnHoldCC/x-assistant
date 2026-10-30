@@ -25,3 +25,6 @@ __pycache__/
 /app/src-tauri/gen/
 /backend/target/
 /desktop/
+
+# Public Soybean frontend options; credentials remain outside this file.
+!app/.env

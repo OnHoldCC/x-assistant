@@ -1,0 +1,119 @@
+name: onhold
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+x-gateway-build: &gateway-build
+  context: .
+  dockerfile: docker/Dockerfile.gateway
+  target: gateway
+services:
+  web:
+    image: onhold-web:0.9.5
+    init: true
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        ONHOLD_SOURCE_COMMIT: '${ONHOLD_SOURCE_COMMIT:-unknown}'
+    ports:
+      - '127.0.0.1:${ONHOLD_HTTP_PORT:-18431}:${ONHOLD_HTTP_PORT:-18431}'
+    environment:
+      ONHOLD_HTTP_PORT: '${ONHOLD_HTTP_PORT:-18431}'
+      ONHOLD_MODEL_KEY_FILE: /secrets/backend-key
+      ONHOLD_CODEX_URL: http://agent:18432/rpc
+      ONHOLD_PROFILES: '${COMPOSE_PROFILES:-}'
+    command: [onhold-backend, --home, /data/admin, --assets, /opt/onhold/web, --bind, 0.0.0.0, --port, '${ONHOLD_HTTP_PORT:-18431}']
+    volumes:
+      - state:/data
+      - secrets:/secrets
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 128
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: [CMD-SHELL, 'onhold-backend --health-check --port $${ONHOLD_HTTP_PORT}']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+  gateway:
+    profiles: [translation]
+    image: onhold-gateway:0.9.5
+    init: true
+    build: *gateway-build
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:18427:18427'
+    volumes:
+      - secrets:/secrets:ro
+      - state:/data
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 64
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: [CMD, node, docker/health.mjs]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  translation-init:
+    profiles: [translation]
+    image: onhold-gateway:0.9.5
+    init: true
+    build: *gateway-build
+    command: [node, docker/prepare-models.mjs, translation]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - models:/models
+      - secrets:/secrets
+      - state:/data
+    mem_limit: 256m
+    cpus: 1
+    logging: *logging
+  translation:
+    profiles: [translation]
+    image: ghcr.io/ggml-org/llama.cpp:server-b11669@sha256:8ffe0d28ff5261cc2f78ca1f67db1515bc2529b904a3c25f5b24f4cedfc3411d
+    init: true
+    user: '1000:1000'
+    command: [--model, /models/Hy-MT2-1.8B-Q8_0.gguf, --alias, hy-mt2-1.8b-q8, --host, 0.0.0.0, --port, '18428', --api-key-file, /secrets/backend-key, --ctx-size, '8192', --parallel, '1', --threads, '2', --n-gpu-layers, '0', --no-webui, --offline]
+    depends_on:
+      translation-init:
+        condition: service_completed_successfully
+    volumes:
+      - models:/models:ro
+      - secrets:/secrets:ro
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 128
+    restart: unless-stopped
+    logging: *logging
+  agent:
+    profiles: [agent]
+    image: onhold-agent:0.9.5
+    init: true
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gateway
+      target: agent
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - secrets:/secrets:ro
+      - state:/data
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 64
+    restart: unless-stopped
+    logging: *logging
+volumes:
+  models:
+  secrets:
+  state:

@@ -1,0 +1,35 @@
+FROM node:24.14.1-bookworm-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c AS ui
+WORKDIR /source
+COPY app/package*.json app/
+COPY app/vendor/ app/vendor/
+RUN node -e "const fs=require('fs');const p='app/package-lock.json';fs.writeFileSync(p,fs.readFileSync(p,'utf8').replaceAll('https://registry.npmmirror.com/','https://registry.npmjs.org/'))"
+RUN --mount=type=cache,target=/root/.npm npm --prefix app ci --registry=https://registry.npmjs.org
+COPY app/ app/
+COPY extension/ extension/
+COPY LICENSE THIRD_PARTY_NOTICES.txt ./
+RUN npm --prefix app run build
+
+FROM rust:1.94.1-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS backend
+ARG TARGETARCH
+ARG ONHOLD_SOURCE_COMMIT=unknown
+ENV ONHOLD_SOURCE_COMMIT=$ONHOLD_SOURCE_COMMIT
+WORKDIR /source
+COPY backend/ backend/
+COPY extension/manifest.json extension/compatibility.json extension/
+COPY lib/replicate-schema.json lib/reply-schema.json lib/news-schema.json lib/
+ENV CARGO_BUILD_JOBS=1
+RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,id=onhold-rust-${TARGETARCH},target=/source/backend/target,sharing=locked cargo build --release --locked --manifest-path backend/Cargo.toml && cp backend/target/release/onhold-backend /source/onhold-backend
+
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+ARG ONHOLD_SOURCE_COMMIT=unknown
+LABEL org.opencontainers.image.revision=$ONHOLD_SOURCE_COMMIT
+COPY --from=backend /etc/ssl/certs /etc/ssl/certs
+RUN mkdir -p /data/admin /data/codex /secrets && chown -R 1000:1000 /data /secrets
+COPY --from=backend /source/onhold-backend /usr/local/bin/onhold-backend
+COPY --from=ui /source/app/dist /opt/onhold/web
+COPY --from=ui /source/extension /opt/onhold/extension
+COPY LICENSE THIRD_PARTY_NOTICES.txt /opt/onhold/
+USER 1000:1000
+ENV HOME=/data
+EXPOSE 18431
+CMD ["onhold-backend", "--home", "/data/admin", "--assets", "/opt/onhold/web", "--bind", "0.0.0.0"]

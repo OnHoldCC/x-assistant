@@ -297,7 +297,7 @@ fn automation_is_opt_in_capability_gated_and_limits_pause_every_write_until_manu
     db.session_status(&client, "example", "logged_in", "", at)
         .unwrap();
     db.set_analytics_support(&client, true).unwrap();
-    let config = json!({"action":"follow_back","scope":"automation_owned","targets":[],"interval_minutes":60,"limit":2,"after_days":7});
+    let config = json!({"action":"follow_back","scope":"manual","targets":["writer"],"interval_minutes":60,"limit":2,"after_days":7});
     let task = db.save_automation("example", &config, at).unwrap();
     let id = task["id"].as_str().unwrap();
     assert!(db.run_automation("example", id, at).is_err());
@@ -313,6 +313,18 @@ fn automation_is_opt_in_capability_gated_and_limits_pause_every_write_until_manu
     let job = db.claim(&client, "example", at).unwrap();
     db.automation_progress(job["id"].as_str().unwrap(), &client, "writer", at + 1)
         .unwrap();
+    let progress = db.automation_state("example").unwrap();
+    assert_eq!(progress["tasks"][0]["last_job"]["id"], job["id"]);
+    assert_eq!(progress["tasks"][0]["last_job"]["state"], "running");
+    assert_eq!(
+        progress["tasks"][0]["last_job"]["result"]["completed"],
+        json!(["writer"])
+    );
+    assert_eq!(
+        progress["tasks"][0]["last_job"]["input"]["targets"],
+        json!(["writer"])
+    );
+
     db.finish_automation(
         job["id"].as_str().unwrap(),
         &client,
@@ -386,4 +398,12 @@ fn reward_calibration_uses_owned_exact_dates_and_keeps_manual_estimates() {
         500
     );
     assert!(db.creator("other").unwrap()["calibration"].is_null());
+}
+#[test]
+fn creator_capture_is_independent_and_requires_the_current_browser() {
+    let dir=tempfile::tempdir().unwrap();let db=Store::open(dir.path().join("data.db")).unwrap();let at=onhold_backend::store::now();let client=Uuid::new_v4().to_string();
+    db.session_status(&client,"example","logged_in","",at).unwrap();db.set_analytics_support(&client,true).unwrap();
+    db.set_extension_version(&client,"1.5.7").unwrap();assert!(db.enqueue_action("example","capture_creator",at).is_err());
+    let manifest:serde_json::Value=serde_json::from_str(include_str!("../../extension/manifest.json")).unwrap();db.set_extension_version(&client,manifest["version"].as_str().unwrap()).unwrap();
+    let queued=db.enqueue_action("example","capture_creator",at).unwrap();let job=db.claim(&client,"example",at+1).unwrap();assert_eq!(job["id"],queued["id"]);assert_eq!(job["action"],"capture_creator");assert_eq!(job["input"]["executor"],"browser");
 }

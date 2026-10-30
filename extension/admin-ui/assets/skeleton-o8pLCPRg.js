@@ -1,1 +1,0 @@
-import{j as t,a9 as n}from"./free-badge-Bl5A-hQV.js";function o({className:e,...a}){return t.jsx("div",{"data-slot":"skeleton","aria-hidden":"true",className:n("animate-pulse rounded-md bg-accent",e),...a})}export{o as S};

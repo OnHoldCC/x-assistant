@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 export async function api<T>(
   operation: string,
   input: object = {},
+  timeout = 15000,
 ): Promise<T> {
   const remote = localStorage.getItem("onhold-remote");
   if (remote) {
@@ -29,12 +30,15 @@ export async function api<T>(
       Authorization: "Bearer " + token,
     },
     body: JSON.stringify({ operation, input }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(timeout),
   });
   const value = await response.json();
   if (!response.ok)
     throw Error(value.error || `后台返回 HTTP ${response.status}`);
   return value as T;
+}
+export function modelApi<T>(operation: string, input: Record<string, unknown> = {}): Promise<T> {
+  return isTauri() ? invoke<T>(operation, input) : api<T>(operation, input, 180000);
 }
 export async function connectRemote(endpoint: string, token: string) {
   const url = new URL(endpoint);

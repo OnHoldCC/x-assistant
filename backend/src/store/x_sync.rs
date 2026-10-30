@@ -162,7 +162,7 @@ impl Store {
         self.bind_account_uid(uid, &account, at)?;
         let mut db = self.lock()?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
-        tx.execute("UPDATE jobs SET state='failed',error='登录态已更新，请重新采集',updated_at=? WHERE account=? AND action IN ('capture','capture_analytics') AND state IN ('queued','running')",params![at,account]).map_err(|e|e.to_string())?;
+        tx.execute("UPDATE jobs SET state='failed',error='登录态已更新，请重新采集',updated_at=? WHERE account=? AND action IN ('capture','capture_analytics','capture_relationships','capture_creator') AND state IN ('queued','running')",params![at,account]).map_err(|e|e.to_string())?;
         tx.execute("DELETE FROM request_templates WHERE owner_uid=?", [uid])
             .map_err(|e| e.to_string())?;
         for item in &templates {
@@ -208,7 +208,7 @@ impl Store {
         let tx = db.transaction().map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM request_templates WHERE owner_uid=(SELECT uid FROM accounts WHERE handle=?)",[&account]).map_err(|e|e.to_string())?;
         tx.execute("UPDATE x_sessions SET headers='{}',revision=?,state='revoked',error='账号已断开，请重新连接',next_poll=0 WHERE owner_uid=(SELECT uid FROM accounts WHERE handle=?)",params![Uuid::new_v4().to_string(),account]).map_err(|e|e.to_string())?;
-        tx.execute("UPDATE jobs SET state='failed',error='账号已断开',updated_at=? WHERE account=? AND action IN ('capture','capture_analytics') AND state IN ('queued','running')",params![at,account]).map_err(|e|e.to_string())?;
+        tx.execute("UPDATE jobs SET state='failed',error='账号已断开',updated_at=? WHERE account=? AND action IN ('capture','capture_analytics','capture_relationships','capture_creator') AND state IN ('queued','running')",params![at,account]).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(json!({"disconnected":true}))
     }
@@ -246,7 +246,7 @@ impl Store {
             })
             .collect::<Result<Vec<_>, _>>()?
         };
-        let job: Option<(String,String)> = tx.query_row("SELECT id,action FROM jobs WHERE account=? AND state='queued' AND action IN ('capture','capture_analytics') ORDER BY created_at LIMIT 1",[&account],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
+        let job: Option<(String,String)> = tx.query_row("SELECT id,action FROM jobs WHERE account=? AND state='queued' AND action IN ('capture','capture_analytics') AND COALESCE(json_extract(input,'$.executor'),'')<>'browser' ORDER BY created_at LIMIT 1",[&account],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
         let (job, action) = job.unwrap_or_else(|| (Uuid::new_v4().to_string(), "capture".into()));
         tx.execute("INSERT INTO jobs(id,account,action,state,client,created_at,updated_at) VALUES(?,?,?,'running','backend',?,?) ON CONFLICT(id) DO UPDATE SET state='running',client='backend',updated_at=excluded.updated_at",params![job,account,action,at,at]).map_err(|e|e.to_string())?;
         tx.execute(
@@ -904,6 +904,36 @@ mod tests {
         drop(store);
         let store = Store::open(dir.path().join("test.db")).unwrap();
         assert!(store.next_x_poll(at + PERIOD).unwrap().is_some());
+    }
+
+    #[test]
+    fn official_jobs_fall_back_to_browser_when_no_analytics_endpoint_was_learned() {
+        let (_dir, store) = db();
+        let at = now();
+        store.learn_x_session(&upload(), at).unwrap();
+        assert!(store
+            .enqueue_action("example", "capture_analytics", at)
+            .is_err());
+        let client = Uuid::new_v4().to_string();
+        store
+            .session_status(&client, "example", "logged_in", "", at)
+            .unwrap();
+        store.set_analytics_support(&client, true).unwrap();
+        let job = store
+            .enqueue_action("example", "capture_analytics", at)
+            .unwrap();
+        assert!(store.browser_work_due("example", at).unwrap());
+        let backend = store.next_x_poll(at).unwrap().unwrap();
+        assert_ne!(backend.job, job["id"].as_str().unwrap());
+        store.finish_x_poll(&backend, None, "", at).unwrap();
+        assert_eq!(
+            store.claim(&client, "example", at).unwrap()["id"],
+            job["id"]
+        );
+        store.forget_x_session("example", at + 1).unwrap();
+        assert!(store
+            .enqueue_action("example", "capture_analytics", at + 1)
+            .is_err());
     }
 
     #[test]

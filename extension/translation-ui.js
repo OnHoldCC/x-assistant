@@ -40,12 +40,12 @@
   function mount(textNode, text, send, current, options={}) {
     const host=document.createElement('x-local-translation');
     const nativeStyle=getComputedStyle(textNode);
-    host.style.font=nativeStyle.font;host.style.color=nativeStyle.color;
+    host.style.font=nativeStyle.font;host.style.fontFamily='"Launch Rounded", ui-rounded, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';host.style.color=nativeStyle.color;
     const rgb=nativeStyle.color.match(/\d+/g)?.slice(0,3).map(Number)||[0,0,0];
     host.style.setProperty('--translation-color',rgb.reduce((a,b)=>a+b,0)>480?'#b6cbd5':'#486572');
     const root=host.attachShadow({mode:'open'});
     const style=document.createElement('style');
-    style.textContent=`:host{display:block;font:inherit;color:inherit;overflow-wrap:anywhere}*{box-sizing:border-box}.body[hidden],[hidden]{display:none!important}.pair{margin:0}.original,.translation{white-space:pre-wrap;line-height:1.65}.translation{margin-top:5px;color:var(--translation-color,#486572);font-size:.96em}.tools{color:#536471;font:12px/1.5 system-ui,-apple-system,sans-serif;margin:6px 0}.tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.status{overflow-wrap:anywhere}button{font:inherit;color:#1473a9;border:0;background:transparent;padding:2px 0;min-height:32px;cursor:pointer}button:disabled{cursor:wait}button:focus-visible{outline:2px solid #1d9bf0;outline-offset:3px}a{color:#1d9bf0;text-decoration:none}a:hover{text-decoration:underline}@media(prefers-color-scheme:dark){.translation{color:var(--translation-color,#b6cbd5)}.tools{color:#a3b4bf}button{color:#7ac5ff}}`;
+    style.textContent=`:host{display:block;font:inherit;color:inherit;overflow-wrap:anywhere}*{box-sizing:border-box}.body[hidden],[hidden]{display:none!important}.pair{margin:0}.original,.translation{white-space:pre-wrap;line-height:1.65}.translation{margin-top:5px;color:var(--translation-color,#486572);font-size:.96em}.tools{color:#536471;font-family:inherit;font-size:12px;line-height:1.5;margin:6px 0}.tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.status{overflow-wrap:anywhere}button{font:inherit;color:#1473a9;border:0;background:transparent;padding:2px 0;min-height:32px;cursor:pointer}button:disabled{cursor:wait}button:focus-visible{outline:2px solid #1d9bf0;outline-offset:3px}a{color:#1d9bf0;text-decoration:none}a:hover{text-decoration:underline}@media(prefers-color-scheme:dark){.translation{color:var(--translation-color,#b6cbd5)}.tools{color:#a3b4bf}button{color:#7ac5ff}}`;
     const body=document.createElement('div');body.className='body';body.hidden=true;
     const tools=document.createElement('div');tools.className='tools';
     const label=document.createElement('span');label.textContent='翻译';

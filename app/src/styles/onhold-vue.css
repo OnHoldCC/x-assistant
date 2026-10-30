@@ -1,0 +1,121 @@
+@font-face {
+  font-family: "Launch Rounded";
+  src: url("../../../extension/assets/nunito-variable.ttf") format("truetype");
+  font-weight: 200 1000;
+  font-display: swap;
+}
+:root {
+  --onhold-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+}
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--onhold-font);
+}
+.onhold-brand {
+  font-family: "Launch Rounded", var(--onhold-font);
+}
+.business-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.business-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.business-toolbar .n-input {
+  width: 220px;
+  max-width: 100%;
+}
+.business-toolbar .n-select {
+  width: 150px;
+  max-width: 100%;
+}
+.business-form {
+  display: grid;
+  gap: 16px;
+}
+.business-muted {
+  opacity: 0.6;
+  font-size: 12px;
+}
+.business-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.setup-container {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.setup-container > .n-card {
+  width: 540px;
+  max-width: 100%;
+}
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.analytics-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+.analytics-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.analytics-chart {
+  height: 320px;
+  width: 100%;
+  min-width: 0;
+}
+.business-number {
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 640px) {
+  .business-toolbar {
+    gap: 8px;
+  }
+  .analytics-chart {
+    height: 280px;
+  }
+  .workspace-account {
+    max-width: 135px !important;
+  }
+  .business-toolbar .n-input {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .n-progress-graph-line-fill {
+    animation: none !important;
+  }
+}
+
+@media (min-width: 640px) {
+  .workspace-page.business-stack {
+    gap: 24px;
+  }
+  .workspace-page .business-toolbar {
+    gap: 16px;
+  }
+  .workspace-page .metrics-grid {
+    gap: 24px;
+  }
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import {createGateway,validateTranslation} from '../lib/gateway.mjs';
-test('translation input bounds, no implicit API access',()=>{for(const body of [{text:''},{text:'x'.repeat(4001)},{text:'hello',target_lang:'unknown'},{text:'hello',purpose:'publish'}])assert.throws(()=>validateTranslation(body));assert.equal(validateTranslation({text:'hello'}).target_lang,'zh');});
+test('translation input bounds, no implicit API access',()=>{for(const body of [{text:''},{text:'x'.repeat(4001)},{text:'hello',target_lang:'unknown'},{text:'hello',purpose:'publish'},{text:'hello',regenerate:true},{text:'hello',purpose:'draft',regenerate:'yes'}])assert.throws(()=>validateTranslation(body));assert.equal(validateTranslation({text:'hello'}).target_lang,'zh');});
 test('gateway protocol, cache, source restrictions and private config',async()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-assistant-gateway-'));let calls=0;
  const config={port:0,database:path.join(directory,'cache.sqlite3'),modelHash:'fixed',instance:'fixture-instance',controlToken:'secret-control',extensionIds:['abcdefghijklmnopabcdefghijklmnop'],extensionPath:'C:\\Users\\Example\\extension',device:'CPU'};
@@ -52,4 +52,17 @@ test('cold translation reports preparation, resumes on readiness, and cache read
  try{const cold=await request();assert.equal(cold.status,503);assert.equal((await cold.json()).code,'TRANSLATION_PREPARING');assert.equal(preparations,1);assert.equal(inferences,0);config.translationState='ready';assert.equal((await (await request()).json()).text,'你好');config.translationState='not_loaded';assert.equal((await (await request()).json()).cached,true);assert.equal(preparations,1);assert.equal(inferences,1);
  const state=await fetch(`http://127.0.0.1:${config.port}/metrics`).then(r=>r.json());assert.equal(state.translation_loaded,false);assert.equal(state.translation_state,'not_loaded');
  }finally{gateway.close();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('draft regeneration runs fresh inference without replacing the normal cache or storing the source',async()=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-draft-regeneration-'));let calls=0;
+ const gateway=createGateway({database:path.join(directory,'cache.sqlite3'),modelHash:'fixed'},process.pid,async payload=>{calls++;assert.equal(payload.temperature,calls===1?0:0.5);return {choices:[{finish_reason:'stop',message:{content:calls===1?'My private draft.':'A fresh version of my private draft.'}}]};});
+ const body={text:'这是我的私人草稿。',target_lang:'en',purpose:'draft'};
+ try{
+  const first=await gateway.translate(body);assert.equal(first.cached,false);
+  assert.equal((await gateway.translate(body)).cached,true);assert.equal(calls,1);
+  const fresh=await gateway.translate({...body,regenerate:true});assert.equal(fresh.cached,false);assert.notEqual(fresh.text,first.text);assert.equal(calls,2);
+  const cached=await gateway.translate(body);assert.equal(cached.text,first.text);assert.equal(cached.cached,true);assert.equal(calls,2);
+  assert.equal(gateway.store.db.prepare('SELECT COUNT(*) AS n FROM contents').get().n,0);
+ }finally{gateway.close();fs.rmSync(directory,{recursive:true,force:true});}
 });

@@ -110,12 +110,36 @@ export type Client = {
   analytics_supported?: boolean;
   extension_version?: string;
 };
+export type NewsSource = "web" | "weibo" | "rednote" | "hot_topics" | "international" | "mixed";
+export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<string,number>; items:{kind:string;platform:string;title:string;url:string;published_at:number|null}[]; errors:{platform:string;error:string}[] };
 export type Job = {
   id: string;
   account: string;
-  action: "capture" | "capture_analytics" | "follow_back" | "unfollow";
-  state: "queued" | "running" | "completed" | "failed";
+  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "follow_back" | "unfollow" | "rewrite_publish";
+  state: "queued" | "rewriting" | "running" | "completed" | "failed";
   created_at: number;
   updated_at: number;
   error: string | null;
+  input?: {
+    kind?: "followers" | "following";
+    mode?: "rewrite" | "similar" | "replicate" | "reply" | "news";
+    stage?: "rewrite" | "ready" | "sending" | "skipped";
+    publish_at?: number | null;
+    source?: { text: string; url: string; author: string; id: string; title?:string;published_at?:number };
+    text?: string;
+    limit?: number;
+    targets?: string[];
+    analysis?: {topic:string;structure:string;tone:string;key_points:string[]};
+    schema_version?: number;
+    scope?:'for_you'|'notifications'|'trending'|'news';
+    query?:string;
+    news_source?: NewsSource;
+    include_source_link?: boolean;
+    news_feed?: NewsFeed;
+    publication_mode?: "reply" | "follow_back";
+    rejected_generation?:Record<string,unknown>;
+    discovered_from?:string;
+    telemetry?:{send_started_at?:number;generations?:{started_at:number;finished_at:number;duration_ms:number;usage:{input_tokens:number;output_tokens:number;cached_input_tokens:number|null;total_tokens:number}|null}[]};
+  };
+  result?: { sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
 };

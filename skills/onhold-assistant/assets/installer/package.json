@@ -1,7 +1,7 @@
 {
   "name": "onhold-assistant",
   "version": "0.8.0",
-  "description": "OnHold React TypeScript admin, Rust data backend and CDP browser companion.",
+  "description": "OnHold Vue 3 / Soybean Admin frontend, Rust data backend and CDP browser companion.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
@@ -24,6 +24,7 @@
     "test": "node --test test/*.test.mjs",
     "installer:sync": "node scripts/sync-installer.mjs",
     "installer:check": "node scripts/sync-installer.mjs --check",
+    "docker:pack": "node scripts/package-docker.mjs",
     "app:build": "npm --prefix app run build",
     "desktop:start": "npm --prefix app run tauri -- dev",
     "desktop:pack": "node app/scripts/build-desktop.mjs",

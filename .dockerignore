@@ -1,0 +1,25 @@
+.git
+.idea
+.agents
+.codex
+.aws
+**/node_modules
+**/target
+**/screenshots
+**/*.sqlite*
+**/*.db
+**/*.log
+**/.env*
+**/__pycache__
+desktop
+skills
+design
+test
+work
+app/dist
+app/src-tauri
+img*.png
+*.tgz
+
+# Public frontend build options, no credentials.
+!app/.env
