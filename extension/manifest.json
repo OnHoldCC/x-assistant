@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OnHold 助手",
-  "version": "1.5.19",
+  "version": "1.5.20",
   "minimum_chrome_version": "120",
   "description": "X 账号分析、一键改写、定时发布与自动化助手。",
   "permissions": [

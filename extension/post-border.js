@@ -6,23 +6,32 @@
  const rewrite=document.createElement('button');rewrite.type='button';rewrite.className='queue-rewrite';rewrite.textContent='一键改写';rewrite.title='交给 Codex CLI 润色并加入后台定时任务，设置时间后通过 X 首页发布';root.querySelector('.row').append(rewrite);
  const similar=document.createElement('button');similar.type='button';similar.className='queue-similar';similar.textContent='发同款';similar.title='将当前原帖交给 Codex 分析并生成新正文；后台校验固定格式后自动发布到当前连接的 X 账号';root.querySelector('.row').append(similar);
  const collectionStyle=document.createElement('style');collectionStyle.textContent='.queue-rewrite,.queue-similar{display:inline-flex;align-items:center;justify-content:center;gap:3px;border-radius:6px}.queue-rewrite:hover,.queue-similar:hover{background:#1d9bf010}';root.append(collectionStyle);
- const rewrites=new WeakMap();
- function sourcePost(){const source=reading(selected),link=source&&XAIMetrics.statusLink(source.url);if(!source||!link)throw Error('请先打开可识别的 X 帖子');return {id:link.id,author:link.author.toLowerCase(),url:'https://x.com/'+link.author.toLowerCase()+'/status/'+link.id,text:(source.original??source.text).slice(0,24000),metrics:Object.fromEntries(Object.entries({views:'a[href$="/analytics"]',likes:'[data-testid="like"],[data-testid="unlike"]',replies:'[data-testid="reply"]',reposts:'[data-testid="retweet"],[data-testid="unretweet"]'}).map(([name,selector])=>[name,count(selector)]).filter(([,value])=>value))};}
+ const rewrites=new WeakMap(),preparing=new WeakSet();
+ function sourcePost(article,source,mode){const link=source&&XAIMetrics.statusLink(source.url);if(!source||!link)throw Error('请先打开可识别的 X 帖子');return {id:link.id,author:link.author.toLowerCase(),url:'https://x.com/'+link.author.toLowerCase()+'/status/'+link.id,text:(mode==='rewrite'?source.text:source.original??source.text).slice(0,24000),metrics:Object.fromEntries(Object.entries({views:'a[href$="/analytics"]',likes:'[data-testid="like"],[data-testid="unlike"]',replies:'[data-testid="reply"]',reposts:'[data-testid="retweet"],[data-testid="unretweet"]'}).map(([name,selector])=>[name,count(selector,article)]).filter(([,value])=>value))};}
  async function queueWriting(mode){
   if(!selected)return;
-  const article=selected,source=reading(article),contentKey=source&&sourceKey(source),mine=run;
+  const article=selected;if(preparing.has(article))return;
+  let source=reading(article);
+  if(mode==='rewrite'&&source?.complete===false){
+   preparing.add(article);status.textContent='正在展开全文…';render();
+   try{source=await OnHoldXReading.prepare(article);}
+   catch(error){if(article===selected){render();status.textContent=error.message;}return;}
+   finally{preparing.delete(article);if(article===selected)render();}
+  }
+  const contentKey=source&&sourceKey(source),mine=run;
   if(!source||source.complete===false){status.textContent='请先展开原帖全文再生成';return;}
+  if(mode==='rewrite'&&source.pending){status.textContent='X 译文仍在加载，请稍后重试';return;}
   if(rewrites.get(article)?.[mode]?.key===contentKey)return;
   const entry={key:contentKey,pending:true};rewrites.set(article,{...rewrites.get(article),[mode]:entry});status.textContent='';render();
   try{
-   const response=await chrome.runtime.sendMessage({type:'QUEUE_REWRITE',data:{...sourcePost(),mode,discovered_from:location.pathname==='/home'?'for_you':/^\/(explore|search)/.test(location.pathname)?'trending':'post_detail'}});
+   const response=await chrome.runtime.sendMessage({type:'QUEUE_REWRITE',data:{...sourcePost(article,source,mode),mode,discovered_from:location.pathname==='/home'?'for_you':/^\/(explore|search)/.test(location.pathname)?'trending':'post_detail'}});
    if(!response?.ok)throw Error(response?.error||'未加入任务记录');
    entry.pending=false;
-   if(article===selected&&mine===run)status.textContent=response.data.duplicate?'此任务已有记录':mode==='replicate'?'已排队：Codex 分析生成、格式校验后自动发布':'已加入任务记录，生成后可查看或复制正文';
+   if(article===selected&&mine===run)status.textContent=response.data.duplicate?'此任务已有记录':mode==='replicate'?'已排队：Codex 分析生成、格式校验后自动发布':source.native?'已使用 X 页面译文加入草稿生成任务':'已加入任务记录，生成后可查看或复制正文';
   }catch(error){if(rewrites.get(article)?.[mode]===entry)delete rewrites.get(article)[mode];if(article===selected&&mine===run)status.textContent=error.message;}
   finally{if(article===selected&&mine===run)render();}
  }
- rewrite.onclick=()=>queueWriting('rewrite');similar.onclick=event=>{if(event.isTrusted)queueWriting('replicate');};
+ rewrite.onclick=event=>{if(event.isTrusted)queueWriting('rewrite');};similar.onclick=event=>{if(event.isTrusted)queueWriting('replicate');};
 
  const metrics=root.querySelector('.metrics'),status=root.querySelector('.status');
  const style=document.createElement('style');style.textContent='article[data-onhold-current]{outline:1px solid #1d9bf0;outline-offset:-1px;border-radius:12px}';document.head.append(style);
@@ -32,7 +41,7 @@
  const reading=article=>globalThis.OnHoldAdFilter?.shouldHide(article)?null:globalThis.OnHoldXReading?.read(article);
  const blocked=()=>[...document.querySelectorAll('[role="dialog"]')].some(node=>{const rect=node.getBoundingClientRect(),style=getComputedStyle(node);return rect.width>0&&rect.height>0&&style.visibility!=='hidden'&&style.opacity!=='0';});
  function select(article){if(article&&globalThis.OnHoldAdFilter?.shouldHide(article)){choose(null);globalThis.OnHoldAdFilter.preview(article);return;}choose(article);}
- function count(selector){const node=[...selected.querySelectorAll(selector)].find(node=>own(selected,node));return node?XAIMetrics.parseCount(node.getAttribute('aria-label')||node.innerText):null;}
+ function count(selector,article=selected){const node=[...article.querySelectorAll(selector)].find(node=>own(article,node));return node?XAIMetrics.parseCount(node.getAttribute('aria-label')||node.innerText):null;}
  function render(){
   if(!selected?.isConnected)return;
   if(blocked()){choose(null);return;}
@@ -50,8 +59,8 @@
   host.style.top=Math.max(76,Math.min(bounds.top,innerHeight-host.getBoundingClientRect().height-12))+'px';
   for(const [mode,control,label] of [['rewrite',rewrite,'一键改写'],['replicate',similar,'发同款']]){
    const entry=rewrites.get(selected)?.[mode],queued=entry?.key===key;
-   control.disabled=queued;control.textContent=queued?entry.pending?'入队中…':'已入队':label;
-   control.setAttribute('aria-busy',String(queued&&entry.pending));
+   control.disabled=queued||preparing.has(selected);control.textContent=preparing.has(selected)?'展开中…':queued?entry.pending?'入队中…':'已入队':label;
+   control.setAttribute('aria-busy',String(preparing.has(selected)||queued&&entry.pending));
   }
  }
  function choose(article){
