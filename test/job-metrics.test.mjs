@@ -24,3 +24,12 @@ test('notification collector accepts only replies to the current account, exclud
  const graphql={timeline:{instructions:[{entries:[{entryId:'tweet-201'}]}]},data:{result:{rest_id:'201',legacy:tweet('201'),core:{user_results:{result:{rest_id:'2',core:{screen_name:'Writer'}}}}}}};assert.equal(parseNotificationReplies(graphql,'owner','99')[0].author,'writer');
  assert.throws(()=>parseNotificationReplies(payload,'owner','legacy:owner'),/标识/);
 });
+
+test('a verified non-call is zero usage while legacy missing telemetry remains unknown',()=>{
+ const metrics=jobMetrics({...job,input:{model_not_called:true}});
+ assert.equal(metrics.attempts,0);assert.equal(metrics.total_tokens,0);assert.equal(metrics.generation_ms,0);
+ assert.equal(metrics.input_tokens,0);assert.equal(metrics.output_tokens,0);assert.equal(metrics.cached_input_tokens,0);
+ assert.equal(jobMetrics(job).total_tokens,null);
+ const actual={duration_ms:10,usage:null};
+ assert.equal(jobMetrics({...job,input:{model_not_called:true,telemetry:{generations:[actual]}}}).total_tokens,null,'real missing usage cannot be hidden by a zero-call flag');
+});

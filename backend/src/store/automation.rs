@@ -143,9 +143,10 @@ impl Store {
         if !["auto", "en"].contains(&language) { return Err("内容语言无效".into()); }
         config["language"] = json!(language);
         if action == "auto_post" {
-            let source = match input.get("news_source") { None => "web", Some(value) => value.as_str().ok_or("新闻来源无效")? };
+            let source = match input.get("news_source") { None => "international", Some(value) => value.as_str().ok_or("新闻来源无效")? };
             if !["web", "weibo", "rednote", "hot_topics", "international", "mixed"].contains(&source) { return Err("新闻来源无效".into()); }
             config["news_source"] = json!(source);
+            config["allow_news_search"] = json!(input.get("allow_news_search").map_or(Some(false),Value::as_bool).ok_or("新闻联网核实设置无效")?);
             if let Some(value)=input.get("include_source_link") { config["include_source_link"]=json!(value.as_bool().ok_or("来源链接设置无效")?); }
         }
         let editing = input

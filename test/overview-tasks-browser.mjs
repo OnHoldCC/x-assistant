@@ -18,9 +18,9 @@ try {
    if(args.operation==='pairing')return {};
    if(args.operation==='connections'||args.operation==='jobs')return [];
    if(args.operation==='dashboard')return {accounts:[{handle:'example',first_seen:1,last_seen:Date.now()}],account:'example',posts:[],metrics:{},series:[],days:args.input.days,analytics:null,task_stats:[
-    {action:'capture',input:{},completed:130,failed:4,tokens:0,missing_usage:0},
-    {action:'rewrite_publish',input:{mode:'reply',scope:'for_you'},completed:7,failed:2,tokens:350,missing_usage:1},
-    {action:'rewrite_publish',input:{mode:'news'},completed:3,failed:1,tokens:0,missing_usage:1},
+    {action:'capture',input:{},completed:130,failed:4,skipped:0,tokens:0,missing_usage:0},
+    {action:'rewrite_publish',input:{mode:'reply',scope:'for_you'},completed:7,failed:2,skipped:0,tokens:350,missing_usage:1},
+    {action:'rewrite_publish',input:{mode:'news'},completed:3,failed:1,skipped:8,tokens:0,missing_usage:1},
    ]};
    return {};
   }};
@@ -29,13 +29,13 @@ try {
  const table=page.getByRole('region',{name:'任务成功失败及 Token 统计'});
  await table.getByRole('cell',{name:'自动评论',exact:true}).waitFor();
  const reply=table.getByRole('row').filter({hasText:'自动评论'});
- assert.deepEqual(await reply.getByRole('cell').allTextContents(),['自动评论','7','2','≥ 350']);
+ assert.deepEqual(await reply.getByRole('cell').allTextContents(),['自动评论','7','2','0','≥ 350']);
  assert.ok((await table.getByRole('row').filter({hasText:'采集账号与帖子'}).textContent()).includes('130'));
  assert.ok((await table.getByRole('row').filter({hasText:'新闻发文'}).textContent()).includes('未记录'));
- await page.getByText('合计：成功 140 · 失败 7 · 消耗 ≥ 350 Token',{exact:true}).waitFor();
+ await page.getByText('合计：成功 140 · 失败 7 · 跳过 8 · 消耗 ≥ 350 Token',{exact:true}).waitFor();
  await page.getByText('今日',{exact:true}).click();
  assert.equal(await page.getByRole('radio',{name:'今日',exact:true}).isChecked(),true);
- assert.deepEqual(await reply.getByRole('cell').allTextContents(),['自动评论','7','2','≥ 350'],'period changes do not change lifetime totals');
+ assert.deepEqual(await reply.getByRole('cell').allTextContents(),['自动评论','7','2','0','≥ 350'],'period changes do not change lifetime totals');
  for(const width of [1440,375]){
   await page.setViewportSize({width,height:1100});await table.scrollIntoViewIfNeeded();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'the table scrolls inside its card on mobile');

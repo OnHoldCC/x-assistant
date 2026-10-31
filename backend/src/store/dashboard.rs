@@ -221,20 +221,20 @@ impl Store {
                     CASE WHEN j.action='capture_notifications' THEN coalesce(json_extract(j.input,'$.publication_mode'),'reply') END AS publication_mode,
                     coalesce(sum(json_extract(g.value,'$.usage.total_tokens')),0) AS tokens,
                     sum(CASE WHEN g.key IS NOT NULL AND json_extract(g.value,'$.usage.total_tokens') IS NULL THEN 1 ELSE 0 END)
-                        + CASE WHEN j.action='rewrite_publish' AND count(g.key)=0 AND
+                        + CASE WHEN j.action='rewrite_publish' AND count(g.key)=0 AND coalesce(json_extract(j.input,'$.model_not_called'),0)=0 AND
                             (j.state IN ('rewriting','completed','failed') OR json_extract(j.input,'$.stage') IN ('ready','sending'))
                             THEN 1 ELSE 0 END AS missing_usage
                 FROM jobs j LEFT JOIN json_each(j.input,'$.telemetry.generations') g
                 WHERE j.account=? AND j.created_at<=? GROUP BY j.id
             )
             SELECT action,mode,scope,publication_mode,
-                sum(state='completed' AND coalesce(stage,'')<>'skipped'),sum(state='failed'),sum(tokens),sum(missing_usage)
+                sum(state='completed' AND coalesce(stage,'')<>'skipped'),sum(state='failed'),sum(tokens),sum(missing_usage),sum(state='completed' AND coalesce(stage,'')='skipped')
             FROM task_usage GROUP BY action,mode,scope,publication_mode ORDER BY action,mode,scope,publication_mode
         "#).map_err(|e|e.to_string())?;
         let task_stats = statement.query_map(params![selected,at], |r| Ok(json!({
             "action":r.get::<_,String>(0)?,
             "input":{"mode":r.get::<_,Option<String>>(1)?,"scope":r.get::<_,Option<String>>(2)?,"publication_mode":r.get::<_,Option<String>>(3)?},
-            "completed":r.get::<_,i64>(4)?,"failed":r.get::<_,i64>(5)?,"tokens":r.get::<_,i64>(6)?,"missing_usage":r.get::<_,i64>(7)?
+            "completed":r.get::<_,i64>(4)?,"failed":r.get::<_,i64>(5)?,"tokens":r.get::<_,i64>(6)?,"missing_usage":r.get::<_,i64>(7)?,"skipped":r.get::<_,i64>(8)?
         }))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
         Ok(
             json!({"accounts":accounts,"account":selected,"posts":posts,"metrics":summarize(start,at),"series":series,"days":days,"start":start,"now":at,"analytics":analytics.and_then(|v|serde_json::from_str::<Value>(&v).ok()),"analytics_periods":analytics_periods,"creator":creator,"automation_block":read_setting("automation_block")?,"task_stats":task_stats}),

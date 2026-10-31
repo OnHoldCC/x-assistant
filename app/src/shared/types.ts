@@ -112,7 +112,7 @@ export type Client = {
   extension_version?: string;
 };
 export type NewsSource = "web" | "weibo" | "rednote" | "hot_topics" | "international" | "mixed";
-export type TaskStats = Pick<Job, "action" | "input"> & { completed: number; failed: number; tokens: number; missing_usage: number };
+export type TaskStats = Pick<Job, "action" | "input"> & { completed: number; failed: number; skipped: number; tokens: number; missing_usage: number };
 export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<string,number>; items:{kind:string;platform:string;title:string;url:string;published_at:number|null}[]; errors:{platform:string;error:string}[] };
 export type Job = {
   id: string;
@@ -137,6 +137,8 @@ export type Job = {
     query?:string;
     news_source?: NewsSource;
     include_source_link?: boolean;
+    allow_news_search?: boolean;
+    model_not_called?: boolean;
     news_feed?: NewsFeed;
     publication_mode?: "reply" | "follow_back";
     rejected_generation?:Record<string,unknown>;

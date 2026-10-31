@@ -159,26 +159,34 @@ fn uncertain_sends_have_their_own_filter_and_never_count_as_published() {
 }
 
 #[test]
-fn empty_drafts_record_reasons_and_do_not_recheck_unchanged_candidates_each_minute() {
-    let (_dir,store,client,task,at)=setup();let id=start(&store,&task,at);
+fn empty_drafts_cache_rejections_until_facts_or_topic_change() {
+    let (dir,store,client,task,at)=setup();let id=start(&store,&task,at);
     let original=feed(2,at);let pool=store.news_batch_feed(&id,Some(&original),at).unwrap().unwrap();
     assert_eq!(pool["grounded_rss"],true);
     let reason="候选均为已报道的同一事件，没有足够的新信息";
     store.save_generated(&id,Ok(&json!({"schema_version":1,"news":null,"text":"","skip_reason":reason})),at+1).unwrap();
     let jobs=store.jobs().unwrap();let saved=jobs.as_array().unwrap().iter().find(|job|job["id"]==id).unwrap();
     assert_eq!(saved["result"]["skip_reason"],reason);assert_eq!(saved["input"]["skipped_generation"]["skip_reason"],reason);
+    rusqlite::Connection::open(dir.path().join("db")).unwrap().execute("UPDATE news_candidates SET value=json_remove(value,'$._reviewed_for')",[]).unwrap();
     let later=at+60_000;store.heartbeat(&client,"example",later).unwrap();let id=start(&store,&task,later);
     let mut unchanged=original.clone();unchanged["retrieved_at"]=json!(later);unchanged["items"][0]["heat"]=json!(99999);
     let pool=store.news_batch_feed(&id,Some(&unchanged),later).unwrap().unwrap();
     assert_eq!(pool["items"],json!([]),"heat and capture time changes cannot trigger another expensive check");
     store.save_generated(&id,Ok(&json!({"schema_version":1,"news":null,"text":""})),later+1).unwrap();
-    let id=start(&store,&task,later+2);let mut changed=unchanged.clone();changed["items"][0]["summary"]=json!("A new announcement adds confirmed details.");
-    let pool=store.news_batch_feed(&id,Some(&changed),later+2).unwrap().unwrap();
-    assert_eq!(pool["items"].as_array().unwrap().len(),1,"new facts bypass the cooldown");
-    store.save_generated(&id,Err("fixture complete"),later+3).unwrap();
     let expired=at+16*60_000;store.heartbeat(&client,"example",expired).unwrap();let id=start(&store,&task,expired);
-    let mut retry=original;retry["retrieved_at"]=json!(expired);
-    assert_eq!(store.news_batch_feed(&id,Some(&retry),expired).unwrap().unwrap()["items"].as_array().unwrap().len(),2);
+    unchanged["retrieved_at"]=json!(expired);unchanged["items"][0]["published_at"]=json!(expired-1000);
+    assert_eq!(store.news_batch_feed(&id,Some(&unchanged),expired).unwrap().unwrap()["items"],json!([]),"time, rank and heat changes cannot restart rejected candidates after 15 minutes");
+    store.save_generated(&id,Ok(&json!({"schema_version":1,"news":null,"text":""})),expired+1).unwrap();
+    let id=start(&store,&task,expired+2);let mut changed=unchanged.clone();changed["items"][0]["summary"]=json!("A new announcement adds confirmed details.");
+    let pool=store.news_batch_feed(&id,Some(&changed),expired+2).unwrap().unwrap();
+    assert_eq!(pool["items"].as_array().unwrap().len(),1,"new facts can be reviewed again");
+    store.save_generated(&id,Ok(&json!({"schema_version":1,"news":null,"text":"","skip_reason":"Outside the current topic"})),expired+3).unwrap();
+    store.control_automation("example",&task,false,expired+4).unwrap();
+    store.save_automation("example",&json!({"id":task,"action":"auto_post","query":"a different topic","news_source":"mixed","interval_minutes":10,"limit":1,"include_source_link":false}),expired+4).unwrap();
+    store.control_automation("example",&task,true,expired+4).unwrap();
+    let id=start(&store,&task,expired+5);changed["retrieved_at"]=json!(expired+5);
+    let pool=store.news_batch_feed(&id,Some(&changed),expired+5).unwrap().unwrap();
+    assert_eq!(pool["items"].as_array().unwrap().len(),2,"changing the user's topic invalidates previous topic-specific rejections");
 }
 #[test]
 fn rss_prompt_is_bounded_and_cannot_replace_the_provided_source_facts() {
@@ -191,4 +199,27 @@ fn rss_prompt_is_bounded_and_cannot_replace_the_provided_source_facts() {
     store.save_generated(&id,Ok(&output),at+1).unwrap();
     let jobs=store.jobs().unwrap();let saved=jobs.as_array().unwrap().iter().find(|job|job["id"]==id).unwrap();
     assert_eq!(saved["state"],"failed");assert_eq!(saved["error"],"模型改变了原始RSS摘要，未发布");
+}
+
+#[test]
+fn topic_only_news_requires_explicit_search_permission_and_empty_rounds_cost_zero() {
+    for allow in [false,true] {
+        let (_dir,store,_client,task,at)=setup();
+        store.control_automation("example",&task,false,at).unwrap();
+        store.save_automation("example",&json!({"id":task,"action":"auto_post","query":"current entertainment","news_source":"mixed","interval_minutes":1,"limit":1,"allow_news_search":allow}),at).unwrap();
+        store.control_automation("example",&task,true,at).unwrap();
+        let id=start(&store,&task,at);
+        let topic=json!({"source":"mixed","retrieved_at":at,"counts":{"weibo":1},"errors":[],"items":[{"kind":"topic","platform":"weibo","title":"A new entertainment headline","url":"https://s.weibo.com/weibo?q=fixture","published_at":null}]});
+        let pool=store.news_batch_feed(&id,Some(&topic),at).unwrap().unwrap();
+        assert_eq!(pool["items"].as_array().unwrap().len(),if allow {1} else {0});
+        assert_eq!(store.jobs().unwrap().as_array().unwrap().iter().find(|job|job["id"]==id).unwrap()["input"]["allow_news_search"],allow);
+        if !allow {
+            assert!(pool["skip_reason"].as_str().unwrap().contains("未调用模型"));
+            store.save_generated(&id,Ok(&json!({"schema_version":1,"news":null,"text":"","skip_reason":pool["skip_reason"]})),at+1).unwrap();
+            let stats=store.dashboard(Some("example"),1,at+1).unwrap()["task_stats"].clone();
+            let news=stats.as_array().unwrap().iter().find(|row|row["input"]["mode"]=="news").unwrap();
+            assert_eq!(news["tokens"],0);assert_eq!(news["missing_usage"],0);
+            assert_eq!(news["completed"],0);assert_eq!(news["failed"],0);
+        }
+    }
 }

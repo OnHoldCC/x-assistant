@@ -32,7 +32,7 @@ The frontend uses Vue 3 / TypeScript, Soybean Admin, and Naive UI. The backend u
 
 ## Features
 
-- **Operations overview:** account metrics, successful and failed tasks by type, and token usage.
+- **Operations overview:** account metrics, successful, failed, and skipped tasks by type, and token usage.
 - **News posts:** collect candidates from news RSS feeds, Weibo, and Xiaohongshu hotlists; generate and publish on a schedule, retaining sources, skip reasons, and publication receipts.
 - **Automated comments and replies:** read new For You posts or replies in notifications, generate responses, and filter ads, duplicates, and unusable content.
 - **Content tools:** manual rewriting, draft generation, and scheduled publishing.
@@ -269,7 +269,7 @@ The current reading and publishing workflow does not depend on local translation
 
 For notification follow-back, choose **自动回关** (Automatic follow-back), set the scope to **通知中的新关注者** (New followers in notifications), configure the interval and limits, then save and enable the plan. The app reads follow notifications and checks each profile to confirm the person still follows you and has not already been followed back. This requires no model or tokens. It runs as a separate plan from notification replies.
 
-News plans support one-minute intervals. Actual timing also depends on execution duration, queueing, and daily limits. Browser actions for the same account run serially. Empty candidate pools, source failures, or unsuccessful verification produce a recorded skip reason; a post is not guaranteed every round.
+News plans default to RSS-based drafting. Searching to verify headlines without summaries requires explicitly enabling the news search option. Rejected candidates are not checked again until their title, summary, or configured topic changes; rounds without usable summaries skip generation without model tokens. News collection supports one-minute intervals. Actual timing also depends on execution duration, queueing, and daily limits. Browser actions for the same account run serially. Empty candidate pools, source failures, or unsuccessful verification produce a recorded skip reason; a post is not guaranteed every round.
 
 ## Updates and maintenance
 

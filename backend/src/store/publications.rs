@@ -123,7 +123,8 @@ impl Store {
         let changed=db.execute("UPDATE jobs SET input=json_set(input,'$.news_feed',json(?)),updated_at=? WHERE id=? AND action='rewrite_publish' AND state='rewriting' AND json_extract(input,'$.mode')='news'",params![feed.to_string(),at,id]).map_err(|e|e.to_string())?;
         if changed!=1 {return Err("取材任务已结束".into());}
         let count=feed["items"].as_array().map_or(0,Vec::len);
-        let mut message=if feed["latest_pool"]==true { format!("最新取材 · {count} 条候选 · {} · 快照距今 {} 秒 · 来源计数 {}",if feed["grounded_rss"]==true {"媒体RSS摘要直接生成，不重复联网检索"} else {"AI随机选一条并联网核实"},(at-feed["retrieved_at"].as_i64().unwrap_or(at))/1000,feed["counts"]) } else if feed["single_candidate"]==true { format!("批次取材 · 本次处理 {count} 条 · 本批剩余 {} 条 · 来源计数 {}",feed["remaining"],feed["counts"]) } else { format!("取材完成 · {count} 条候选 · 60s 热榜 / 新闻 RSS · 来源计数 {}",feed["counts"]) };
+        let mut message=if feed["latest_pool"]==true { format!("最新取材 · {count} 条候选 · {} · 快照距今 {} 秒 · 来源计数 {}",if count==0 {"没有可生成候选，本轮不调用模型"} else if feed["grounded_rss"]==true {"媒体RSS摘要直接生成，不重复联网检索"} else {"AI随机选一条并联网核实"},(at-feed["retrieved_at"].as_i64().unwrap_or(at))/1000,feed["counts"]) } else if feed["single_candidate"]==true { format!("批次取材 · 本次处理 {count} 条 · 本批剩余 {} 条 · 来源计数 {}",feed["remaining"],feed["counts"]) } else { format!("取材完成 · {count} 条候选 · 60s 热榜 / 新闻 RSS · 来源计数 {}",feed["counts"]) };
+        if let Some(reason)=feed["skip_reason"].as_str(){message.push_str(&format!(" · {reason}"));}
         if feed["errors"].as_array().is_some_and(|items|!items.is_empty()){message.push_str(&format!(" · 部分来源失败：{}",feed["errors"]));}
         db.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'sources',?)",params![id,at,message]).map_err(|e|e.to_string())?;
         Ok(())
@@ -253,6 +254,10 @@ impl Store {
             root.contains_key("news") && (root.len()==3 || root.len()==4 && root.contains_key("skip_reason")) && root.get("skip_reason").is_none_or(|reason|reason.as_str().is_some_and(|text|text.chars().count()<=300 && !text.chars().any(char::is_control)))
         )) {
             input["stage"] = json!("skipped");
+            if input["news_feed"]["latest_pool"]==true && input["news_feed"]["items"].as_array().is_some_and(Vec::is_empty)
+                || input["news_source"]=="web" && input["allow_news_search"]!=true {
+                input["model_not_called"]=json!(true);
+            }
             let explanation=result.ok().and_then(|value|value["skip_reason"].as_str()).map(str::trim).filter(|text|!text.is_empty());
             let reason=explanation.unwrap_or_else(|| if input["news_feed"]["latest_pool"]==true {
                 if input["news_feed"]["items"].as_array().is_some_and(Vec::is_empty) { "本轮没有新增或可重试的候选，未调用模型" } else { "本轮最新候选未通过选题或核实，未发布" }
@@ -261,7 +266,7 @@ impl Store {
             if let Some(items)=input["news_feed"]["items"].as_array() {
                 for item in items {
                     if let Some(candidate)=item["candidate_id"].as_str() {
-                        db.execute("UPDATE news_candidates SET state='skipped',reason='AI未选中，暂缓重复核实',value=json_set(value,'$._reviewed_at',?) WHERE id=? AND batch_id=? AND job_id IS NULL AND state='pending'",params![at,candidate,input["news_feed"]["batch_id"].as_str()]).map_err(|e|e.to_string())?;
+                        db.execute("UPDATE news_candidates SET state='skipped',reason='AI未选中，暂缓重复核实',value=json_set(value,'$._reviewed_at',?,'$._reviewed_for',?) WHERE id=? AND batch_id=? AND job_id IS NULL AND state='pending'",params![at,json!([input["task_id"],input["news_source"],input["query"]]).to_string(),candidate,input["news_feed"]["batch_id"].as_str()]).map_err(|e|e.to_string())?;
                     }
                 }
             }

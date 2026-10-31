@@ -51,5 +51,6 @@ fn dashboard_task_totals_cover_history_retries_skips_missing_usage_and_account_i
     assert_eq!(news["completed"], 1);
     assert_eq!(news["failed"], 0);
     assert_eq!(news["tokens"], 35);
+    assert_eq!(news["skipped"], 1);
     assert_eq!(store.dashboard(Some("other"), 7, at).unwrap()["task_stats"][0]["completed"], 1);
 }

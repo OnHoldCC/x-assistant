@@ -72,8 +72,9 @@ impl Store {
         if publishing {
             let query=config["query"].as_str().filter(|query|!query.trim().is_empty()).ok_or("请编辑自动发文计划，填写新闻搜索主题")?;
             let id=Uuid::new_v4().to_string();
-            let mut payload=json!({"task_id":task,"language":config["language"],"mode":"news","scope":"news","stage":"rewrite","query":query,"news_source":config["news_source"].as_str().unwrap_or("web"),"publish_at":at,"discovered_from":"news"});
+            let mut payload=json!({"task_id":task,"language":config["language"],"mode":"news","scope":"news","stage":"rewrite","query":query,"news_source":config["news_source"].as_str().unwrap_or("international"),"publish_at":at,"discovered_from":"news"});
             if let Some(value)=config.get("include_source_link") {payload["include_source_link"]=value.clone();}
+            payload["allow_news_search"]=json!(config["allow_news_search"].as_bool().unwrap_or(false));
             tx.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,?,'rewrite_publish','queued',?,?,?)",params![id,account,at,at,payload.to_string()]).map_err(|e|e.to_string())?;
             tx.execute("UPDATE automation_tasks SET state='queued',last_run=?,next_run=? WHERE id=?",params![at,at+super::automation::interval_ms(&config),task]).map_err(|e|e.to_string())?;
             tx.commit().map_err(|e|e.to_string())?;

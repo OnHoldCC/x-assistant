@@ -25,7 +25,7 @@ impl Store {
             let parsed = reqwest::Url::parse(url).map_err(|_| "热点链接无效")?;
             if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() { return Err("热点链接无效".into()); }
             let dedupe = if item["kind"] == "article" { url.to_owned() } else { title.trim().to_lowercase() };
-            tx.execute("INSERT INTO news_candidates(id,batch_id,account,dedupe_key,value) VALUES(?,?,?,?,?) ON CONFLICT(account,dedupe_key) DO UPDATE SET batch_id=excluded.batch_id,value=excluded.value,state='pending',reason=NULL WHERE news_candidates.job_id IS NULL AND coalesce(news_candidates.reason,'')<>'该新闻已有发文任务' AND (coalesce(news_candidates.reason,'')<>'AI未选中，暂缓重复核实' OR coalesce(json_extract(news_candidates.value,'$._reviewed_at'),0)<=? OR json_extract(news_candidates.value,'$.summary') IS NOT json_extract(excluded.value,'$.summary') OR json_extract(news_candidates.value,'$.published_at') IS NOT json_extract(excluded.value,'$.published_at'))",params![Uuid::new_v4().to_string(),batch,account,dedupe,item.to_string(),at-15*60_000]).map_err(|e|e.to_string())?;
+            tx.execute("INSERT INTO news_candidates(id,batch_id,account,dedupe_key,value) VALUES(?,?,?,?,?) ON CONFLICT(account,dedupe_key) DO UPDATE SET batch_id=excluded.batch_id,value=excluded.value,state='pending',reason=NULL WHERE news_candidates.job_id IS NULL AND coalesce(news_candidates.reason,'')<>'该新闻已有发文任务' AND (coalesce(news_candidates.reason,'')<>'AI未选中，暂缓重复核实' OR coalesce(json_extract(news_candidates.value,'$._reviewed_for'),(SELECT config_key FROM news_batches WHERE id=news_candidates.batch_id)) IS NOT ? OR json_extract(news_candidates.value,'$.title') IS NOT json_extract(excluded.value,'$.title') OR json_extract(news_candidates.value,'$.summary') IS NOT json_extract(excluded.value,'$.summary'))",params![Uuid::new_v4().to_string(),batch,account,dedupe,item.to_string(),key]).map_err(|e|e.to_string())?;
         }
         tx.execute("UPDATE news_candidates SET state='skipped',reason='该新闻已有发文任务' WHERE batch_id=? AND EXISTS(SELECT 1 FROM jobs j WHERE j.account=news_candidates.account AND json_extract(j.input,'$.mode')='news' AND (json_extract(j.input,'$.source.url')=json_extract(news_candidates.value,'$.url') OR json_extract(j.input,'$.source.title')=json_extract(news_candidates.value,'$.title')))",[&batch]).map_err(|e|e.to_string())?;
         tx.execute("UPDATE news_candidates SET state='skipped',reason=CASE WHEN coalesce(json_extract(value,'$.published_at'),(SELECT at FROM news_batches WHERE id=news_candidates.batch_id))<? THEN '热点已超过48小时' ELSE '已被新一轮取材替换' END WHERE account=? AND batch_id<>? AND batch_id IN (SELECT id FROM news_batches WHERE account=? AND config_key=?) AND job_id IS NULL AND state='pending'",params![at-48*3600000,account,batch,account,key]).map_err(|e|e.to_string())?;
@@ -42,6 +42,9 @@ impl Store {
         candidates.sort_by_cached_key(|_| Uuid::new_v4());
         let grounded = candidates.iter().any(|item| item["kind"]=="article" && item["summary"].as_str().is_some_and(|text| !text.trim().is_empty()));
         if grounded { candidates.retain(|item| item["kind"]=="article" && item["summary"].as_str().is_some_and(|text| !text.trim().is_empty())); }
+        let search_allowed=input["allow_news_search"].as_bool().unwrap_or(false);
+        let no_summary=!grounded && !candidates.is_empty() && !search_allowed;
+        if no_summary { candidates.clear(); }
         candidates.truncate(8);
         let mut result = metadata;
         result["grounded_rss"] = json!(grounded);
@@ -51,6 +54,7 @@ impl Store {
         result["randomized"] = json!(true);
         result["single_candidate"] = json!(false);
         result["items"] = json!(candidates);
+        if no_summary { result["skip_reason"]=json!("最新候选只有标题或缺少原文摘要，省Token模式未调用模型；联网核实需在新闻计划中明确开启"); }
         tx.execute("UPDATE jobs SET input=json_set(input,'$.news_feed',json(?)),updated_at=? WHERE id=?",params![result.to_string(),at,id]).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e|e.to_string())?;
         Ok(Some(result))

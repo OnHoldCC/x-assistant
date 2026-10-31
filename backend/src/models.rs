@@ -649,6 +649,9 @@ impl Runtime {
                 let mut instructions=writing_instructions(&job);
                 let prompt = if job["input"]["mode"]=="news" {
                     let source=job["input"]["news_source"].as_str().unwrap_or("web");
+                    if source=="web" && job["input"]["allow_news_search"]!=true {
+                        return Ok(json!({"schema_version":1,"news":null,"text":"","skip_reason":"全网搜索未获启用，本轮未调用模型；请选择有摘要的RSS来源，或明确开启新闻联网核实"}));
+                    }
                     let mut prompt=self.store.news_prompt(job["account"].as_str().ok_or("缺少账号")?,job["input"]["query"].as_str().ok_or("缺少新闻主题")?,crate::store::now())?;
                     prompt["news_source"]=json!(source);prompt["language"]=json!(job["input"]["language"].as_str().unwrap_or("auto"));
                     prompt["include_source_link"]=json!(job["input"]["include_source_link"].as_bool().unwrap_or(true));
@@ -657,7 +660,7 @@ impl Runtime {
                         if fetched["items"].as_array().is_none_or(Vec::is_empty) { self.store.record_news_feed(id,&fetched,crate::store::now())?; return Err("取材来源没有可用候选，请查看取材日志；本轮未调用模型".into()); }
                         let feed=self.store.news_batch_feed(id,Some(&fetched),crate::store::now())?.ok_or("最新热点保存失败")?;
                         self.store.record_news_feed(id,&feed,crate::store::now())?;
-                        if feed["items"].as_array().is_none_or(Vec::is_empty) { return Ok(json!({"schema_version":1,"news":null,"text":""})); }
+                        if feed["items"].as_array().is_none_or(Vec::is_empty) { return Ok(json!({"schema_version":1,"news":null,"text":"","skip_reason":feed["skip_reason"].as_str().unwrap_or("没有新增或资料有变化的可用候选，本轮未调用模型")})); }
                         instructions=if feed["grounded_rss"]==true {SOURCED_NEWS_INSTRUCTIONS} else {NEWS_INSTRUCTIONS};
                         prompt["news_feed"]=feed;
                     }

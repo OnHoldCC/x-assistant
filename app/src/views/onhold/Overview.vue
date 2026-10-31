@@ -21,9 +21,9 @@ const officialDates = computed(() => {
 });
 const taskStats = computed(() => w.data?.task_stats || []);
 const taskTotals = computed(() => taskStats.value.reduce((sum, row) => ({
-  completed: sum.completed + row.completed, failed: sum.failed + row.failed,
+  completed: sum.completed + row.completed, failed: sum.failed + row.failed, skipped: sum.skipped + row.skipped,
   tokens: sum.tokens + row.tokens, missing_usage: sum.missing_usage + row.missing_usage,
-}), { completed: 0, failed: 0, tokens: 0, missing_usage: 0 }));
+}), { completed: 0, failed: 0, skipped: 0, tokens: 0, missing_usage: 0 }));
 function tokenUsage(row: Pick<TaskStats, "tokens" | "missing_usage">) {
   return row.missing_usage ? row.tokens ? "≥ " + row.tokens.toLocaleString() : "未记录" : row.tokens.toLocaleString();
 }
@@ -31,6 +31,7 @@ const taskColumns: DataTableColumns<TaskStats> = [
   { title: "任务类型", key: "task", minWidth: 160, render: jobTitle },
   { title: "成功总数", key: "completed", minWidth: 100, align: "right", render: row => row.completed.toLocaleString() },
   { title: "失败总数", key: "failed", minWidth: 100, align: "right", render: row => row.failed.toLocaleString() },
+  { title: "跳过总数", key: "skipped", minWidth: 100, align: "right", render: row => row.skipped.toLocaleString() },
   { title: "消耗 Token", key: "tokens", minWidth: 140, align: "right", render: tokenUsage },
 ];
 function setPeriod(value: string) {
@@ -116,8 +117,8 @@ function setPeriod(value: string) {
     </section>
     <NCard v-if="w.selected" title="任务累计统计" size="small">
       <p class="business-muted mb-12px">当前账号全部历史记录 · 按任务最终状态计数 · 不受上方统计周期影响</p>
-      <NDataTable role="region" aria-label="任务成功失败及 Token 统计" :columns="taskColumns" :data="taskStats" :row-key="jobTitle" :scroll-x="500" size="small" />
-      <p class="mt-12px">合计：成功 {{ taskTotals.completed.toLocaleString() }} · 失败 {{ taskTotals.failed.toLocaleString() }} · 消耗 {{ tokenUsage(taskTotals) }} Token</p>
+      <NDataTable role="region" aria-label="任务成功失败及 Token 统计" :columns="taskColumns" :data="taskStats" :row-key="jobTitle" :scroll-x="600" size="small" />
+      <p class="mt-12px">合计：成功 {{ taskTotals.completed.toLocaleString() }} · 失败 {{ taskTotals.failed.toLocaleString() }} · 跳过 {{ taskTotals.skipped.toLocaleString() }} · 消耗 {{ tokenUsage(taskTotals) }} Token</p>
       <p class="business-muted mt-8px">Token 包含失败和重试调用，缓存输入不重复计数；≥ 表示部分历史用量未记录。跳过的任务不计入成功或失败。</p>
     </NCard>
     <Analytics :key="w.selected || 'none'" />

@@ -26,6 +26,7 @@ type Plan = {
     language?: "auto" | "en";
     news_source?: NewsSource;
     include_source_link?: boolean;
+    allow_news_search?: boolean;
     scope: string;
     targets: string[];
   };
@@ -45,7 +46,8 @@ const w = useWorkspace(),
   stopAt = ref(""),
   query = ref(""),
   language = ref("auto"),
-  newsSource = ref("web"),
+  newsSource = ref("international"),
+  allowNewsSearch = ref(false),
   includeSourceLink = ref(false),
   sourcePreview = ref<NewsFeed | null>(null),
   previewing = ref(false),
@@ -126,7 +128,8 @@ function open(plan: Plan | null, view = false) {
   stopAt.value = localDate(plan?.config.stop_at);
   query.value = plan?.config.query || "";
   language.value = plan?.config.language || "auto";
-  newsSource.value = plan?.config.news_source || "web";
+  newsSource.value = plan?.config.news_source || "international";
+  allowNewsSearch.value = plan?.config.allow_news_search === true;
   includeSourceLink.value = plan ? plan.config.include_source_link ?? true : false;
   sourcePreview.value = null;
   editorOpen.value = true;
@@ -384,7 +387,7 @@ async function save() {
       stop_at: stop,
       query: action.value === "auto_post" ? query.value : null,
       language: automatic.value ? language.value : "auto",
-      ...(action.value === "auto_post" ? {news_source: newsSource.value,include_source_link:includeSourceLink.value} : {}),
+      ...(action.value === "auto_post" ? {news_source: newsSource.value,include_source_link:includeSourceLink.value,allow_news_search:allowNewsSearch.value} : {}),
       targets: (automatic.value ? "" : targets.value)
         .split(/[,，\s]+/)
         .map((v) => v.replace(/^@/, "").trim().toLowerCase())
@@ -540,8 +543,7 @@ async function save() {
             ><NAlert v-if="automatic"
               ><template v-if="action === 'auto_post'"
                 >Codex
-                联网搜索最近48小时的相关新闻，核对来源与发布时间，再整理成 X
-                帖子。不使用评分模型；跳过已有记录的新闻，检索失败或没有可核实的新新闻时不发布。</template
+                根据最近48小时的原文摘要生成新闻短帖；默认不联网搜索。没有新摘要或候选已被否决且内容未变化时，不调用模型。不使用评分模型，跳过已处理新闻。</template
               ><template v-else-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
@@ -628,6 +630,12 @@ async function save() {
               <NSelect v-model:value="newsSource" role="combobox" aria-label="新闻来源"
                 :menu-props="{role:'listbox'}" :node-props="(option: {label?: unknown}) => ({role:'option','aria-label':String(option.label)})"
                 :options="newsSources" />
+            </NFormItem>
+            <NFormItem v-if="action === 'auto_post'" label="新闻生成方式">
+              <div class="business-stack">
+                <NCheckbox v-model:checked="allowNewsSearch" :disabled="readOnly">允许联网核实无摘要的热点（额外消耗 Token）</NCheckbox>
+                <p class="business-muted">默认省Token：只对有原文摘要的新候选生成内容。关闭时，只有热榜标题或没有新资料就跳过，不调用模型。全网搜索来源需要开启此选项；联网核实可能显著增加用量。</p>
+              </div>
             </NFormItem>
             <div v-if="action === 'auto_post' && newsSource !== 'web'" class="mb-16px business-stack">
               <NButton :loading="previewing" :disabled="previewing" @click="previewSources">预览取材</NButton>
