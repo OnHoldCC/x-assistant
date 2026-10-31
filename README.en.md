@@ -4,7 +4,7 @@
 
 ## Installation and deployment
 
-**Start here: [Skill installation (agent guided)](#install-with-a-skill) · [Manual Docker installation](#docker-installation-recommended) · [Windows installation](#windows) · [Run from source](#run-from-source).**
+**Recommended: [install with a Skill](#install-with-a-skill) and let your agent guide deployment.** Alternatively, use [manual Docker installation](#manual-docker-installation), [manual Windows installation](#windows), or [run from source](#run-from-source).
 
 For an agent that supports Skills, install the [OnHold Skill](skills/onhold-assistant/SKILL.md) first. With Node.js 22.20+ and npm available, run this in a macOS / Linux terminal or Windows PowerShell:
 
@@ -16,7 +16,7 @@ Select your agent when prompted, then start a new conversation in that agent and
 
 The Skill checks Git / Docker, builds and starts the backend, then guides extension loading and X connection. **Installing the Skill alone does not deploy the application.** Once deployed, open **<http://127.0.0.1:18431/>**. Automated posts and replies also require [model setup](#configure-a-model).
 
-See [Docker installation](#docker-installation-recommended) below for Windows PowerShell commands, prerequisites, and the full procedure.
+See [manual Docker installation](#manual-docker-installation) below for Windows PowerShell commands, prerequisites, and the full procedure.
 
 ---
 
@@ -28,7 +28,7 @@ The frontend uses Vue 3 / TypeScript, Soybean Admin, and Naive UI. The backend u
 
 [![macOS / Windows checks](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
 
-[Features](#features) · [Skill installation](#install-with-a-skill) · [Docker installation](#docker-installation-recommended) · [Run from source](#run-from-source) · [Connect your browser](#connect-your-browser) · [Configure a model](#configure-a-model) · [Updates and maintenance](#updates-and-maintenance) · [Troubleshooting](#troubleshooting) · [License](#license)
+[Features](#features) · [Skill installation (recommended)](#install-with-a-skill) · [Manual Docker installation](#manual-docker-installation) · [Run from source](#run-from-source) · [Connect your browser](#connect-your-browser) · [Configure a model](#configure-a-model) · [Updates and maintenance](#updates-and-maintenance) · [Troubleshooting](#troubleshooting) · [License](#license)
 
 ## Features
 
@@ -47,8 +47,8 @@ Choose one installation method. All use the same browser connection procedure.
 
 | Method | Requirements | Use case |
 | --- | --- | --- |
-| Skill (agent guided) | An agent with Skills, terminal, and network access; Node.js 22.20+ when using the CLI to install the Skill | Have the agent check dependencies and perform Docker installation, updates, and diagnosis |
-| Docker (recommended) | Git, Docker, Docker Compose v2 | Everyday use; no host installation of Node.js, Rust, or Python required |
+| **Skill (recommended, agent guided)** | An agent with Skills, terminal, and network access; Node.js 22.20+ when using the CLI to install the Skill | Have the agent check dependencies and perform Docker installation, updates, and diagnosis |
+| Docker (manual installation) | Git, Docker, Docker Compose v2 | Run deployment commands yourself; no host installation of Node.js, Rust, or Python required |
 | Run from source | Git, Node.js, Rust, C/C++ build tools | Development, debugging, or managing the backend process yourself |
 
 You also need:
@@ -60,6 +60,8 @@ You also need:
 This guide assumes the **backend, browser, and X session run on the same computer**. Mobile browsers cannot load this desktop extension. Remote server deployment is outside this default setup.
 
 ## Install with a Skill
+
+**Recommended method.** Let your agent guide installation, verification, and maintenance. The application runs in Docker.
 
 This repository includes [`onhold-assistant`](skills/onhold-assistant/SKILL.md) for agents with Skills, terminal, and network access. It checks dependencies, fetches source code, runs Docker deployment, guides browser connection, and handles later upgrades.
 
@@ -114,7 +116,9 @@ Use the onhold-assistant Skill to enable the Codex writing service and guide me 
 
 Skill updates and application updates are separate. Rerun the `skills add` command above to install the current repository version of the Skill; the backend and running extension still need the application upgrade procedure. Removing the Skill only removes the agent instructions; it does not uninstall the backend or delete account data.
 
-## Docker installation (recommended)
+<a id="docker-installation-recommended"></a>
+
+## Manual Docker installation
 
 On macOS / Windows, install and start Docker Desktop; use Linux containers on Windows. On Linux, use Docker Engine with Compose v2. Check that these commands succeed before continuing. Compose must support `up --wait`.
 
@@ -386,7 +390,7 @@ npm run app:build
 
 `npm run ui:dev` starts the frontend development server. The component reference is at `http://127.0.0.1:1420/ui.html`. Use the Rust-served page on port `18431` for the full application. Vite alone does not start the backend or complete pairing.
 
-The Tauri 2 desktop version has additional platform dependencies and offline asset requirements; see [desktop builds](docs/DESKTOP.md). Legacy offline packages are covered in [offline distribution](docs/OFFLINE-RELEASE.md). These Chinese reference documents describe workflows outside the recommended Docker installation. Android / iOS installation packages have not been delivered.
+The Tauri 2 desktop version has additional platform dependencies and offline asset requirements; see [desktop builds](docs/DESKTOP.md). Legacy offline packages are covered in [offline distribution](docs/OFFLINE-RELEASE.md). These Chinese reference documents describe workflows outside the recommended installation process. Android / iOS installation packages have not been delivered.
 
 ## Further documentation
 

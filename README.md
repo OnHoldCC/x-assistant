@@ -4,7 +4,7 @@
 
 ## 安装与部署
 
-**首次使用从这里开始：[Skill 安装（AI 引导）](#通过-skill-安装) · [Docker 手动安装](#docker-安装推荐) · [Windows 安装](#windows) · [源码运行](#源码运行)。**
+**推荐使用 [Skill 安装](#通过-skill-安装)，由 Agent 引导完成部署。** 也可选择 [Docker 手动安装](#docker-手动安装)、[Windows 手动安装](#windows)或[源码运行](#源码运行)。
 
 使用支持 Skill 的 Agent 时，先安装 [OnHold Skill](skills/onhold-assistant/SKILL.md)。已有 Node.js 22.20+ 和 npm，可在 macOS / Linux / Windows 终端执行：
 
@@ -16,7 +16,7 @@ npx skills add OnHoldCC/x-assistant --skill onhold-assistant --global
 
 Skill 会检查 Git / Docker、构建并启动后台，再引导加载插件和连接 X。**安装 Skill 本身不会部署应用**。完成部署后访问 **<http://127.0.0.1:18431/>**；自动发文和回复还需[配置模型](#配置模型)。
 
-Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装](#docker-安装推荐)。[English installation and deployment guide →](README.en.md#installation-and-deployment)
+Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 手动安装](#docker-手动安装)。[English installation and deployment guide →](README.en.md#installation-and-deployment)
 
 ---
 
@@ -28,7 +28,7 @@ Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装]
 
 [![Mac / Windows 检查](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
 
-[功能](#功能) · [Skill 安装](#通过-skill-安装) · [Docker 安装](#docker-安装推荐) · [源码运行](#源码运行) · [连接浏览器](#连接浏览器) · [配置模型](#配置模型) · [升级与维护](#升级与维护) · [常见问题](#常见问题) · [许可证](#许可证)
+[功能](#功能) · [Skill 安装（推荐）](#通过-skill-安装) · [Docker 手动安装](#docker-手动安装) · [源码运行](#源码运行) · [连接浏览器](#连接浏览器) · [配置模型](#配置模型) · [升级与维护](#升级与维护) · [常见问题](#常见问题) · [许可证](#许可证)
 
 ## 功能
 
@@ -47,8 +47,8 @@ Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装]
 
 | 方式 | 需要准备 | 适用场景 |
 | --- | --- | --- |
-| Skill（AI 引导） | 支持 Skill、终端与网络操作的 Agent；用 CLI 安装 Skill 时需 Node.js 22.20+ | 让 Agent 检查依赖并执行 Docker 安装、升级与诊断 |
-| Docker（推荐） | Git、Docker、Docker Compose v2 | 日常使用，无需在宿主机安装 Node.js、Rust 或 Python |
+| **Skill（推荐，AI 引导）** | 支持 Skill、终端与网络操作的 Agent；用 CLI 安装 Skill 时需 Node.js 22.20+ | 让 Agent 检查依赖并执行 Docker 安装、升级与诊断 |
+| Docker（手动安装） | Git、Docker、Docker Compose v2 | 自行执行部署命令，无需在宿主机安装 Node.js、Rust 或 Python |
 | 源码运行 | Git、Node.js、Rust、C/C++ 编译工具 | 开发、调试或自行管理后端进程 |
 
 还需要：
@@ -60,6 +60,8 @@ Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装]
 当前安装流程以**后台、浏览器和 X 登录在同一台电脑**为前提。手机不能加载此桌面插件；远程服务器部署不属于下面的默认安装流程。
 
 ## 通过 Skill 安装
+
+**推荐方式。** 由 Agent 引导完成安装、验证与后续维护，底层使用 Docker 部署。
 
 仓库内置 [`onhold-assistant`](skills/onhold-assistant/SKILL.md)，供支持 Skill、终端与网络操作的 Agent 使用。它负责检查依赖、拉取源码、执行 Docker 部署、指导插件连接及后续升级。
 
@@ -114,7 +116,9 @@ npx skills ls -g
 
 Skill 更新和应用更新分别进行。重新执行上面的 `skills add` 命令可安装当前仓库版本的 Skill；后台和浏览器插件仍需执行升级流程。移除 Skill 只移除 Agent 的指引，不会卸载后台或删除账号数据。
 
-## Docker 安装（推荐）
+<a id="docker-安装推荐"></a>
+
+## Docker 手动安装
 
 macOS / Windows 先安装并启动 Docker Desktop，Windows 使用 Linux 容器模式；Linux 使用 Docker Engine 与 Compose v2。先在终端确认以下命令能正常运行，Compose 需支持 `up --wait`：
 
@@ -386,7 +390,7 @@ npm run app:build
 
 `npm run ui:dev` 启动前端开发服务，组件规范页面为 `http://127.0.0.1:1420/ui.html`。完整业务使用上文 Rust 后台提供的 `18431` 页面；单独启动 Vite 不会启动后端，也不会自动配对。
 
-桌面版基于 Tauri 2，另有平台构建依赖和离线资源要求，详见[桌面构建说明](docs/DESKTOP.md)。旧离线包见[离线分发说明](docs/OFFLINE-RELEASE.md)；这些不属于推荐 Docker 安装所需步骤。Android / iOS 尚未交付可用安装包。
+桌面版基于 Tauri 2，另有平台构建依赖和离线资源要求，详见[桌面构建说明](docs/DESKTOP.md)。旧离线包见[离线分发说明](docs/OFFLINE-RELEASE.md)；这些不属于推荐安装流程所需步骤。Android / iOS 尚未交付可用安装包。
 
 ## 更多文档
 
