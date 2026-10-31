@@ -67,10 +67,8 @@ const columns: DataTableColumns<Job> = [
   ]) },
   { title: "创建时间", key: "created_at", width: 180, render: j => time(j.created_at) },
   { title: "任务", key: "action", width: 170, render: jobTitle },
-  { title: "状态", key: "state", width: 140, render: j => h("div", { class: "business-stack" }, [
-    h(NTag, { size: "small", type: j.state === "failed" ? "error" : j.state === "completed" ? "success" : "default" }, () => jobLabel(j)),
-    h(JobProgress, { job: j }),
-  ]) },
+  { title: "状态", key: "state", width: 100, render: j => h(NTag, { size: "small", type: j.state === "failed" ? "error" : j.state === "completed" ? "success" : "default" }, () => jobLabel(j)) },
+  { title: "进度", key: "progress", width: 240, render: j => h(JobProgress, { job: j }) },
   { title: "执行结果", key: "result", minWidth: 300, render: j => h("div", { class: "business-stack" }, [h("p", { class: "business-pre" }, jobMessage(j)), h(JobMetrics, { job: j })]) },
   { title: "操作", key: "details", width: 125, fixed: "right", render: j => h(NButton, { size: "small", "aria-expanded": expanded.value.includes(j.id), onClick: () => toggle(j) }, () => expanded.value.includes(j.id) ? "收起明细" : "执行明细") },
 ];
@@ -84,7 +82,7 @@ const columns: DataTableColumns<Job> = [
       <NInput v-model:value="search" clearable :input-props="{ type: 'search', 'aria-label': '筛选执行明细' }" placeholder="搜索任务、正文或错误" class="flex-1 min-w-180px" />
     </div>
     <NAlert v-if="error" type="error">{{ error }}</NAlert>
-    <NDataTable v-model:expanded-row-keys="expanded" size="large" role="region" aria-label="任务执行明细" :columns="columns" :data="data.items" :row-key="(j: Job) => j.id" :scroll-x="960" sticky-expanded-rows />
+    <NDataTable v-model:expanded-row-keys="expanded" size="large" role="region" aria-label="任务执行明细" :columns="columns" :data="data.items" :row-key="(j: Job) => j.id" :scroll-x="1160" sticky-expanded-rows />
     <NPagination v-model:page="page" :page-size="20" :item-count="data.total" class="flex-wrap" aria-label="执行任务分页"><template #prefix>共 {{ data.total }} 个任务</template></NPagination>
   </div>
 </template>

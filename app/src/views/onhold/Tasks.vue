@@ -234,12 +234,15 @@ const columns: DataTableColumns<Job> = [
   {
     title: "状态",
     key: "state",
-    width: 230,
+    width: 100,
     render: (j) =>
-      h("div", {}, [
-        h(NTag, { type: stateType(j), size: "small" }, () => jobLabel(j)),
-        h(JobProgress, { job: j }),
-      ]),
+      h(NTag, { type: stateType(j), size: "small" }, () => jobLabel(j)),
+  },
+  {
+    title: "进度",
+    key: "progress",
+    width: 240,
+    render: (j) => h(JobProgress, { job: j }),
   },
   {
     title: "计划时间",
@@ -407,7 +410,7 @@ const columns: DataTableColumns<Job> = [
         role="region"
         :columns="columns"
         :data="records.items"
-        :scroll-x="1340"
+        :scroll-x="1450"
         :row-key="(row: Job) => row.id"
         aria-label="任务记录列表"
         ><template #empty>{{
