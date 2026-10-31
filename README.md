@@ -1,5 +1,26 @@
 # OnHold 助手
 
+**简体中文** | [English](README.en.md)
+
+## 安装与部署
+
+**首次使用从这里开始：[Docker 安装（推荐）](#docker-安装推荐) · [Windows 安装](#windows) · [源码运行](#源码运行)。**
+
+本机准备好 Git 和已启动的 Docker 后，macOS / Linux 可执行：
+
+```bash
+mkdir -p "$HOME/OnHold"
+git clone https://github.com/OnHoldCC/x-assistant.git "$HOME/OnHold/source"
+export ONHOLD_INSTALL_DIR="$HOME/OnHold"
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" install
+```
+
+部署完成后打开 **<http://127.0.0.1:18431/>**，在 Chrome / Edge 加载 `~/OnHold/extension`，按[连接浏览器](#连接浏览器)完成 X 账号配对。自动发文和回复还需[配置模型](#配置模型)。
+
+Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装](#docker-安装推荐)。[English installation and deployment guide →](README.en.md#installation-and-deployment)
+
+---
+
 ![OnHold 助手图标](extension/assets/assistant-128.png)
 
 在本机运行的 X 账号运营工具：查看账号数据、管理自动化计划、生成和发布内容，并记录每个任务的结果与模型用量。
