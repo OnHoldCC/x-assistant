@@ -4,18 +4,17 @@
 
 ## Installation and deployment
 
-**Start here: [Docker installation (recommended)](#docker-installation-recommended) · [Windows installation](#windows) · [Run from source](#run-from-source).**
+**Start here: [Skill installation (agent guided)](#install-with-a-skill) · [Manual Docker installation](#docker-installation-recommended) · [Windows installation](#windows) · [Run from source](#run-from-source).**
 
-With Git installed and Docker running, execute the following on macOS / Linux:
+For an agent that supports Skills, install the [OnHold Skill](skills/onhold-assistant/SKILL.md) first. With Node.js 22.20+ and npm available, run this in a macOS / Linux terminal or Windows PowerShell:
 
-```bash
-mkdir -p "$HOME/OnHold"
-git clone https://github.com/OnHoldCC/x-assistant.git "$HOME/OnHold/source"
-export ONHOLD_INSTALL_DIR="$HOME/OnHold"
-bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" install
+```sh
+npx skills add OnHoldCC/x-assistant --skill onhold-assistant --global
 ```
 
-After deployment, open **<http://127.0.0.1:18431/>**, load `~/OnHold/extension` in Chrome / Edge, and [connect your X account](#connect-your-browser). Automated posts and replies also require [model setup](#configure-a-model).
+Select your agent when prompted, then start a new conversation in that agent and say: **“Use the onhold-assistant Skill to install OnHold Assistant.”** Without Node.js, you can instead [ask your agent to install the Skill](#option-1-ask-your-agent-to-install-the-skill).
+
+The Skill checks Git / Docker, builds and starts the backend, then guides extension loading and X connection. **Installing the Skill alone does not deploy the application.** Once deployed, open **<http://127.0.0.1:18431/>**. Automated posts and replies also require [model setup](#configure-a-model).
 
 See [Docker installation](#docker-installation-recommended) below for Windows PowerShell commands, prerequisites, and the full procedure.
 
@@ -29,7 +28,7 @@ The frontend uses Vue 3 / TypeScript, Soybean Admin, and Naive UI. The backend u
 
 [![macOS / Windows checks](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
 
-[Features](#features) · [Docker installation](#docker-installation-recommended) · [Run from source](#run-from-source) · [Connect your browser](#connect-your-browser) · [Configure a model](#configure-a-model) · [Updates and maintenance](#updates-and-maintenance) · [Troubleshooting](#troubleshooting) · [License](#license)
+[Features](#features) · [Skill installation](#install-with-a-skill) · [Docker installation](#docker-installation-recommended) · [Run from source](#run-from-source) · [Connect your browser](#connect-your-browser) · [Configure a model](#configure-a-model) · [Updates and maintenance](#updates-and-maintenance) · [Troubleshooting](#troubleshooting) · [License](#license)
 
 ## Features
 
@@ -44,10 +43,11 @@ Create and enable a plan to start automation. Saved plans are paused by default;
 
 ## Prerequisites
 
-Choose one installation method. Both use the same browser connection procedure.
+Choose one installation method. All use the same browser connection procedure.
 
 | Method | Requirements | Use case |
 | --- | --- | --- |
+| Skill (agent guided) | An agent with Skills, terminal, and network access; Node.js 22.20+ when using the CLI to install the Skill | Have the agent check dependencies and perform Docker installation, updates, and diagnosis |
 | Docker (recommended) | Git, Docker, Docker Compose v2 | Everyday use; no host installation of Node.js, Rust, or Python required |
 | Run from source | Git, Node.js, Rust, C/C++ build tools | Development, debugging, or managing the backend process yourself |
 
@@ -58,6 +58,61 @@ You also need:
 - Model setup for AI features, as described below. The base installation does not download translation or scoring models.
 
 This guide assumes the **backend, browser, and X session run on the same computer**. Mobile browsers cannot load this desktop extension. Remote server deployment is outside this default setup.
+
+## Install with a Skill
+
+This repository includes [`onhold-assistant`](skills/onhold-assistant/SKILL.md) for agents with Skills, terminal, and network access. It checks dependencies, fetches source code, runs Docker deployment, guides browser connection, and handles later upgrades.
+
+### Option 1: ask your agent to install the Skill
+
+Send this complete request to your agent:
+
+```text
+Install the Skill at skills/onhold-assistant from https://github.com/OnHoldCC/x-assistant.
+When installation finishes, tell me how to enable it.
+```
+
+The agent uses its own Skill installer; you do not need to run Node.js manually for this method. After installation, start a new conversation in that agent and send:
+
+```text
+Use the onhold-assistant Skill to install OnHold Assistant.
+```
+
+Your agent must be able to execute terminal commands locally. A chat-only tool cannot deploy the application on your computer.
+
+### Option 2: use the Skills CLI
+
+Install Node.js 22.20+ and npm first. This command works on macOS, Linux, and Windows PowerShell, and installs the Skill in user scope for use across projects:
+
+```sh
+npx skills add OnHoldCC/x-assistant --skill onhold-assistant --global
+```
+
+Select your agent when prompted, such as Codex, Claude Code, or Cursor. Omit `--global` for a project-only installation. See the [official Skills installation instructions](https://github.com/vercel-labs/skills#install-a-skill).
+
+Check the user-level installation list:
+
+```sh
+npx skills ls -g
+```
+
+Confirm that `onhold-assistant` appears, then start a new conversation in the selected agent and send the installation request above. If the Skill is not detected, check the selected agent, installation scope, and current project; restart the agent if needed.
+
+### Deploy and use the application
+
+Installing the Skill adds instructions; **it does not start the backend, download models, or publish posts automatically**. When you ask the agent to install OnHold Assistant, it checks or guides setup of Git, Docker, and Compose, fetches source, builds and verifies the backend, and guides extension connection. You complete initial Docker system authorization, extension loading, X sign-in, and optional Codex device authentication yourself.
+
+A completed application installation means the dashboard at `http://127.0.0.1:18431/` opens, the extension connects to the correct account, and an initial read-only collection succeeds. A successful Skill installation alone does not confirm application deployment.
+
+For later tasks, send requests such as:
+
+```text
+Use the onhold-assistant Skill to upgrade the OnHold backend and browser extension.
+Use the onhold-assistant Skill to check the OnHold backend and extension connection.
+Use the onhold-assistant Skill to enable the Codex writing service and guide me through sign-in.
+```
+
+Skill updates and application updates are separate. Rerun the `skills add` command above to install the current repository version of the Skill; the backend and running extension still need the application upgrade procedure. Removing the Skill only removes the agent instructions; it does not uninstall the backend or delete account data.
 
 ## Docker installation (recommended)
 
@@ -118,7 +173,7 @@ Account and task data are stored in Docker volumes, outside `source/`. Keep `ONH
 
 The backend is now running. Continue with [browser connection](#connect-your-browser), then [configure a model](#configure-a-model) if you need AI posts or replies.
 
-Alternatively, give the [OnHold installation Skill](skills/onhold-assistant/SKILL.md) to an agent that supports Skills and terminal access, and ask it to install OnHold Assistant. It uses the same Docker workflow. You still complete browser sign-in, extension loading, and initial system authorization yourself. The Skill instructions are currently in Chinese.
+To have an agent perform these steps, use the [Skill installation method](#install-with-a-skill) above. The Skill instructions themselves are currently in Chinese.
 
 ## Run from source
 

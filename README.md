@@ -4,18 +4,17 @@
 
 ## 安装与部署
 
-**首次使用从这里开始：[Docker 安装（推荐）](#docker-安装推荐) · [Windows 安装](#windows) · [源码运行](#源码运行)。**
+**首次使用从这里开始：[Skill 安装（AI 引导）](#通过-skill-安装) · [Docker 手动安装](#docker-安装推荐) · [Windows 安装](#windows) · [源码运行](#源码运行)。**
 
-本机准备好 Git 和已启动的 Docker 后，macOS / Linux 可执行：
+使用支持 Skill 的 Agent 时，先安装 [OnHold Skill](skills/onhold-assistant/SKILL.md)。已有 Node.js 22.20+ 和 npm，可在 macOS / Linux / Windows 终端执行：
 
-```bash
-mkdir -p "$HOME/OnHold"
-git clone https://github.com/OnHoldCC/x-assistant.git "$HOME/OnHold/source"
-export ONHOLD_INSTALL_DIR="$HOME/OnHold"
-bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" install
+```sh
+npx skills add OnHoldCC/x-assistant --skill onhold-assistant --global
 ```
 
-部署完成后打开 **<http://127.0.0.1:18431/>**，在 Chrome / Edge 加载 `~/OnHold/extension`，按[连接浏览器](#连接浏览器)完成 X 账号配对。自动发文和回复还需[配置模型](#配置模型)。
+按提示选择你的 Agent，安装后在该 Agent 新开对话，输入：**「使用 onhold-assistant Skill，安装 OnHold 助手。」** 没有 Node.js 时，可直接按下方[让 Agent 安装 Skill](#方式一让-agent-安装-skill)的说明操作。
+
+Skill 会检查 Git / Docker、构建并启动后台，再引导加载插件和连接 X。**安装 Skill 本身不会部署应用**。完成部署后访问 **<http://127.0.0.1:18431/>**；自动发文和回复还需[配置模型](#配置模型)。
 
 Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装](#docker-安装推荐)。[English installation and deployment guide →](README.en.md#installation-and-deployment)
 
@@ -29,7 +28,7 @@ Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装]
 
 [![Mac / Windows 检查](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
 
-[功能](#功能) · [Docker 安装](#docker-安装推荐) · [源码运行](#源码运行) · [连接浏览器](#连接浏览器) · [配置模型](#配置模型) · [升级与维护](#升级与维护) · [常见问题](#常见问题) · [许可证](#许可证)
+[功能](#功能) · [Skill 安装](#通过-skill-安装) · [Docker 安装](#docker-安装推荐) · [源码运行](#源码运行) · [连接浏览器](#连接浏览器) · [配置模型](#配置模型) · [升级与维护](#升级与维护) · [常见问题](#常见问题) · [许可证](#许可证)
 
 ## 功能
 
@@ -48,6 +47,7 @@ Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装]
 
 | 方式 | 需要准备 | 适用场景 |
 | --- | --- | --- |
+| Skill（AI 引导） | 支持 Skill、终端与网络操作的 Agent；用 CLI 安装 Skill 时需 Node.js 22.20+ | 让 Agent 检查依赖并执行 Docker 安装、升级与诊断 |
 | Docker（推荐） | Git、Docker、Docker Compose v2 | 日常使用，无需在宿主机安装 Node.js、Rust 或 Python |
 | 源码运行 | Git、Node.js、Rust、C/C++ 编译工具 | 开发、调试或自行管理后端进程 |
 
@@ -58,6 +58,61 @@ Windows PowerShell 命令、环境要求和完整步骤见下方 [Docker 安装]
 - 使用 AI 功能时，另外完成下文的模型配置。基础后台不下载翻译或评分模型。
 
 当前安装流程以**后台、浏览器和 X 登录在同一台电脑**为前提。手机不能加载此桌面插件；远程服务器部署不属于下面的默认安装流程。
+
+## 通过 Skill 安装
+
+仓库内置 [`onhold-assistant`](skills/onhold-assistant/SKILL.md)，供支持 Skill、终端与网络操作的 Agent 使用。它负责检查依赖、拉取源码、执行 Docker 部署、指导插件连接及后续升级。
+
+### 方式一：让 Agent 安装 Skill
+
+将以下完整请求发给你的 Agent：
+
+```text
+从 https://github.com/OnHoldCC/x-assistant 安装 skills/onhold-assistant 这个 Skill。
+安装完成后告诉我如何启用它。
+```
+
+此方式由 Agent 使用自己的 Skill 安装工具处理，不要求你先手动运行 Node.js。安装后在该 Agent 新开对话，发送：
+
+```text
+使用 onhold-assistant Skill，安装 OnHold 助手。
+```
+
+Agent 必须能够在本机执行终端命令；仅能聊天、不能操作电脑的工具无法完成应用部署。
+
+### 方式二：使用 Skills CLI
+
+先准备 Node.js 22.20+ 和 npm。以下命令适用于 macOS、Linux 和 Windows PowerShell，安装到所选 Agent 的用户级范围，供不同项目使用：
+
+```sh
+npx skills add OnHoldCC/x-assistant --skill onhold-assistant --global
+```
+
+按提示选择你使用的 Agent，例如 Codex、Claude Code 或 Cursor。只为当前项目安装时，去掉 `--global`。CLI 用法见 [Skills 官方安装说明](https://github.com/vercel-labs/skills#install-a-skill)。
+
+检查用户级安装列表：
+
+```sh
+npx skills ls -g
+```
+
+确认其中有 `onhold-assistant`，再在所选 Agent 新开对话，输入上面的安装请求。未识别到 Skill 时，检查是否选对 Agent、安装范围及当前项目；必要时重启 Agent 后再试。
+
+### 部署与后续使用
+
+安装 Skill 只添加操作指引，**不会自动启动后台、下载模型或发布帖子**。当你让 Agent「安装 OnHold 助手」后，它会检查或引导准备 Git、Docker 和 Compose，再拉取源码、构建、验证后台并引导连接插件。Docker 首次系统授权、浏览器加载扩展、X 登录和可选 Codex 设备登录需要你完成。
+
+安装成功应看到：后台 `http://127.0.0.1:18431/` 可打开、插件连接到正确账号、首批只读采集任务完成。仅显示「Skill 安装成功」不代表应用已部署。
+
+后续可在同一 Agent 中发送：
+
+```text
+使用 onhold-assistant Skill，升级 OnHold 后台和插件。
+使用 onhold-assistant Skill，检查 OnHold 后台和插件连接状态。
+使用 onhold-assistant Skill，启用 Codex 文章服务并引导我完成登录。
+```
+
+Skill 更新和应用更新分别进行。重新执行上面的 `skills add` 命令可安装当前仓库版本的 Skill；后台和浏览器插件仍需执行升级流程。移除 Skill 只移除 Agent 的指引，不会卸载后台或删除账号数据。
 
 ## Docker 安装（推荐）
 
@@ -118,7 +173,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 到这里后台已经启动。接下来完成[连接浏览器](#连接浏览器)，需要 AI 发文或回复时再[配置模型](#配置模型)。
 
-也可以把 [OnHold 安装 Skill](skills/onhold-assistant/SKILL.md) 交给支持 Skill 和终端操作的 Agent，输入「安装 OnHold 助手」。它使用同一套 Docker 流程；浏览器登录、插件加载和首次系统授权仍需你完成。
+希望由 Agent 执行以上步骤时，使用前面的 [Skill 安装方式](#通过-skill-安装)。
 
 ## 源码运行
 
