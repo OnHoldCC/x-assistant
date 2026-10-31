@@ -171,3 +171,29 @@ async fn live_news_search_without_publication() {
     assert!(usage.as_ref().is_some_and(|usage|usage["total_tokens"].as_u64().unwrap_or(0)>0));
     eprintln!("Live news search: source={}, title={}, usage={}",value["news"]["url"],value["news"]["title"],usage.unwrap());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rss_drafts_use_a_single_offline_cli_call_and_keep_usage_without_a_search_event() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir=tempfile::tempdir().unwrap();let executable=dir.path().join("fixture-codex");
+    std::fs::write(&executable,r#"#!/bin/sh
+while [ "$#" -gt 0 ]; do
+ if [ "$1" = '--output-last-message' ]; then shift; output="$1"; fi
+ if [ "$1" = 'web_search="disabled"' ]; then offline=yes; fi
+ if [ "$1" = '--output-schema' ]; then shift; schema="$1"; fi
+ shift
+done
+[ "$offline" = yes ] && [ -f "$schema" ] || exit 3
+cat >/dev/null
+printf '%s' '{"schema_version":1,"news":null,"text":"","skip_reason":"Fixture has no suitable article"}' > "$output"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}'
+"#).unwrap();
+    std::fs::set_permissions(&executable,std::fs::Permissions::from_mode(0o700)).unwrap();
+    let config=onhold_backend::models::ModelConfig{cli_path:executable.to_string_lossy().into_owned(),..Default::default()};
+    let job=json!({"input":{"mode":"news","news_feed":{"grounded_rss":true}}});
+    let instructions=onhold_backend::models::writing_instructions(&job);let mut usage=None;
+    let response=onhold_backend::models::call_codex(&config,instructions,"{}",&mut usage).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["skip_reason"],"Fixture has no suitable article");
+    assert_eq!(usage.unwrap()["total_tokens"],110);
+}

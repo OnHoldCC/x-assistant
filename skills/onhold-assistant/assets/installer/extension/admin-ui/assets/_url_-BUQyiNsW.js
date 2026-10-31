@@ -1,0 +1,1 @@
+import{d as s,b as a,e as r,E as t}from"./onhold-vue-VwSaDf6b.js";const c={class:"h-full"},l=["src"],u=s({__name:"[url]",props:{url:{}},setup(e){return(o,n)=>(a(),r("div",c,[t("iframe",{id:"iframePage",class:"size-full",src:e.url},null,8,l)]))}});export{u as default};

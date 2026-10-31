@@ -1,16 +1,5 @@
 use super::*;
 
-fn english_source(source: &Value, text: &str) -> bool {
-    if let Some(language) = source["language"].as_str() {
-        return language.split('-').next() == Some("en");
-    }
-    // Legacy helpers omit X language metadata; conservatively recognize English prose and skip uncertain text.
-    let body = text.split_whitespace().filter(|word| !["http://", "https://", "@", "#"].iter().any(|prefix| word.starts_with(prefix))).collect::<Vec<_>>().join(" ");
-    let letters = body.chars().filter(|c| c.is_alphabetic()).count();
-    let latin = body.chars().filter(|c| c.is_ascii_alphabetic()).count();
-    let common = body.split(|c: char| !c.is_ascii_alphabetic()).filter(|word| ["the", "a", "an", "and", "is", "are", "was", "this", "that", "with", "for", "to", "of", "in", "it", "you", "your", "we", "our", "i", "my", "have", "has", "on", "from", "how", "what", "can", "will", "not"].contains(&word.to_ascii_lowercase().as_str())).count();
-    letters >= 10 && latin * 100 >= letters * 90 && common >= 2
-}
 impl Store {
     pub fn record_for_you_snapshot(&self,id:&str,client:&str,value:&Value,at:i64)->Result<Value,String>{
         let fields=[("ads","广告"),("truncated","未展开"),("source","来源缺失"),("text","正文不可用"),("own","自己的帖子"),("language","非英文原文"),("translated","已翻译内容")];
@@ -167,7 +156,7 @@ impl Store {
                 .as_str()
                 .filter(|text| !text.trim().is_empty() && text.chars().count() <= 24000)
                 .ok_or("原帖正文无效")?;
-            if author == account || input["scope"] == "for_you" && input["language"] == "en" && !english_source(source, text) {
+            if author == account {
                 skipped += 1;
                 continue;
             }

@@ -1,1 +1,0 @@
-import{J as r,c as a}from"./onhold-vue-BwEsA1MS.js";function s(t,n){let{target:e}=t;for(;e;){if(e.dataset&&e.dataset[n]!==void 0)return!0;e=e.parentElement}return!1}function f(t,n){return r(t,e=>{e!==void 0&&(n.value=e)}),a(()=>t.value===void 0?n.value:t.value)}function d(t,n="default",e=[]){const u=t.$slots[n];return u===void 0?e:u()}export{d as g,s as h,f as u};

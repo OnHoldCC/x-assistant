@@ -16,7 +16,7 @@ type Queue = {
 };
 const w = useWorkspace(), data = ref<Queue | null>(null), page = ref(1), channel = ref("all"), status = ref("all"), error = ref("");
 const names: Record<string, string> = { pending: "未发 X · 待处理", processing: "处理中", published: "已发 X", skipped: "未发 X · 已跳过", failed: "未发 X · 失败", uncertain: "发送结果待核对" };
-const sources: Record<string, string> = { weibo: "微博", rednote: "小红书", bbc: "BBC 娱乐", guardian: "Guardian 文化" };
+const sources: Record<string, string> = { weibo: "微博", rednote: "小红书", bbc: "BBC 娱乐", guardian: "Guardian 文化", variety: "Variety 娱乐", deadline: "Deadline 娱乐" };
 const channels = [{ value: "all", label: "全部渠道" }, ...Object.entries(sources).map(([value,label]) => ({ value,label }))];
 const states = [{ value: "all", label: "全部执行状态" }, { value: "pending", label: "待处理" }, { value: "processing", label: "处理中" }, { value: "published", label: "已发 X" }, { value: "skipped", label: "已跳过" }, { value: "failed", label: "失败" }, { value: "uncertain", label: "待核对" }];
 const progress = computed(() => {

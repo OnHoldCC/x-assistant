@@ -181,7 +181,7 @@ const newsSources = [
   {value:"international",label:"国外新闻（RSS）"},
   {value:"mixed",label:"微博、小红书与国外新闻"},
 ];
-const sourceNames:Record<string,string>={weibo:"微博",rednote:"小红书",bbc:"BBC 娱乐",guardian:"Guardian 文化"};
+const sourceNames:Record<string,string>={weibo:"微博",rednote:"小红书",bbc:"BBC 娱乐",guardian:"Guardian 文化",variety:"Variety 娱乐",deadline:"Deadline 娱乐"};
 watch(newsSource,()=>sourcePreview.value=null);
 async function previewSources(){
   const source=newsSource.value;previewing.value=true;error.value="";
@@ -576,7 +576,7 @@ async function save() {
                   { value: 'manual', label: '手动指定名单' },
                 ]" /></NFormItem
             ><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">识别小铃铛中的新关注通知，打开主页确认仍关注你、且尚未回关后执行。需要 1.5.14 或更新的助手；点赞通知不会触发回复。</p><NFormItem v-if="automatic" label="内容语言">
-              <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖（新闻默认中文）' }, { value: 'en', label: '英文（For You 优先英文原帖）' }]" />
+              <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖（新闻默认中文）' }, { value: 'en', label: '英文（不限制原帖语言）' }]" />
             </NFormItem><NFormItem v-if="!automatic && scope === 'manual'" label="目标账号"
               ><NInput
                 v-model:value="targets"

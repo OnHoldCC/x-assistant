@@ -41,7 +41,7 @@ export const jobLabels: Record<Job["action"], string> = {
   unfollow: "定时取消关注",
   rewrite_publish: "改写并定时发布",
 };
-export const jobTitle = (j: Job) =>
+export const jobTitle = (j: Pick<Job, "action" | "input">) =>
   j.action === "capture_notifications" && j.input?.publication_mode === "follow_back"
     ? "识别新关注通知"
     : j.input?.mode === "news"

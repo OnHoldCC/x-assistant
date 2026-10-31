@@ -25,6 +25,7 @@ function fixture({local,session,attached=true}={}) {
    tabs:{get:async id=>{const tab=state.tabs.find(tab=>tab.id===id);if(!tab)throw Error('No tab');return tab;},query:async()=>state.tabs,create:async value=>{const tab={id:31,url:value.url,lastAccessed:2};state.created.push(value);state.tabs.push(tab);return tab;}}}
  });
  vm.runInContext(source,context);
+ state.context=context;
  state.bridge=context.makeBridge();
  state.detach=async()=>{state.attached.clear();await onDetach({tabId:state.session.cdpTab});await flush();};
  state.retry=async()=>{await flush();const pending=[...state.timers].sort((a,b)=>a[1].ms-b[1].ms)[0];assert.ok(pending,'a retry is scheduled');state.timers.delete(pending[0]);pending[1].fn();await state.bridge.resume().catch(()=>{});await flush();};
@@ -63,4 +64,21 @@ test('recovery reuses UID-verified cached read templates, or learns once when ab
  const cached=fixture({session:{},attached:false});await cached.bridge.resume();await flush();assert.equal(cached.learned,0);assert.equal(cached.session.cdpWs,'connected');
  const fresh=fixture({session:{},attached:false});fresh.noCache=true;await fresh.bridge.resume();await flush();assert.equal(fresh.learned,1);assert.equal(fresh.session.cdpWs,'connected');
  const mismatch=fixture({session:{},attached:false});mismatch.cachedOwner='other';await assert.rejects(mismatch.bridge.resume(),/UID/);assert.equal(mismatch.learned,0);assert.equal(mismatch.sockets.length,0);
+});
+
+test('simultaneous task notifications reserve the worker before reading session storage',async()=>{
+ const s=fixture();await s.bridge.resume();await flush();
+ const socket=s.sockets[0],notify=()=>socket.onmessage({data:'{"type":"capture"}'});
+ let release,claims=0;const gate=new Promise(resolve=>release=resolve);
+ const originalFetch=s.context.fetch;
+ s.context.fetch=async(url,options)=>{
+  if(JSON.parse(options.body).operation==='claim'){claims++;await gate;return Response.json(null);}
+  return originalFetch(url,options);
+ };
+ notify();notify();await flush();
+ assert.equal(claims,1,'a burst must not claim two browser tasks');
+ assert.equal((await s.bridge.status()).busy,true);
+ notify();await flush();assert.equal(claims,1,'the worker stays reserved until the task finishes');
+ release();await flush();assert.equal((await s.bridge.status()).busy,false);
+ notify();await flush();assert.equal(claims,2,'the next task can run after the previous one finishes');
 });

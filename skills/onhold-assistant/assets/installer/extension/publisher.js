@@ -43,7 +43,7 @@ export async function cleanupPublicationTabs(account,call,boundTab){
 export function inspectPublicationCleanup(owner,readText,target=null){
  if(location.protocol!=='https:'||location.hostname!=='x.com')return {clear:false};
  const paths=target?['/'+target.author+'/status/'+target.id,'/compose/post']:['/home'];
- if(!paths.includes(location.pathname)||document.readyState==='loading')return {clear:false};
+ if(!paths.includes(location.pathname.toLowerCase())||document.readyState==='loading')return {clear:false};
  const account=document.querySelector('[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase();
  if(account!==owner||!document.querySelector('main,[data-testid="primaryColumn"]'))return {clear:false};
  const selector='[data-testid^="tweetTextarea_"][contenteditable="true"]',editors=[...document.querySelectorAll(selector)];
@@ -55,7 +55,7 @@ export function inspectPublicationCleanup(owner,readText,target=null){
 export function inspectPublishPage(owner,readText,target=null,replyOpened=false,returnEditor=false) {
  if(location.href==='about:blank')return {ready:false};
  const path=target?'/'+target.author+'/status/'+target.id:'/home';
- if(location.protocol!=='https:'||location.hostname!=='x.com'||(location.pathname!==path&&!(target&&replyOpened&&location.pathname==='/compose/post')))throw Error('发布页面与任务目标不匹配');
+ if(location.protocol!=='https:'||location.hostname!=='x.com'||(location.pathname.toLowerCase()!==path&&!(target&&replyOpened&&location.pathname==='/compose/post')))throw Error('发布页面与任务目标不匹配');
  const account=document.querySelector('[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase();
  if(!account)return {ready:false};
  if(account!==owner)throw Error('X 账号已改变，未发布');
@@ -65,7 +65,7 @@ export function inspectPublishPage(owner,readText,target=null,replyOpened=false,
  if(dialogs.length&&!target)throw Error('X 页面有弹窗，未发布');
  const main=document.querySelector('[data-testid="primaryColumn"]')||document.querySelector('main');
  const scope=dialogs[0]||main||(target&&replyOpened?document.body:null);
- const exact=target&&[...(scope?.querySelectorAll('article[data-testid="tweet"]')||[])].find(article=>article.querySelector('a:has(time)')?.getAttribute('href')?.split('?')[0]==='/'+target.author+'/status/'+target.id);
+ const exact=target&&[...(scope?.querySelectorAll('article[data-testid="tweet"]')||[])].find(article=>article.querySelector('a:has(time)')?.getAttribute('href')?.split('?')[0]?.toLowerCase()==='/'+target.author+'/status/'+target.id);
  if(target&&!exact&&!replyOpened){if(dialogs.length)throw Error('回复弹窗的原帖不匹配');return {ready:false};}
  const editor=scope?.querySelector('[data-testid="tweetTextarea_0"][contenteditable="true"]');
  const button=scope?.querySelector('[data-testid="tweetButtonInline"],[data-testid="tweetButton"]');

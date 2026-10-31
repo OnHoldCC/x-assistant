@@ -201,3 +201,18 @@ fn browser_reads_expire_without_another_queued_task_or_claim(){
  assert!(!store.browser_work_due("example",at+120001).unwrap());
  let job=store.jobs().unwrap()[0].clone();assert_eq!(job["state"],"failed");assert_eq!(job["error"],"浏览器读取超时，已结束本次采集");
 }
+
+#[test]
+fn browser_task_claims_are_serial_across_clients_for_the_same_account() {
+    let (directory, store, client, at) = setup();
+    let first = store.enqueue("example", at).unwrap();
+    assert_eq!(store.claim(&client, "example", at).unwrap()["id"], first["id"]);
+    let other_client = Uuid::new_v4().to_string();
+    store.session_status(&other_client, "example", "logged_in", "", at).unwrap();
+    let db = rusqlite::Connection::open(directory.path().join("data.db")).unwrap();
+    db.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES('next-read','example','capture','queued',?,?,'{}')", [at, at]).unwrap();
+    assert!(store.claim(&client, "example", at + 1).unwrap().is_null());
+    assert!(store.claim(&other_client, "example", at + 1).unwrap().is_null());
+    store.finish(first["id"].as_str().unwrap(), &client, None, at + 2).unwrap();
+    assert_eq!(store.claim(&other_client, "example", at + 3).unwrap()["id"], "next-read");
+}

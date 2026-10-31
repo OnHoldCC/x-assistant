@@ -88,3 +88,18 @@ test('news worker enables live search only for news and requires an actual searc
   const request=()=>fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer fixture-key'},body:JSON.stringify({operation:'generate',instructions:'news instructions',prompt:'news query',output_format:'news_v1'})});
   try{assert.equal((await request()).status,422);searched=true;const response=await request();assert.equal(response.status,200);assert.equal((await response.json()).searched,true);}finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('RSS-grounded drafts use the news schema with web search disabled',async()=>{
+ const {createCodexServer}=await import('../docker/codex.mjs');
+ const server=createCodexServer('fixture-key',async(args,_prompt)=>{
+  assert.ok(args.includes('web_search="disabled"'));assert.ok(!args.includes('web_search="live"'));
+  assert.ok(args[args.indexOf('--output-schema')+1].endsWith('news-schema.json'));
+  fs.writeFileSync(args[args.indexOf('--output-last-message')+1],JSON.stringify({schema_version:1,news:null,text:'',skip_reason:'No suitable source in the fixture'}));
+  return {code:0,usage:{input_tokens:100,output_tokens:10}};
+ });
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const response=await fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer fixture-key'},body:JSON.stringify({operation:'generate',instructions:'RSS-only summary',prompt:'verified source data',output_format:'news_draft_v1'})});
+  assert.equal(response.status,200);const result=await response.json();assert.equal(result.usage.total_tokens,110);
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});

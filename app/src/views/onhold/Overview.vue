@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { DataTableColumns } from "naive-ui";
+import type { TaskStats } from "@/shared/types";
 import { useWorkspace } from "./workspace";
 import Analytics from "./Analytics.vue";
 import NumberValue from "./NumberValue.vue";
-import { time } from "./format";
+import { time, jobTitle } from "./format";
 import { analyticsSnapshot, periods } from "./analytics-chart";
 const w = useWorkspace();
 const current = computed(() => w.data?.accounts.find((a) => a.handle === w.selected));
@@ -17,6 +19,20 @@ const officialDates = computed(() => {
   const series = official.value?.data.series;
   return series?.length ? series[0].date + " 至 " + series[series.length - 1].date : "";
 });
+const taskStats = computed(() => w.data?.task_stats || []);
+const taskTotals = computed(() => taskStats.value.reduce((sum, row) => ({
+  completed: sum.completed + row.completed, failed: sum.failed + row.failed,
+  tokens: sum.tokens + row.tokens, missing_usage: sum.missing_usage + row.missing_usage,
+}), { completed: 0, failed: 0, tokens: 0, missing_usage: 0 }));
+function tokenUsage(row: Pick<TaskStats, "tokens" | "missing_usage">) {
+  return row.missing_usage ? row.tokens ? "≥ " + row.tokens.toLocaleString() : "未记录" : row.tokens.toLocaleString();
+}
+const taskColumns: DataTableColumns<TaskStats> = [
+  { title: "任务类型", key: "task", minWidth: 160, render: jobTitle },
+  { title: "成功总数", key: "completed", minWidth: 100, align: "right", render: row => row.completed.toLocaleString() },
+  { title: "失败总数", key: "failed", minWidth: 100, align: "right", render: row => row.failed.toLocaleString() },
+  { title: "消耗 Token", key: "tokens", minWidth: 140, align: "right", render: tokenUsage },
+];
 function setPeriod(value: string) {
   w.analyticsPeriod = value;
   w.days = value.slice(0, -1);
@@ -98,6 +114,12 @@ function setPeriod(value: string) {
       </p>
       <p v-if="official" class="business-muted">官方统计更新于 {{ time(official.observed_at) }}{{ official.data.verified_only ? ' · 仅认证用户' : '' }}</p>
     </section>
+    <NCard v-if="w.selected" title="任务累计统计" size="small">
+      <p class="business-muted mb-12px">当前账号全部历史记录 · 按任务最终状态计数 · 不受上方统计周期影响</p>
+      <NDataTable role="region" aria-label="任务成功失败及 Token 统计" :columns="taskColumns" :data="taskStats" :row-key="jobTitle" :scroll-x="500" size="small" />
+      <p class="mt-12px">合计：成功 {{ taskTotals.completed.toLocaleString() }} · 失败 {{ taskTotals.failed.toLocaleString() }} · 消耗 {{ tokenUsage(taskTotals) }} Token</p>
+      <p class="business-muted mt-8px">Token 包含失败和重试调用，缓存输入不重复计数；≥ 表示部分历史用量未记录。跳过的任务不计入成功或失败。</p>
+    </NCard>
     <Analytics :key="w.selected || 'none'" />
     <NAlert v-if="w.ready && !w.analyticsReady" type="warning">
       官方分析需要浏览器连接，请在已登录的 X 页面重新连接助手。

@@ -29,8 +29,6 @@ export function inspectForYou(owner,scope='for_you',trendIndex=0,language='auto'
   if(!link){filtered.source++;continue;}
   if(!text||text.length>48000){filtered.text++;continue;}
   if(link[1].toLowerCase()===owner){filtered.own++;continue;}
-  if(language==='en'&&node.getAttribute('lang')&&node.getAttribute('lang').split('-')[0]!=='en'){filtered.language++;continue;}
-  if(language==='en'&&[...article.querySelectorAll('button')].some(button=>own(button)&&/^(Show original|显示原文|顯示原文|查看原文)$/i.test(button.innerText.trim()))){filtered.translated++;continue;}
   const author=link[1].toLowerCase();posts.push({author,id:link[2],url:'https://x.com/'+author+'/status/'+link[2],text,language:node.getAttribute('lang')?.split('-')[0]||undefined,complete:true});if(posts.length>=50)break;
  }
  return {ready:true,phase:'timeline',posts,scanned,filtered,loading:!!document.querySelector('main [role="progressbar"]'),document_state:document.readyState,visibility:document.visibilityState};

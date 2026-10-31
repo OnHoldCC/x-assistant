@@ -183,8 +183,9 @@ export function createCdpBridge(){
     await call('heartbeat',{client:await client(),account:snapshot.handle});return snapshot;
   }
   async function poll(){
-    if(busy)return;const {cdpTab,cdpAccount}=await session();if(!Number.isInteger(cdpTab))return;
-    busy=true;let job,id;try{
+    if(busy)return;busy=true;
+    let job,id,cdpTab,cdpAccount;try{
+      ({cdpTab,cdpAccount}=await session());if(!Number.isInteger(cdpTab))return;
       const current=await capture(cdpTab);if(current.handle!==cdpAccount)throw Error('账号已改变，请重新连接');
       id=await client();
       const localBlock=(await chrome.storage.session.get('automationBlock')).automationBlock;

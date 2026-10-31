@@ -29,7 +29,7 @@ fn setup() -> (tempfile::TempDir, Store, String, String, i64) {
     (dir, store, client, task, at)
 }
 #[test]
-fn english_plan_accepts_compatible_old_helper_filters_sources_and_keeps_cancelled_history() {
+fn english_plan_accepts_all_source_languages_and_keeps_cancelled_history() {
     let (_dir, store, client, task, at) = setup();
     store.save_automation("example", &json!({"id":task,"action":"auto_reply","language":"en","interval_minutes":1,"limit":2}), at).unwrap();
     store.control_automation("example", &task, true, at).unwrap();
@@ -37,9 +37,11 @@ fn english_plan_accepts_compatible_old_helper_filters_sources_and_keeps_cancelle
     let claimed = store.claim(&client, "example", at).unwrap();
     assert_eq!(claimed["input"]["language"], "en");
     let english = json!({"author":"writer","id":"998","url":"https://x.com/writer/status/998","text":"This is a useful improvement for the deployment workflow.","complete":true});
-    let result = store.queue_feed_replies(&discovery, &client, &json!([post("997"),english]), at).unwrap();
-    assert_eq!(result["queued"], 1);
-    assert_eq!(result["skipped"], 1);
+    let mut chinese = post("997");
+    chinese["language"] = json!("zh");
+    let result = store.queue_feed_replies(&discovery, &client, &json!([chinese,english]), at).unwrap();
+    assert_eq!(result["queued"], 2);
+    assert_eq!(result["skipped"], 0);
     let job = store.claim_rewrite(at+1).unwrap();
     assert_eq!(job["input"]["language"], "en");
     let id = job["id"].as_str().unwrap();
@@ -60,6 +62,39 @@ fn english_plan_accepts_compatible_old_helper_filters_sources_and_keeps_cancelle
 }
 fn post(id: &str) -> Value {
     json!({"author":"writer","id":id,"url":format!("https://x.com/writer/status/{id}"),"text":"把复杂的部署流程做简单。","complete":true})
+}
+
+#[test]
+fn replies_accept_thousands_formatting_but_reject_changed_facts() {
+    for (source, text, accepted) in [
+        ("Nearly 5000 followers", "Nearly 5,000 already!", true),
+        ("Yesterday, hand-crafted 1300 comments", "After 1,300 hand-written comments, I get why that feels rough.", true),
+        ("Nearly 5,000 followers", "Nearly 5000 already!", true),
+        ("Reached 1000000", "Reached 1,000,000!", true),
+        ("At 12345.6%", "At 12,345.6%", true),
+        ("Nearly 5000", "Nearly 6,000", false),
+        ("Nearly 5000", "Nearly 5,00", false),
+        ("At 12.5%", "At 125%", false),
+        ("At 12.5%", "At 12.5", false),
+        ("Nearly 5000", "5,000 and 5,000", false),
+        ("Nearly 5000", "Nearly 5,000 @new #new https://example.com", false),
+        ("See https://example.com/5000", "See https://example.com/5,000", false),
+        ("See @user5000 #tag5000", "See @user5000 #tag6000", false),
+    ] {
+        let (_dir, store, client, task, at) = setup();
+        store.control_automation("example", &task, true, at).unwrap();
+        let parent = store.run_automation("example", &task, at).unwrap();
+        store.claim(&client, "example", at).unwrap();
+        let mut original = post("901"); original["text"] = json!(source);
+        let batch = store.queue_feed_replies(parent["id"].as_str().unwrap(), &client, &json!([original]), at).unwrap();
+        let id = batch["job_ids"][0].as_str().unwrap();
+        store.claim_rewrite(at + 1).unwrap();
+        store.save_generated(id, Ok(&json!({"schema_version":1,"text":text})), at + 2).unwrap();
+        let jobs = store.jobs().unwrap();
+        let saved = jobs.as_array().unwrap().iter().find(|job| job["id"] == id).unwrap();
+        assert_eq!(saved["state"], if accepted { "queued" } else { "failed" }, "{source} -> {text}");
+    }
+    assert!(onhold_backend::store::validate_rewrite("Nearly 5000", "Nearly 5,000").is_err());
 }
 #[test]
 fn for_you_tasks_are_owned_atomic_deduplicated_and_pause_before_send() {

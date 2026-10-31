@@ -7,6 +7,8 @@ const WEIBO: &str = "https://60s.viki.moe/v2/weibo";
 const REDNOTE: &str = "https://60s.viki.moe/v2/rednote";
 const BBC: &str = "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml";
 const GUARDIAN: &str = "https://www.theguardian.com/culture/rss";
+const VARIETY: &str = "https://variety.com/feed/";
+const DEADLINE: &str = "https://deadline.com/feed/";
 
 #[derive(Default)]
 pub struct Sources { cache: Mutex<BTreeMap<String, (i64, Value)>> }
@@ -57,7 +59,7 @@ fn plain_summary(html: &str) -> String {
 fn rss(raw: &str, source: &str, at: i64) -> Result<Vec<Value>, String> {
     if raw.contains("<!DOCTYPE") || raw.contains("<!ENTITY") { return Err("RSS 文档声明无效".into()); }
     let value: Rss=quick_xml::de::from_str(raw).map_err(|_| "RSS 格式无法解析")?;
-    let hosts: &[&str]=if source=="bbc" { &["www.bbc.co.uk","www.bbc.com","bbc.co.uk","bbc.com"] } else { &["www.theguardian.com"] };
+    let hosts: &[&str]=match source { "bbc" => &["www.bbc.co.uk","www.bbc.com","bbc.co.uk","bbc.com"], "guardian" => &["www.theguardian.com"], "variety" => &["variety.com","www.variety.com"], "deadline" => &["deadline.com","www.deadline.com"], _ => return Err("RSS 来源无效".into()) };
     let mut items=Vec::new();let mut seen=HashSet::new();
     for item in value.channel.item.into_iter().take(100) {
         let Ok(date)=chrono::DateTime::parse_from_rfc2822(&item.date) else { continue; };
@@ -85,16 +87,16 @@ impl Sources {
         if !["weibo","rednote","hot_topics","international","mixed"].contains(&source) { return Err("此来源使用全网搜索，没有固定热榜".into()); }
         let at=crate::store::now();
         if let Some((stamp,value))=self.cache.lock().map_err(|_| "取材缓存忙")?.get(source) {
-            if at-*stamp<300_000 { let mut cached=value.clone();cached["cached"]=json!(true);return Ok(cached); }
+            if at-*stamp<60_000 { let mut cached=value.clone();cached["cached"]=json!(true);return Ok(cached); }
         }
         let redirects=reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len()>3 || !https_url(attempt.url().as_str(), &["60s.viki.moe","feeds.bbci.co.uk","www.theguardian.com"]) { attempt.error("取材重定向地址无效") } else { attempt.follow() }
+            if attempt.previous().len()>3 || !https_url(attempt.url().as_str(), &["60s.viki.moe","feeds.bbci.co.uk","www.theguardian.com","variety.com","www.variety.com","deadline.com","www.deadline.com"]) { attempt.error("取材重定向地址无效") } else { attempt.follow() }
         });
         let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).redirect(redirects).user_agent("OnHold/0.9 news-source-reader").build().map_err(|_| "取材客户端初始化失败")?;
         let mut feeds=Vec::new();
         if ["weibo","hot_topics","mixed"].contains(&source) { feeds.push(("weibo",WEIBO)); }
         if ["rednote","hot_topics","mixed"].contains(&source) { feeds.push(("rednote",REDNOTE)); }
-        if ["international","mixed"].contains(&source) { feeds.extend([("bbc",BBC),("guardian",GUARDIAN)]); }
+        if ["international","mixed"].contains(&source) { feeds.extend([("bbc",BBC),("guardian",GUARDIAN),("variety",VARIETY),("deadline",DEADLINE)]); }
         let mut tasks=tokio::task::JoinSet::new();
         for (platform,url) in feeds {
             let client=client.clone();
@@ -118,6 +120,15 @@ impl Sources {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn entertainment_rss_accepts_only_its_own_publisher_links() {
+        let at=crate::store::now();let date=chrono::DateTime::from_timestamp_millis(at-1000).unwrap().to_rfc2822();
+        for (source,host) in [("variety","variety.com"),("deadline","deadline.com")] {
+            let xml=format!("<rss><channel><item><title>New film announcement</title><link>https://{host}/news/film</link><pubDate>{date}</pubDate><description>A distributor announced a release.</description></item></channel></rss>");
+            assert_eq!(rss(&xml,source,at).unwrap().len(),1);
+            assert!(rss(&xml.replace(host,"untrusted.example"),source,at).unwrap().is_empty());
+        }
+    }
     #[test]
     fn rss_summary_removes_tracking_html_and_is_bounded() {
         assert_eq!(plain_summary("<p>A &amp; B</p><a href=\"https://tracking.example/very-long-url\">Read more</a>"), "A & B Read more");

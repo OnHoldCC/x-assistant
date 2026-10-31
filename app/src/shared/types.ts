@@ -92,6 +92,7 @@ export type Dashboard = {
   analytics_periods?: Record<string, AnalyticsSnapshot>;
   creator?: CreatorSummary;
   automation_block?: { reason: string; at: number } | null;
+  task_stats?: TaskStats[];
 };
 export type Client = {
   id: string;
@@ -111,6 +112,7 @@ export type Client = {
   extension_version?: string;
 };
 export type NewsSource = "web" | "weibo" | "rednote" | "hot_topics" | "international" | "mixed";
+export type TaskStats = Pick<Job, "action" | "input"> & { completed: number; failed: number; tokens: number; missing_usage: number };
 export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<string,number>; items:{kind:string;platform:string;title:string;url:string;published_at:number|null}[]; errors:{platform:string;error:string}[] };
 export type Job = {
   id: string;

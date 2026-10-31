@@ -2,7 +2,7 @@ use super::*;
 
 fn validate_news(value:&Value,at:i64,news_source:Option<&str>,include_source_link:bool)->Result<Value,String>{
     let root=value.as_object().ok_or("新闻格式无效")?;
-    if root.len()!=3 || value["schema_version"]!=1 || value["news"].is_null(){return Err("未找到可核实的新新闻，未发布".into());}
+    if (root.len()!=3 && !(root.len()==4 && value["skip_reason"]=="")) || value["schema_version"]!=1 || value["news"].is_null(){return Err("未找到可核实的新新闻，未发布".into());}
     let news=value["news"].as_object().filter(|news|news.len()==4).ok_or("新闻来源格式无效")?;
     let field=|key:&str,max:usize|->Result<&str,String>{news.get(key).and_then(Value::as_str).filter(|text|!text.trim().is_empty()&&text.chars().count()<=max&&!text.chars().any(|c|c.is_control()&&c!='\n')).ok_or_else(||format!("新闻{key}无效"))};
     let title=field("title",300)?.trim();let summary=field("summary",3000)?;
@@ -102,13 +102,28 @@ fn protected_facts(text: &str) -> Vec<String> {
     facts
 }
 
+fn reply_facts(text: &str) -> Vec<String> {
+    protected_facts(text).into_iter().map(|fact| {
+        let end = fact.find(['.', '%']).unwrap_or(fact.len());
+        let groups = fact[..end].split(',').collect::<Vec<_>>();
+        if groups.len() > 1 && (1..=3).contains(&groups[0].len())
+            && groups.iter().all(|group| group.bytes().all(|b| b.is_ascii_digit()))
+            && groups[1..].iter().all(|group| group.len() == 3)
+        {
+            format!("{}{}", groups.concat(), &fact[end..])
+        } else {
+            fact
+        }
+    }).collect()
+}
+
 impl Store {
     pub fn record_news_feed(&self,id:&str,feed:&Value,at:i64)->Result<(),String>{
         let db=self.lock()?;
         let changed=db.execute("UPDATE jobs SET input=json_set(input,'$.news_feed',json(?)),updated_at=? WHERE id=? AND action='rewrite_publish' AND state='rewriting' AND json_extract(input,'$.mode')='news'",params![feed.to_string(),at,id]).map_err(|e|e.to_string())?;
         if changed!=1 {return Err("取材任务已结束".into());}
         let count=feed["items"].as_array().map_or(0,Vec::len);
-        let mut message=if feed["single_candidate"]==true { format!("批次取材 · 本次处理 {count} 条 · 本批剩余 {} 条 · 来源计数 {}",feed["remaining"],feed["counts"]) } else { format!("取材完成 · {count} 条候选 · 60s 热榜 / 新闻 RSS · 来源计数 {}",feed["counts"]) };
+        let mut message=if feed["latest_pool"]==true { format!("最新取材 · {count} 条候选 · {} · 快照距今 {} 秒 · 来源计数 {}",if feed["grounded_rss"]==true {"媒体RSS摘要直接生成，不重复联网检索"} else {"AI随机选一条并联网核实"},(at-feed["retrieved_at"].as_i64().unwrap_or(at))/1000,feed["counts"]) } else if feed["single_candidate"]==true { format!("批次取材 · 本次处理 {count} 条 · 本批剩余 {} 条 · 来源计数 {}",feed["remaining"],feed["counts"]) } else { format!("取材完成 · {count} 条候选 · 60s 热榜 / 新闻 RSS · 来源计数 {}",feed["counts"]) };
         if feed["errors"].as_array().is_some_and(|items|!items.is_empty()){message.push_str(&format!(" · 部分来源失败：{}",feed["errors"]));}
         db.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'sources',?)",params![id,at,message]).map_err(|e|e.to_string())?;
         Ok(())
@@ -230,14 +245,29 @@ impl Store {
         result: Result<&Value, &str>,
         at: i64,
     ) -> Result<(), String> {
-        let db = self.lock()?;
+        let mut connection = self.lock()?;
+        let db = connection.transaction().map_err(|e|e.to_string())?;
         let raw: String = db.query_row("SELECT input FROM jobs WHERE id=? AND action='rewrite_publish' AND state='rewriting'",[id],|r|r.get(0)).map_err(|_|"改写任务已结束")?;
         let mut input: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        if input["mode"] == "news" && result.is_ok_and(|value| *value == json!({"schema_version":1,"news":null,"text":""})) {
+        if input["mode"] == "news" && result.is_ok_and(|value| value["schema_version"]==1 && value["news"].is_null() && value["text"]=="" && value.as_object().is_some_and(|root|
+            root.contains_key("news") && (root.len()==3 || root.len()==4 && root.contains_key("skip_reason")) && root.get("skip_reason").is_none_or(|reason|reason.as_str().is_some_and(|text|text.chars().count()<=300 && !text.chars().any(char::is_control)))
+        )) {
             input["stage"] = json!("skipped");
-            let reason=if input["news_feed"]["single_candidate"]==true && input["news_feed"]["items"].as_array().is_some_and(Vec::is_empty) { "本批没有未处理的新热点，等待下次取材" } else { "未找到可核实的新新闻，本轮未发布" };
+            let explanation=result.ok().and_then(|value|value["skip_reason"].as_str()).map(str::trim).filter(|text|!text.is_empty());
+            let reason=explanation.unwrap_or_else(|| if input["news_feed"]["latest_pool"]==true {
+                if input["news_feed"]["items"].as_array().is_some_and(Vec::is_empty) { "本轮没有新增或可重试的候选，未调用模型" } else { "本轮最新候选未通过选题或核实，未发布" }
+            } else if input["news_feed"]["single_candidate"]==true && input["news_feed"]["items"].as_array().is_some_and(Vec::is_empty) { "本批没有未处理的新热点，等待下次取材" } else { "未找到可核实的新新闻，本轮未发布" });
+            if let Ok(value)=result {input["skipped_generation"]=value.clone();}
+            if let Some(items)=input["news_feed"]["items"].as_array() {
+                for item in items {
+                    if let Some(candidate)=item["candidate_id"].as_str() {
+                        db.execute("UPDATE news_candidates SET state='skipped',reason='AI未选中，暂缓重复核实',value=json_set(value,'$._reviewed_at',?) WHERE id=? AND batch_id=? AND job_id IS NULL AND state='pending'",params![at,candidate,input["news_feed"]["batch_id"].as_str()]).map_err(|e|e.to_string())?;
+                    }
+                }
+            }
             let skipped = json!({"sent":false,"skip_reason":reason});
             db.execute("UPDATE jobs SET state='completed',client=NULL,input=?,result=?,error=NULL,updated_at=? WHERE id=?",params![input.to_string(),skipped.to_string(),at,id]).map_err(|e|e.to_string())?;
+            db.commit().map_err(|e|e.to_string())?;
             return Ok(());
         }
         let outcome = result.map_err(String::from).and_then(|value| {
@@ -250,6 +280,13 @@ impl Store {
             }
             if input["mode"]=="news" {
                 let source=validate_news(value,at,input.get("news_source").and_then(Value::as_str),input["include_source_link"].as_bool().unwrap_or(true))?;
+                if input["news_feed"]["latest_pool"]==true {
+                    let candidate=input["news_feed"]["items"].as_array().and_then(|items| items.iter().find(|item|
+                        item["title"]==source["title"] && (item["kind"]=="topic" || item["kind"]=="article" && item["url"]==source["url"])
+                    )).ok_or("AI选题不属于本轮最新候选，未发布")?;
+                    if input["news_feed"]["grounded_rss"]==true && source["text"]!=candidate["summary"] { return Err("模型改变了原始RSS摘要，未发布".into()); }
+                    input["news_candidate_id"]=json!(candidate["candidate_id"].as_str().ok_or("选题记录缺失")?);
+                }
                 if input["news_feed"]["single_candidate"]==true {
                     let candidate=&input["news_feed"]["items"][0];
                     if candidate["kind"]=="article" && candidate["url"]!=source["url"] {return Err("模型更换了当前新闻来源，未发布".into());}
@@ -264,8 +301,8 @@ impl Store {
             }else if input["mode"]=="reply" {
                 if value.as_object().is_none_or(|object|object.len()!=2||!object.contains_key("text")||!object.contains_key("schema_version"))||value["schema_version"]!=1 {return Err("回复返回格式无效，未发送".into());}
                 if text.trim().is_empty()||text.chars().count()>120||text.chars().any(|c|c.is_control()&&c!='\n'&&c!='\t') {return Err("回复正文应为1–120字符，未发送".into());}
-                let mut available=protected_facts(input["source"]["text"].as_str().unwrap_or(""));
-                for fact in protected_facts(text){let Some(index)=available.iter().position(|item|*item==fact)else{return Err("回复新增了原帖没有的数字、链接、提及或话题，未发送".into())};available.remove(index);}
+                let mut available=reply_facts(input["source"]["text"].as_str().unwrap_or(""));
+                for fact in reply_facts(text){let Some(index)=available.iter().position(|item|*item==fact)else{return Err("回复新增了原帖没有的数字、链接、提及或话题，未发送".into())};available.remove(index);}
                 input["schema_version"]=json!(1);
             }else{validate_rewrite(input["source"]["text"].as_str().unwrap_or(""),text)?;}
             if input["mode"] == "replicate" {
@@ -284,6 +321,10 @@ impl Store {
             }
             let duplicate: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE account=(SELECT account FROM jobs WHERE id=?) AND action='rewrite_publish' AND id<>? AND json_extract(input,'$.text')=? AND (state IN ('queued','running','completed') OR json_extract(input,'$.stage')='sending'))",params![id,id,text.trim()],|r|r.get(0)).map_err(|e|e.to_string())?;
             if duplicate { return Err("相同正文已有发布任务，未重复发布".into()); }
+            if input["mode"]=="news" && input["news_feed"]["latest_pool"]==true {
+                let changed=db.execute("UPDATE news_candidates SET job_id=? WHERE id=? AND batch_id=? AND account=(SELECT account FROM jobs WHERE id=?) AND (job_id IS NULL OR job_id=?) AND state='pending'",params![id,input["news_candidate_id"].as_str(),input["news_feed"]["batch_id"].as_str(),id,id]).map_err(|e|e.to_string())?;
+                if changed!=1 {return Err("该候选已被其他任务处理，未重复发布".into());}
+            }
             input["text"] = json!(text.trim());
             if let Some(task)=input["task_id"].as_str(){
                 let earliest:Option<i64>=db.query_row("SELECT MAX(j.updated_at)+automation_interval_ms(t.value) FROM jobs j JOIN automation_tasks t ON t.id=json_extract(j.input,'$.task_id') AND t.account=j.account WHERE j.account=(SELECT account FROM jobs WHERE id=?) AND t.id=? AND j.action='rewrite_publish' AND j.state='completed'",params![id,task],|row|row.get(0)).map_err(|e|e.to_string())?;
@@ -306,6 +347,7 @@ impl Store {
             ],
         )
         .map_err(|e| e.to_string())?;
+        db.commit().map_err(|e|e.to_string())?;
         Ok(())
     }
     pub fn schedule_publication(
@@ -393,7 +435,7 @@ impl Store {
         .map_err(|e| e.to_string())?;
         if !input["task_id"].is_null() {
             if let Some(task) = input["task_id"].as_str() {
-                tx.execute("UPDATE automation_tasks SET next_run=MAX(next_run,?+automation_interval_ms(value)) WHERE id=? AND account=?",params![at,task,account]).map_err(|e|e.to_string())?;
+                tx.execute("UPDATE automation_tasks SET next_run=CASE WHEN json_extract(value,'$.action')='auto_post' THEN MAX(next_run,?) ELSE MAX(next_run,?+automation_interval_ms(value)) END WHERE id=? AND account=?",params![at,at,task,account]).map_err(|e|e.to_string())?;
                 tx.execute("UPDATE jobs SET input=json_set(input,'$.publish_at',MAX(COALESCE(json_extract(input,'$.publish_at'),0),?+COALESCE((SELECT automation_interval_ms(value) FROM automation_tasks WHERE id=? AND account=?),0))) WHERE account=? AND action='rewrite_publish' AND state='queued' AND json_extract(input,'$.task_id')=? AND json_extract(input,'$.stage')='ready'",params![at,task,account,account,task]).map_err(|e|e.to_string())?;
             }
         }

@@ -2,333 +2,329 @@
 
 ![OnHold 助手图标](extension/assets/assistant-128.png)
 
-Vue 3 + TypeScript / Soybean Admin + Naive UI 运营后台，Rust 数据服务，配套 CDP 浏览器插件与本机翻译。
+在本机运行的 X 账号运营工具：查看账号数据、管理自动化计划、生成和发布内容，并记录每个任务的结果与模型用量。
+
+前端使用 Vue 3 / TypeScript、Soybean Admin 和 Naive UI，后端使用 Rust / Axum / SQLite，通过 Chrome / Edge 插件连接你已登录的 X 账号。
 
 [![Mac / Windows 检查](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml/badge.svg)](https://github.com/OnHoldCC/x-assistant/actions/workflows/verify.yml)
 
-[功能](#功能) · [安装](#安装) · [系统架构](#系统架构) · [维护](#维护) · [许可证](#许可证) · [作者](#作者)
-
-## OnHold UI
-
-[设计规范](docs/ONHOLD-UI.md) · [业务页面](app/src/views/onhold) · [0.9 运营口径](docs/OPERATIONS-0.9.md) · [最新更新日志（0.9.5）](docs/RELEASE-0.9.5.md)
-
-直接复用 Soybean Admin 2.3.0 的原版布局、导航、页签、主题设置和内部组件包；业务页面、安装引导与插件弹窗使用 Naive UI 原生组件。现有系统字体和 OnHold 品牌字体保留。执行 `npm run ui:dev`，打开 `http://127.0.0.1:1420/ui.html` 查看组件规范。
+[功能](#功能) · [Docker 安装](#docker-安装推荐) · [源码运行](#源码运行) · [连接浏览器](#连接浏览器) · [配置模型](#配置模型) · [升级与维护](#升级与维护) · [常见问题](#常见问题) · [许可证](#许可证)
 
 ## 功能
 
-- **热点自动发文**：后台通过 60s 热榜接口与新闻 RSS 取材，分批入库，逐条交给 Codex 核实和生成，按计划间隔发布。
-- **独立热点列表**：按渠道、执行状态组合筛选，按时间倒序分页，展示是否已发 X 及对应发布链接；关系名单与自动化配置也有独立入口。
+- **运营概览**：查看账号指标、各类任务的成功数、失败数和 Token 用量。
+- **新闻发文**：从新闻 RSS、微博和小红书热点等来源取材，生成内容并按计划发布；保留来源、跳过原因和发布回执。
+- **自动评论与回复**：读取 For You 新帖子或通知中的回复，生成评论并发送，过滤广告、重复及不可用内容。
+- **内容工具**：手动改写、生成草稿、定时发布。
+- **关系管理**：查看关系名单，按配置执行回关或取关。
+- **任务记录**：查看采集、排队、模型生成、发送各阶段，以及失败原因、耗时和模型用量。
 
-- **网页互译**：默认将外语译成简体中文，可切换目标语言。
-- **逐段展示**：按段落排队翻译，完成一段就显示一段，保留原文。
-- **白名单**：按 URL 控制自动翻译，也可以一键加入当前网站。
-- **广告风散**：蓝色选中到标记为 Ad、Promoted、广告或推广的帖子时，先停留 1.5 秒，再用约 0.45 秒吹散效果收起空位。屏幕外直接隐藏；减少动态效果时保留静态停留、跳过动画。关闭过滤会恢复广告并停止后续隐藏操作。正文提到广告、作者名称与引用内容不会作为广告标记。
-- **自动翻译衔接**：优先使用 X/Grok 已显示且满足阅读目标的译文；“Show translation”入口本身不算译文。原生翻译迟到时短暂等待，仍未译出或中文阅读时仍为外文则本机补漏，不自动点击“显示原文”。
-- **X 草稿翻译预览**：在 X 原输入框写正文，下方显示“翻译 → 语言”（默认英文）；预览满意后应用替换，不满意可重新生成。只替换正文，保留图片和视频，支持撤销。
-- **帖子侧边工具**：展示当前帖子的加权互动率；支持“一键改写”和“发同款”；发同款把当前原帖交给已登录的 Codex CLI 分析并按固定 JSON 生成，校验通过后自动发送。任务记录另保留“生成同类文章”草稿，可对照原文、复制或手动排期。草稿不请求评分或改写。
-- **账号数据**：右上角插件统一展示本人 Analytics、创收达标进度与30天收益估算；未开通显示大号 ¥0，毕业后隐藏资格进度，保留账号、周期、来源与读取时间。加权互动率使用（0.66×赞＋5×评＋转）÷曝光×100%，标为参考，并与 X 官方互动率分开。
-- **本机状态**：显示翻译数量、平均推理耗时、本程序 CPU、内存与数据占用。
+自动化需要你创建并启用计划。保存计划后默认暂停；安装完成不会直接开始发帖。
 
-插件新增的翻译由本机模型处理，不调用云端翻译 API；X 自身显示的译文来自 X 的原生功能。输入框、代码块和独立 `@账号` 引用跳过阅读翻译。Codex CLI 文章生成使用你的模型额度；改写与同类草稿需手动排期；明确选择“发同款”则在校验通过后自动通过 X 发布。
+## 安装前准备
 
-## 安装
+选择一种方式安装即可，浏览器连接步骤相同。
 
-### Docker + Skill（默认方式）
+| 方式 | 需要准备 | 适用场景 |
+| --- | --- | --- |
+| Docker（推荐） | Git、Docker、Docker Compose v2 | 日常使用，无需在宿主机安装 Node.js、Rust 或 Python |
+| 源码运行 | Git、Node.js、Rust、C/C++ 编译工具 | 开发、调试或自行管理后端进程 |
 
-安装 [OnHold Skill](skills/onhold-assistant/SKILL.md) 后说“安装 OnHold 助手”，由 Skill 检测或引导安装 Docker、展示真实进度、启动网页后台，再打开浏览器引导加载插件、连接 X 和首次采集。无需宿主机 Node/Python/Rust，也无需安装桌面 PKG。
+还需要：
 
-自动发文使用 Codex 联网搜索新闻，保留来源与发布时间；不再使用评分模型。
+- Chrome 120+ 或兼容的桌面版 Edge，以及能正常登录的 X 账号。插件通过开发者模式加载。
+- 能访问 GitHub、镜像仓库和依赖源的网络；首次构建会下载依赖，需预留数 GB 磁盘空间。模型调用和新闻取材也需要联网。
+- 使用 AI 功能时，另外完成下文的模型配置。基础后台不下载翻译或评分模型。
 
-默认只运行前端静态页面和 Rust 后台。翻译 Hy-MT2（1.91 GB）和 Codex 新闻搜索/文章服务独立选配，不自动下载。用户自带文章 API 可直接在网页配置。
+当前安装流程以**后台、浏览器和 X 登录在同一台电脑**为前提。手机不能加载此桌面插件；远程服务器部署不属于下面的默认安装流程。
 
-开发者可运行 `bash docker/deploy.sh install`；打包 `npm run docker:pack`。分发与维护见 [Docker 部署](docs/DOCKER.md)。以下原生桌面、离线包和 Node 安装说明保留供旧安装维护；新的 Skill 默认执行上面的 Docker 流程。
+## Docker 安装（推荐）
 
-### 旧版多端管理后台（原生兼容）
+macOS / Windows 先安装并启动 Docker Desktop，Windows 使用 Linux 容器模式；Linux 使用 Docker Engine 与 Compose v2。先在终端确认以下命令能正常运行，Compose 需支持 `up --wait`：
 
-主界面为运营概览、账号管理、自动化任务配置、关系名单、热点列表、任务记录、系统日志和作者页。任务记录和自动化任务配置每页 20 条；任务记录从数据库分页查询全部历史，在详情中查看执行阶段、模型用量、失败原因和发送回执。连接与模型配置从右上角状态灯打开。前端复用 Soybean Admin 的 Vue 框架与 Naive UI 原生组件，曲线使用 ECharts，保持现有数据口径，后端由 Rust / SQLite 管理快照、连接与任务，Tauri 2 承载桌面和移动端。0.7.0 的 Electron 模型控制台原型已退出主流程。
+```sh
+git --version
+docker info
+docker compose version
+```
 
-Mac 更新优先使用 PKG 覆盖安装包，固定替换应用程序目录中的 OnHold Admin，旧 0.7.0 原型备份保留。
+安装脚本会从本仓库源码构建镜像、启动后台、检查健康状态，并导出浏览器插件。首次构建时间取决于网络和电脑性能。应用镜像在本机构建，无需寻找预先发布的 OnHold 镜像。
 
-桌面打包默认校验并附带 **Hy-MT2、Laya 及现有离线运行环境**；统计后台可独立使用，不因模型未加载而阻止查看数据。已有翻译安装器及模型工作进程保留兼容。手机端模型内置与离线推理尚未完成，不能用桌面运行时宣称支持手机推理。
+### macOS / Linux
 
-- 先执行 `npm --prefix app ci`、`npm run app:build`、`npm run desktop:start`。
-- 按「安装 → 连接 → 完成」引导在 Chrome / Edge 加载助手，地址与密钥自动配对。
-- 新版插件连接时通过 CDP 读取登录凭证、学习当前账号的只读接口，由 Rust 后台每 5 分钟获取资料和本人帖子，关闭浏览器后仍继续。凭证失效后暂停并提示重新连接；账号页「断开采集」清除凭证并保留历史数据。旧插件仍使用原浏览器采集流程。
-- 官方分析与创作者数据仅接受已支持的接口结构；未识别时保留上次数据并显示失败原因。接口适配范围、登录态存储及验证步骤见 [后台采集说明](docs/BACKEND-CAPTURE.md)。
-- 移动界面支持 HTTPS 连接 Rust 服务；Chrome/Edge 桌面插件不会在手机 Chrome 中运行。
+在终端依次执行：
 
-已通过 Rust 统计/任务测试、真实 CDP 夹具联动、密钥/来源校验及 375/768/1320 布局检查。Android 缺少 SDK/NDK，iOS 缺少完整 Xcode/CocoaPods 与签名配置，尚未生成 APK/IPA。构建方法与限制见 [多端打包说明](docs/DESKTOP.md)。
+```bash
+mkdir -p "$HOME/OnHold"
+git clone https://github.com/OnHoldCC/x-assistant.git "$HOME/OnHold/source"
+export ONHOLD_INSTALL_DIR="$HOME/OnHold"
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" install
+```
 
-### 环境要求
+### Windows
 
-| 项目 | 要求 |
-| --- | --- |
-| 浏览器 | Chrome 120+ 或兼容的 Edge |
-| Node.js | Skill 自动检测；缺少合适版本时自动安装独立 Node.js |
-| 磁盘空间 | 首次安装至少预留 8 GiB |
-| 翻译模型 | Hy-MT2-1.8B GGUF Q8_0，约 1.91 GB，首次需要翻译时下载 |
-| 评分模型 | Laya 多语版，下载约 678 MB |
-| 系统 | macOS / Windows；Mac 优先 Metal；Windows 检测可用 GPU，失败时回退 CPU |
+在 PowerShell 中依次执行：
 
-Mac Apple Silicon 已完成本机模型实测。Mac / Windows 自动化测试均已通过；Windows 真机模型运行、Intel Mac 和全新机器下载流程尚未完整实测。
+```powershell
+$env:ONHOLD_INSTALL_DIR = Join-Path $env:USERPROFILE 'OnHold'
+New-Item -ItemType Directory -Force $env:ONHOLD_INSTALL_DIR | Out-Null
+git clone https://github.com/OnHoldCC/x-assistant.git (Join-Path $env:ONHOLD_INSTALL_DIR 'source')
+& (Join-Path $env:ONHOLD_INSTALL_DIR 'source/docker/deploy.ps1') -Action install
+```
 
-Skill 自动准备 Node.js，再由安装器准备模型运行环境，无需手动安装 Node.js、Python、Docker 或 Ollama。已有合适的 Node.js 会直接复用；独立 Node.js 不覆盖系统版本，也不修改全局 PATH。
+如果系统策略阻止执行 `.ps1`，可在确认脚本内容后，仅为当前 PowerShell 窗口放行，再执行最后一条命令：
 
-### 方式一：通过 Skill 安装
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
 
-在已经安装 Skill 的 Agent 中，直接说：
+### 安装结果
+
+出现「部署完成」后，用准备安装插件的 Chrome / Edge 打开：
+
+**<http://127.0.0.1:18431/>**
+
+默认目录如下，Windows 对应 `%USERPROFILE%` 下的 `OnHold`：
 
 ```text
-安装 OnHold 助手
-升级 OnHold 助手
-卸载 OnHold 助手
-把翻译模型换成这个：[模型链接]
+~/OnHold/
+├── source/       # Git 源码与 compose.yaml
+├── extension/    # 浏览器加载这个目录
+└── backups/      # 执行备份后生成
 ```
 
-首次使用时，将以下请求交给支持 Skill 与终端操作的 Agent：
+账号与任务数据保存在 Docker 数据卷中，不在 `source/` 里。`ONHOLD_INSTALL_DIR` 指向安装根目录，保持与 `source/` 分开，避免导出插件时替换 Git 中的 `source/extension/`。
 
-> 从 https://github.com/OnHoldCC/x-assistant 安装 skills/onhold-assistant。使用该 Skill 自动检测并安装 Node.js，部署插件和本机翻译、评分模型，完成后检查服务状态。
+到这里后台已经启动。接下来完成[连接浏览器](#连接浏览器)，需要 AI 发文或回复时再[配置模型](#配置模型)。
 
-已有 Node.js 时，也可以先用以下命令安装 Skill：
+也可以把 [OnHold 安装 Skill](skills/onhold-assistant/SKILL.md) 交给支持 Skill 和终端操作的 Agent，输入「安装 OnHold 助手」。它使用同一套 Docker 流程；浏览器登录、插件加载和首次系统授权仍需你完成。
 
-```sh
-npx skills add OnHoldCC/x-assistant --skill onhold-assistant
-```
+## 源码运行
 
-Skill 支持安装、升级、卸载、替换兼容模型和诊断。安装 Skill 本身不会立即下载或运行模型；执行安装任务时才会引导 Node.js 和模型依赖。
+此方式不需要 Docker。先准备：
 
-### 离线安装
+- **Node.js 24**（与当前前端 CI 一致；根目录要求至少 22.20.0）。
+- **Rust 1.94.1 及 Cargo**（与构建镜像一致）。
+- 系统 C/C++ 编译工具：macOS 的 Xcode Command Line Tools；Windows 的 Visual Studio Build Tools（C++ 桌面开发）；Linux 的编译工具链，例如 Debian / Ubuntu 的 `build-essential`。
 
-离线包按系统和处理器架构分别构建，包含独立 Node.js、Python、运行时、模型和全部依赖 wheels，不包含用户数据。下载并解压对应离线包后，将其目录交给 Agent 执行安装；不需要单独安装 llama.cpp。
-
-离线安装建议预留 16 GiB 可用空间，以容纳下载分卷、临时解压文件和最终安装。
-
-维护者可以从已验证的默认模型安装生成离线目录：
-
-```sh
-node bin/build-offline.mjs --home /path/verified-install --output /path/new-offline-bundle
-node bin/pack-offline.mjs --bundle /path/new-offline-bundle
-```
-
-此命令需要在目标平台上运行。离线包使用 `install.command`（Mac）或 `install.ps1`（Windows）作为入口；缺少或损坏的离线资产会明确报错，不自动转为联网安装。完整离线包及各平台实际测试状态以 GitHub Releases 的说明为准。
-
-打包器生成每份不超过 1.5 GiB 的分卷及校验、自动还原安装入口。用户只需下载同一平台的全部分卷和入口文件，交给 Agent 安装。模型不进入 Git 历史。推送 `v*` 版本标签会触发 Mac / Windows 离线构建与实际推理测试；两端通过后才公开 Release。详细步骤见 [离线分发说明](docs/OFFLINE-RELEASE.md)。
-
-### 方式二：从仓库运行
-
-此方式需要已有 Git 与 Node.js 22.20+；希望自动准备 Node.js 时使用上面的 Skill 流程。
+在终端执行，macOS / Linux 和 Windows PowerShell 均可使用以下命令：
 
 ```sh
 git clone https://github.com/OnHoldCC/x-assistant.git
 cd x-assistant
-node bin/cli.mjs doctor
-node bin/cli.mjs setup --no-open
+npm --prefix app ci
+npm run app:build
+cargo run --release --locked --manifest-path backend/Cargo.toml -- --home ./data --assets ./app/dist --port 18431
 ```
 
-安装器不再下载评分模型，启动本机服务后输出扩展目录。翻译模型及 llama.cpp 在首次需要本机翻译时才下载和加载；已有模型复用，缓存译文无需唤醒翻译模型。下载或加载失败可重试，GPU 翻译启动失败回退 CPU。llama.cpp 是自动下载的内部运行时，用户不需要单独安装。
+看到后台地址后，打开 **<http://127.0.0.1:18431/>**。后端在当前终端前台运行，按 `Ctrl+C` 停止；日常持续使用需保持进程运行。
 
-### 方式三：使用本地 npm 包
+- `app:build` 同时生成 `app/dist/` 和插件内的管理界面；完成构建后再加载插件。
+- 源码方式加载仓库中的 **`extension/`**，不是 Docker 安装导出的目录。
+- 数据默认位于当前仓库的 `data/`，数据库为 `data/onhold-admin.sqlite3`。上面的命令显式固定了数据和页面目录；切换工作目录时请使用对应的绝对路径。
+- `node bin/cli.mjs setup` 是旧翻译安装器入口，不能替代这里的 Rust 后台启动命令。
+
+然后继续完成下面的浏览器连接和模型配置。
+
+## 连接浏览器
+
+1. Chrome 打开 `chrome://extensions`，Edge 打开 `edge://extensions`，开启「开发者模式」。
+2. 点击「加载已解压的扩展程序」，选择含有 `manifest.json` 的目录：Docker 安装选 `~/OnHold/extension`，源码运行选仓库的 `extension/`。Windows 使用对应安装路径。
+3. 在**同一个浏览器配置文件**中打开 <https://x.com/> 并登录你的账号；如果 X 页面早于插件安装已打开，刷新一次页面。
+4. 在该浏览器打开 <http://127.0.0.1:18431/>，按初次连接引导操作，或点击右上角连接状态入口，在「账号与模型」中选择「连接 X 助手插件」。地址与密钥自动配对，无需手工复制 Cookie。
+5. 确认后台显示正确的 `@账号` 和连接状态，再执行一次账号采集，检查运营概览与任务记录。
+
+插件使用 `debugger` 权限通过 CDP 执行浏览器操作，Chrome 可能显示正在调试的提示。**发帖、评论、回复和关系操作需要浏览器保持运行、插件在线且 X 登录有效**；只看到后台采集在线，不代表浏览器写入连接可用。
+
+## 配置模型
+
+查看数据和管理任务不需要 AI 模型。新闻发文、自动评论、通知回复和「发同款」当前使用 **Codex CLI**；网页里的「自带 API Key」用于支持 API 的手动改写、分析等功能，不能替代这些自动化任务的 Codex 服务。
+
+### Docker 安装：启用并登录 Codex
+
+macOS / Linux：
+
+```bash
+export ONHOLD_INSTALL_DIR="$HOME/OnHold"
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" login
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ONHOLD_INSTALL_DIR = Join-Path $env:USERPROFILE 'OnHold'
+& (Join-Path $env:ONHOLD_INSTALL_DIR 'source/docker/deploy.ps1') -Action login
+```
+
+此操作会构建并启动可选的 `agent` 服务，然后执行设备登录。按终端提示打开官方登录链接并输入一次性代码。如果提示设备登录未启用，按 [OpenAI 官方认证说明](https://learn.chatgpt.com/docs/auth) 在账号安全设置或工作空间权限中启用设备代码登录后重试。
+
+**容器内 Codex 与宿主机独立登录**。电脑上已登录 Codex，不代表 Docker 中也已登录。
+
+### 源码运行：安装并登录本机 Codex
+
+在运行后端的同一个系统用户下执行；下面使用与仓库 Docker 构建相同的 CLI 版本：
 
 ```sh
-npx --yes --package ./onhold-assistant-0.8.0.tgz onhold-assistant setup --no-open
+npm install -g @openai/codex@0.165.0
+codex login
+codex login status
 ```
 
-当前尚未发布到 npm 注册表，`npx onhold-assistant` 还不能作为公开安装命令使用。
+安装方式另见 [Codex CLI 官方文档](https://learn.chatgpt.com/docs/codex/cli)。后端启动环境的 `PATH` 需要能找到 `codex`；安装后若仍未检测到，重新打开终端再启动后端。
 
-### 加载浏览器插件
+### 在后台完成设置
 
-1. 打开 `chrome://extensions` 或 `edge://extensions`。
-2. 开启开发者模式，选择“加载已解压的扩展”。
-3. 选择安装器输出的扩展目录。
-4. 点击工具栏的 **X + 蓝色助手气泡** 图标，在设置中保存并允许访问本机服务。
+打开右上角「账号与模型」，选择 Codex CLI，点击「保存模型」和「检查 CLI」。模型名称可留空，使用 CLI 默认值；选择自带 API 时则需要填写地址、接口格式、API Key 和模型名称。
 
-首次加载需要浏览器确认，安装器不会修改你的浏览器个人资料。
+模型请求会使用你的账号额度或 API 余额，失败或跳过的任务也可能产生 Token 用量。模型生成完成与 X 发布成功是两个阶段，是否发送成功应查看任务记录中的发送结果与回执。
 
-## 使用
+当前阅读和发帖主流程不依赖本地翻译或评分模型。Docker 中保留了兼容用途的 `translation` 选项，按需安装会额外下载约 1.91 GB 的 Hy-MT2 权重；首次使用无需启用，详见 [Docker 说明](docs/DOCKER.md)。
 
-### 自动翻译网页
+## 启动自动化
 
-阅读翻译只按原文真实换行分段；@账号、链接与标点保留在原句内。原文空行保留，模型推理分块不增加显示段落，缓存与耗时每条内容只显示一次。
+1. 在「自动化任务配置」中新建计划，选择账号与任务类型，例如新闻发文、For You 自动评论或通知回复。
+2. 设置语言、间隔、单轮数量与每日上限；新闻发文还需选择来源并填写主题。
+3. 保存后先核对配置，再点击「启用」。先使用小额度，确认首轮的采集、模型和发送结果。
+4. 在「任务记录」查看详情，在「运营概览」查看各任务成功数、失败数和累计 Token 用量。
 
-1. 打开需要翻译的网页。
-2. 点击插件图标，选择“将当前网站加入自动翻译”。
-3. 允许该网站权限，在插件设置中确认目标语言。
+新闻计划可选择每 1 分钟执行，实际执行还受任务耗时、排队和每日上限影响。同账号的浏览器动作串行执行；没有可用新内容、来源失败或核实未通过时会记录原因并跳过，不保证每轮都能发出帖子。
 
-此按钮只加入当前协议、域名和端口的所有路径，不包含子域名。也可以手动设置更窄的 URL 路径，例如：
+## 升级与维护
+
+### Docker 日常操作
+
+每次打开新终端，先设置安装根目录。macOS / Linux：
+
+```bash
+export ONHOLD_INSTALL_DIR="$HOME/OnHold"
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" status
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" verify
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ONHOLD_INSTALL_DIR = Join-Path $env:USERPROFILE 'OnHold'
+& (Join-Path $env:ONHOLD_INSTALL_DIR 'source/docker/deploy.ps1') -Action status
+& (Join-Path $env:ONHOLD_INSTALL_DIR 'source/docker/deploy.ps1') -Action verify
+```
+
+将最后的操作名替换为下表中的值即可：
+
+| 操作 | 行为 |
+| --- | --- |
+| `status` | 查看容器状态 |
+| `verify` | 检查后台与已启用的翻译服务 |
+| `start` | 从当前源码重新构建、启动、验证，并导出插件 |
+| `stop` | 停止服务，保留数据和模型 |
+| `backup` | **先停止服务**，再将私有数据备份到 `backups/`；完成后保持停止 |
+| `login` | 启用 Codex 服务并进行设备登录 |
+
+`verify` 不代表模型已登录或能完成发帖，模型状态还需在网页点击「检查 CLI」。查看后台日志，在 `source/` 目录执行：
+
+```sh
+docker compose --project-name onhold logs --tail=100 -f web
+```
+
+按 `Ctrl+C` 结束看日志，不会停止容器。Codex 服务日志可将 `web` 换为 `agent`。
+
+### 更新代码与插件
+
+先暂停自动化并等待正在发送的任务结束，再用**旧版本脚本备份**、拉取代码、用新版本启动。以下假设沿用默认目录和当前分支；本地有修改时先自行保存和处理，不要强制覆盖。
+
+macOS / Linux：
+
+```bash
+export ONHOLD_INSTALL_DIR="$HOME/OnHold"
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" backup
+git -C "$ONHOLD_INSTALL_DIR/source" pull --ff-only
+bash "$ONHOLD_INSTALL_DIR/source/docker/deploy.sh" start
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ONHOLD_INSTALL_DIR = Join-Path $env:USERPROFILE 'OnHold'
+& (Join-Path $env:ONHOLD_INSTALL_DIR 'source/docker/deploy.ps1') -Action backup
+git -C (Join-Path $env:ONHOLD_INSTALL_DIR 'source') pull --ff-only
+& (Join-Path $env:ONHOLD_INSTALL_DIR 'source/docker/deploy.ps1') -Action start
+```
+
+每一步成功后再执行下一步。单独 `git pull` 不会更新运行中的容器；`start` 会重新构建并更新固定插件目录。`upgrade` 操作会备份并重建当前源码，**不会替你拉取 Git 更新**。
+
+完成后在原 Chrome / Edge 打开 <http://127.0.0.1:18431/#/connect?upgrade=1>，按提示更新连接。运行中的旧插件不支持自动重载时，在扩展管理页手动点击「重新加载」。涉及 X 页面脚本更新时，先保存未发送草稿，再刷新 X 页面，确认实际连接版本与账号。
+
+源码方式更新时，先停止后端并备份整个 `data/`（包含可能存在的 SQLite WAL 文件），再拉取代码，重新执行 `npm --prefix app ci`、`npm run app:build` 和后端启动命令，然后重载插件。
+
+### 数据保存
+
+Docker Compose 项目名固定为 `onhold`：
+
+| 数据卷 | 内容 |
+| --- | --- |
+| `onhold_state` | 账号、任务、配置、缓存及可选 Codex 登录数据 |
+| `onhold_secrets` | 内部服务密钥 |
+| `onhold_models` | 可选翻译模型权重，启用后才创建 |
+
+`backup` 备份的是 `state` 中的私有数据，不包含模型权重和独立的 `secrets` 卷。备份内有账号会话和模型认证信息，应私密保存。需要恢复或迁移旧安装时，参阅[维护与恢复说明](skills/onhold-assistant/references/docker.md)，不要覆盖已有数据库或直接复制仍在写入的 SQLite 主文件。
+
+`stop` 和普通 `docker compose down` 保留数据卷。**不要使用 `down -v` 或删除数据卷来解决一般故障**，这会删除账号、任务历史或认证数据。当前安装流程不自动迁移旧桌面版数据。
+
+## 常见问题
+
+| 现象 | 检查与处理 |
+| --- | --- |
+| Docker 引擎未就绪 | 启动 Docker Desktop，等待 `docker info` 成功；Linux 确认当前用户能使用 Docker。 |
+| 下载或构建失败 | 找到日志中失败的镜像、npm 或 crates 源，检查网络和磁盘；修复后重试安装，构建缓存会保留。 |
+| `18431` 被占用 | 检查是否已有源码版、桌面版或另一份 OnHold 后台；先确认所属进程，再停止旧服务。默认不同时运行两种安装方式。 |
+| 后台打开空白或页面不存在 | 源码方式先完成 `npm run app:build` 并核对 `--assets` 目录；Docker 方式查看 `web` 日志和健康检查。 |
+| 未检测到插件 / 一直等待连接 | 核对加载目录含 `manifest.json`，后台与 X 使用同一浏览器配置文件，重载扩展、刷新 X 后重新连接。 |
+| 模型服务未启用 / 未登录 | Docker 执行 `login`，源码运行执行 `codex login`；回到网页保存模型并检查 CLI。 |
+| X 回复输入框未就绪 | 确认浏览器在线、X 未退出或弹出验证，等待页面加载后再检查任务；查看具体失败详情，避免连续盲目重试。 |
+| 显示跳过且没有发帖 | 展开任务日志，检查候选为空、重复、来源不可用或核实失败等具体原因；Token 消耗不表示帖子已经发出。 |
+| 手机 / 其他电脑打不开本机地址 | `127.0.0.1` 仅指当前设备；默认安装仅供本机使用，不提供直接对公网开放的配置。 |
+
+后台健康地址为 <http://127.0.0.1:18431/health>，可查看服务版本、构建 commit 和内置插件版本。需要反馈问题时，请附操作系统、安装方式、上述版本和已脱敏的失败阶段日志，不要提交 Cookie、配对密钥、API Key 或 Codex 登录凭据。
+
+## 开发与项目结构
 
 ```text
-https://x.com/home
-https://x.com/*/status/*
-https://example.com/articles/*
+app/                         Vue 前端与 Tauri 桌面壳
+backend/                     Rust / Axum / SQLite 后台
+extension/                   Chrome / Edge 插件
+compose.yaml                 Docker Compose 服务定义
+docker/                      镜像构建和部署脚本
+skills/onhold-assistant/     Agent 安装与维护 Skill
+lib/、bin/                   旧翻译安装器及兼容工具
+docs/                        设计、部署与业务说明
+test/                        Node 测试与浏览器夹具
 ```
 
-工具栏状态页底部提供等宽的“刷新状态”和“恢复当前页”按钮。更新后原页面连接失效时，点击“恢复当前页”重新加载网页；检测到未保存的正文或表单输入时会保留当前页并提示先保存。该操作不会再次重载扩展、导致其他标签页断开。
-
-### 翻译草稿
-
-- 发帖或评论时，直接使用 X 原输入框；有文字后，下方出现紧凑的“翻译 → 语言”入口，默认英文。
-- 默认英语，也可在这一行切换目标语言；仅点击按钮才调用本机模型，不在输入或选字时计算评分。
-- 译文先在输入框下方预览；点击“应用替换”才替换正文，图片和视频保留。“重新生成”重新调用本机模型，“撤销翻译”恢复替换前版本。
-- 请求期间修改正文、切换语言或关闭草稿翻译时，迟到的结果不会覆盖输入；中文输入法选字期间不能替换。
-- 主帖和评论框分别绑定，私信不处理；翻译与撤销从不点击发布按钮。
-- 草稿最多支持 4,000 字符，保留原文真实换行。输入框未完整接受译文时会提示核对或撤销。
-
-0.6.9：草稿只保留翻译与撤销。浏览帖子边框外上方靠右，仅显示帖子评分和参考加权互动率，点击详情展开右侧明细，再点收起折回；摘要独立留出一行空间，不覆盖上条帖子；只有明确点击评分或展开详情才请求内容参考分。账号 Analytics 与创作者状态在右上角插件的 X 数据页统一刷新。定时学习采集仍停止，已有数据保留。
-
-## 系统架构
-
-[项目功能目录、性能优化与升级兼容](docs/PROJECT-STRUCTURE.md) 说明前后端分层、已落实的优化、后续性能重点及数据库/接口兼容规则。
-
-0.6.0 的反馈闭环、参考学习、数据条件和限制见[帖子曝光学习架构](docs/EXPOSURE-LEARNING.md)。下面的图只展示基础请求与缓存链路。
-
-![OnHold 助手系统架构图](docs/architecture.svg)
-
-[下载可编辑的 Excalidraw 源文件](docs/architecture.excalidraw)
-
-### 一次请求如何处理
-
-1. 插件将正文交给本机接口。
-2. 先查本机内存缓存，命中后直接返回。
-3. 内存未命中时查 SQLite；查到后回填内存。
-4. 没有记录时调用本机模型，完成后保存结果并回填内存。
-5. 自动翻译长帖时先翻译当前显示部分并明确标注；点击 X 的“显示更多”后继续翻译展开内容。手动翻译仍可补读全文。正文翻译优先于排队中的评分辅助翻译，正在翻译的帖子暂缓评分。
-6. 推文分析需要中文时先交给 Hy-MT2，再提取候选短语，由 Laya 筛选标签和计算内容参考分。
-6. 推荐改写通过独立的 `/rewrite` 接口和独立缓存命名空间生成。采纳发生在浏览器中，不再次调用接口。数字、链接、账号及话题发生增删时拒绝该改写结果，语义事实仍需用户核对。
-
-### 缓存与持久数据
-
-| 层 | 内容 | 保留规则 |
-| --- | --- | --- |
-| 浏览器 | 设置、迁移标识、页面临时展示状态 | 不持久缓存译文或标签 |
-| 本机内存 | 最近使用的译文与分析结果 | 7 天有效，最多 2,000 项 / 32 MiB；重启即清空 |
-| 本机 SQLite | 原文版本、译文、标签、来源、可见互动快照、翻译统计 | 不因内存缓存超限而删除 |
-
-原文可以通过平台与 Post ID、URL 或内容指纹定位。译文与分析结果还包含目标语言、模型和流程版本索引。
-
-原文修改时保留历史版本；分段译文关联回来源帖子。不同模型或提示版本不会混用旧结果。默认草稿原文不存成帖子记录，生成的译文、改写和评分可以保存在本机结果层。明确开启账号学习后，会为训练保存该账号的原稿、发布前特征和已关联结果。
-
-### 资源统计
-
-| 指标 | 统计范围 |
-| --- | --- |
-| 平均耗时 | 模型实际推理耗时，不含缓存命中 |
-| CPU | 本机接口、翻译模型和评分模型进程；单核心满载为 100% |
-| 内存 | 上述本程序进程的 RSS 合计 |
-| 数据占用 | 浏览器设置与 SQLite / WAL / SHM；不含模型、运行时和下载缓存 |
-
-资源面板不显示 GPU 使用率；模型名称旁显示实际使用的推理后端。Windows 翻译优先尝试 Vulkan（可覆盖兼容的独显和核显），Laya 根据可用的 PyTorch 后端选择 CUDA、Intel XPU 或 CPU；Mac 优先 Metal。驱动不支持或启动失败时会报告原因并回退。
-
-安装时输出分阶段日志及真实下载进度。Agent 读取日志并定期汇报；依赖安装、模型加载等阶段不伪造总体百分比。
-
-## 维护
-
-以下命令在仓库目录运行。使用 npm 包时，请通过对应版本的安装器执行相同操作。
-
-| 操作 | 命令 |
-| --- | --- |
-| 环境检查 | `node bin/cli.mjs doctor` |
-| 查看状态 | `node bin/cli.mjs status` |
-| 启动 | `node bin/cli.mjs start` |
-| 停止 | `node bin/cli.mjs stop` |
-| 升级 | `node bin/cli.mjs upgrade --no-open` |
-| 卸载，保留数据 | `node bin/cli.mjs uninstall --no-open` |
-
-### 升级与回退
-
-先获取新代码或新版本 npm 包，再运行 `upgrade`。
-
-升级会备份 SQLite、旧代码与配置，保留模型选择和原有数据。新服务启动失败时，会恢复旧代码与配置，并尝试恢复旧服务。
-
-升级后需在浏览器重载插件。`upgrade` 不会自行从 npm 下载最新版。
-
-### 默认目录与端口
-
-| 系统 | 安装目录 |
-| --- | --- |
-| macOS | `~/Library/Application Support/OnHoldAssistant` |
-| Windows | `%LOCALAPPDATA%/OnHoldAssistant` |
-
-可以使用 `--home` 指定安装目录。
-
-服务只监听本机 `18427`、`18428`、`18430` 端口，不修改开机自启，也不会停止占用端口的其他应用。
-
-### 卸载与数据保留
-
-通过 Skill 卸载时，还会移除它自动安装并带有归属标记的独立 Node.js，用户的系统 Node.js 不受影响。直接调用 Node 安装器不会清理这一引导目录。
-
-默认卸载保留 `data/` 与 `backups/`，外部模型路径不删除。浏览器扩展需要在扩展管理页另外移除。
-
-仅在确定要同时删除原文、译文、标签、统计和备份时使用：
-
-```sh
-node bin/cli.mjs uninstall --purge-data --no-open
-```
-
-### 替换模型
-
-替换翻译模型：
-
-```sh
-node bin/cli.mjs replace-model --translation /path/model.gguf --sha256 YOUR_TRUSTED_SHA256 --no-open
-```
-
-替换评分模型：
-
-```sh
-node bin/cli.mjs replace-model --decision /path/laya --manifest /path/manifest.json --no-open
-```
-
-恢复默认模型：
-
-```sh
-node bin/cli.mjs replace-model --translation default --decision default --no-open
-```
-
-翻译端支持 llama.cpp 兼容 GGUF，评分端支持兼容 Laya 的检查点。评分模型清单必须列出必要文件的相对路径、大小和 SHA-256，详见 [模型说明](skills/onhold-assistant/references/models.md)。
-
-替换时保留旧模型与数据，检查新模型启动状态；启动成功不等于输出质量已验证。
-
-### 旧数据迁移
-
-首次安装时可导入旧 Python SQLite 译文记录：
-
-```sh
-node bin/cli.mjs setup --import-data /path/old.sqlite3 --no-open
-```
-
-旧浏览器翻译统计只迁移一次。缺少原文的旧缓存无法反向恢复原文。
-
-## 开发与验证
+在已准备源码运行环境后，常用检查命令如下：
 
 ```sh
 npm test
+cargo test --locked --manifest-path backend/Cargo.toml
+npm run app:build
 ```
 
-具备 Playwright 的开发环境可额外执行 `node test/writing-browser.mjs`、`node test/ad-filter-browser.mjs`、`node test/settings-browser.mjs`、`node test/translation-browser.mjs`；也可通过 `PLAYWRIGHT_MODULE` 指向宿主提供的 Playwright。该测试使用模型替身，检查输入框下方的翻译行、无评分和改写请求、语言切换、中文输入法、陈旧结果保护、预览与应用、重新生成、图片视频保留、撤销、多编辑器和窄屏布局；不用于评估译文质量。
+`npm run ui:dev` 启动前端开发服务，组件规范页面为 `http://127.0.0.1:1420/ui.html`。完整业务使用上文 Rust 后台提供的 `18431` 页面；单独启动 Vite 不会启动后端，也不会自动配对。
 
-GitHub Actions 检查 macOS / Windows 与 Node.js 22.20 / 24。自动化测试覆盖缓存、索引、数据迁移、接口校验、模型校验、升级回退和卸载边界，不等同于所有硬件上的模型实测。
+桌面版基于 Tauri 2，另有平台构建依赖和离线资源要求，详见[桌面构建说明](docs/DESKTOP.md)。旧离线包见[离线分发说明](docs/OFFLINE-RELEASE.md)；这些不属于推荐 Docker 安装所需步骤。Android / iOS 尚未交付可用安装包。
+
+## 更多文档
+
+- [Docker 部署说明](docs/DOCKER.md)与[维护、更新及恢复](skills/onhold-assistant/references/docker.md)
+- [自动化与运营口径](docs/OPERATIONS-0.9.md)、[新闻来源与核实](docs/NEWS-SOURCES.md)
+- [后台采集与登录态存储](docs/BACKEND-CAPTURE.md)、[账号指标说明](docs/X-OPERATIONS-METRICS.md)
+- [UI 设计规范](docs/ONHOLD-UI.md)、[更新日志](docs/RELEASE-0.9.5.md)
 
 ## 许可证
 
-本项目采用 [OnHold 助手源码可用许可证 1.0](LICENSE)。
+本项目采用 [OnHold 助手源码可用许可证 1.0](LICENSE)：允许免费使用、研究、修改与免费分发，也允许个人和企业运营自己的商业账号。未经作者另行书面授权，禁止转售软件、付费分发或向第三方收费提供软件功能。分发和修改版本需保留许可、作者及官方来源说明。
 
-| 允许 | 未经另行书面授权禁止 |
-| --- | --- |
-| 免费使用、研究、修改与分发 | 转售、出租或付费下载插件 |
-| 个人或企业运营自己的商业账号 | 将插件打包为收费软件或会员权益 |
-| 将译文与分析结果用于自己的商业内容 | 将插件功能作为收费服务提供给第三方 |
-
-分发时需保留许可证、作者署名和官方来源；修改版本需注明修改者，不得冒充官方。第三方依赖及模型不受本项目定制条款重新许可。
-
-这是源码可用许可，不是 OSI 批准的开源许可证。
-
-第三方模型、运行时与字体遵循各自许可证，见 [第三方声明](THIRD_PARTY_NOTICES.txt)。
+**这是定制的源码可用许可，不是 OSI 批准的开源许可证。** 第三方代码、字体、运行时与模型遵循各自许可证，见[第三方声明](THIRD_PARTY_NOTICES.txt)。
 
 ## 作者
 
-**OnHoldCC**
-
-- [X · @OnHoldCC](https://x.com/OnHoldCC)
-- [Telegram · @On_Hold_CC](https://t.me/On_Hold_CC)
-
-账号运营、资格与收益的计算口径见 [X 运营指标说明](docs/X-OPERATIONS-METRICS.md)。
+**OnHoldCC** · [X · @OnHoldCC](https://x.com/OnHoldCC) · [Telegram · @On_Hold_CC](https://t.me/On_Hold_CC)
