@@ -7,6 +7,7 @@ import type { Job } from "@/shared/types";
 import { useWorkspace } from "./workspace";
 import {
   states,
+  jobLabels,
   jobTitle,
   jobLabel,
   jobMessage,
@@ -26,6 +27,7 @@ const discoveryLabels: Record<string, string> = {
 };
 const w = useWorkspace(),
   jobFilter = ref("all"),
+  taskTypeFilter = ref("all"),
   sourceFilter = ref("all"),
   working = ref(""),
   error = ref(""),
@@ -54,7 +56,7 @@ watch([() => w.selected], () => {
   records.value = { items: [], total: 0 };
 });
 watch(
-  [() => w.jobs, () => w.selected, jobFilter, sourceFilter, search, page],
+  [() => w.jobs, () => w.selected, jobFilter, taskTypeFilter, sourceFilter, search, page],
   async (_, __, cleanup) => {
     const id = ++request;
     cleanup(() => request++);
@@ -68,6 +70,7 @@ watch(
         {
           account: w.selected,
           state: jobFilter.value,
+          task_type: taskTypeFilter.value,
           source: sourceFilter.value,
           search: search.value,
           offset: (page.value - 1) * 20,
@@ -198,6 +201,16 @@ async function create() {
 const typeOptions = [
   { value: "capture", label: "采集账号与帖子" },
   { value: "capture_analytics", label: "采集官方分析" },
+];
+const recordTypeOptions = [
+  { value: "all", label: "全部任务类型" },
+  ...Object.entries(jobLabels).map(([value, label]) => ({ value, label })),
+  { value: "capture_notification_follows", label: "识别新关注通知" },
+  { value: "news", label: "新闻发文" },
+  { value: "reply_for_you", label: "自动评论（For You）" },
+  { value: "reply_notifications", label: "自动回复（通知）" },
+  { value: "replicate", label: "发同款" },
+  { value: "similar", label: "生成同类文章" },
 ];
 const stateType = (j: Job) =>
   j.input?.stage === "skipped"
@@ -343,6 +356,15 @@ const columns: DataTableColumns<Job> = [
         /><NSelect
           role="combobox"
           :menu-props="{ role: 'listbox' }"
+          :node-props="(option: { label?: unknown }) => ({ role: 'option', 'aria-label': String(option.label) })"
+          v-model:value="taskTypeFilter"
+          aria-label="筛选任务类型"
+          filterable
+          :options="recordTypeOptions"
+          @update:value="page = 1"
+        /><NSelect
+          role="combobox"
+          :menu-props="{ role: 'listbox' }"
           :node-props="
             (option: { label?: unknown }) => ({
               role: 'option',
@@ -355,8 +377,9 @@ const columns: DataTableColumns<Job> = [
             { value: 'all', label: '全部状态' },
             ...Object.entries(states).map(([value, label]) => ({
               value,
-              label,
+              label: value === 'rewriting' ? '模型生成中' : label,
             })),
+            { value: 'skipped', label: '本轮跳过' },
           ]"
           @update:value="page = 1"
         /><NSelect
@@ -388,7 +411,7 @@ const columns: DataTableColumns<Job> = [
         :row-key="(row: Job) => row.id"
         aria-label="任务记录列表"
         ><template #empty>{{
-          search || jobFilter !== "all" || sourceFilter !== "all"
+          search || jobFilter !== "all" || taskTypeFilter !== "all" || sourceFilter !== "all"
             ? "没有匹配的任务"
             : "暂无任务"
         }}</template></NDataTable

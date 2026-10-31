@@ -82,16 +82,32 @@ impl Store {
         let account = handle(account)?;
         let offset = input.get("offset").map_or(Some(0), Value::as_i64).filter(|n| *n >= 0).ok_or("任务页码无效")?;
         let state = input.get("state").and_then(Value::as_str).unwrap_or("all");
-        if !["all", "queued", "rewriting", "running", "completed", "failed"].contains(&state) { return Err("任务状态无效".into()); }
+        if !["all", "queued", "rewriting", "running", "completed", "failed", "skipped"].contains(&state) { return Err("任务状态无效".into()); }
         let search = input.get("search").and_then(Value::as_str).unwrap_or("").trim();
         let source = input.get("source").and_then(Value::as_str).unwrap_or("all");
         if !["all", "automation", "other"].contains(&source) { return Err("任务来源无效".into()); }
+        let task_type = input.get("task_type").map_or(Some("all"), Value::as_str).ok_or("任务类型无效")?;
+        if !["all", "capture", "capture_analytics", "capture_creator", "capture_relationships", "capture_for_you", "capture_notifications", "capture_notification_follows", "follow_back", "unfollow", "rewrite_publish", "news", "reply_for_you", "reply_notifications", "replicate", "similar"].contains(&task_type) {
+            return Err("任务类型无效".into());
+        }
         let db = self.lock()?;
-        let condition = "FROM jobs WHERE account=?1 AND coalesce(json_extract(input,'$.hidden'),0)=0 AND (?2='all' OR state=?2) AND (?4='all' OR (?4='automation' AND json_extract(input,'$.task_id') IS NOT NULL) OR (?4='other' AND json_extract(input,'$.task_id') IS NULL)) AND instr(lower(id||' '||action||' '||coalesce(error,'')||' '||coalesce(json_extract(input,'$.text'),'')||' '||coalesce(json_extract(input,'$.source.url'),'')||' '||coalesce(json_extract(input,'$.source.text'),'')||' '||CASE WHEN json_extract(input,'$.mode')='news' THEN '新闻发文' WHEN json_extract(input,'$.mode')='reply' THEN CASE WHEN json_extract(input,'$.scope')='notifications' THEN '自动回复' ELSE '自动评论' END WHEN json_extract(input,'$.mode')='replicate' THEN '发同款' WHEN json_extract(input,'$.mode')='similar' THEN '生成同类文章' ELSE CASE action WHEN 'capture' THEN '采集账号与帖子' WHEN 'capture_analytics' THEN '采集官方分析' WHEN 'capture_creator' THEN '采集创作者资格' WHEN 'capture_relationships' THEN '同步关系名单' WHEN 'capture_for_you' THEN '读取 For You 帖子' WHEN 'capture_notifications' THEN CASE WHEN json_extract(input,'$.publication_mode')='follow_back' THEN '识别新关注通知' ELSE '读取通知回复' END WHEN 'follow_back' THEN '定时回关' WHEN 'unfollow' THEN '定时取消关注' ELSE '改写并定时发布' END END),lower(?3))>0";
-        let total: i64 = db.query_row(&format!("SELECT COUNT(*) {condition}"), params![account,state,search,source], |r| r.get(0)).map_err(|e|e.to_string())?;
+        let condition = "FROM jobs WHERE account=?1 AND coalesce(json_extract(input,'$.hidden'),0)=0 AND (?2='all'
+            OR (?2='completed' AND state='completed' AND coalesce(json_extract(input,'$.stage'),'')<>'skipped')
+            OR (?2='skipped' AND state='completed' AND json_extract(input,'$.stage')='skipped')
+            OR (?2 NOT IN ('completed','skipped') AND state=?2)) AND (?4='all' OR (?4='automation' AND json_extract(input,'$.task_id') IS NOT NULL) OR (?4='other' AND json_extract(input,'$.task_id') IS NULL)) AND (?5='all' OR CASE
+            WHEN action='capture_notifications' AND json_extract(input,'$.publication_mode')='follow_back' THEN 'capture_notification_follows'
+            WHEN action='rewrite_publish' THEN CASE coalesce(json_extract(input,'$.mode'),'')
+                WHEN 'news' THEN 'news'
+                WHEN 'reply' THEN CASE WHEN json_extract(input,'$.scope')='notifications' THEN 'reply_notifications' ELSE 'reply_for_you' END
+                WHEN 'replicate' THEN 'replicate'
+                WHEN 'similar' THEN 'similar'
+                ELSE 'rewrite_publish' END
+            ELSE action END=?5)
+            AND instr(lower(id||' '||action||' '||coalesce(error,'')||' '||coalesce(json_extract(input,'$.text'),'')||' '||coalesce(json_extract(input,'$.source.url'),'')||' '||coalesce(json_extract(input,'$.source.text'),'')||' '||CASE WHEN json_extract(input,'$.mode')='news' THEN '新闻发文' WHEN json_extract(input,'$.mode')='reply' THEN CASE WHEN json_extract(input,'$.scope')='notifications' THEN '自动回复' ELSE '自动评论' END WHEN json_extract(input,'$.mode')='replicate' THEN '发同款' WHEN json_extract(input,'$.mode')='similar' THEN '生成同类文章' ELSE CASE action WHEN 'capture' THEN '采集账号与帖子' WHEN 'capture_analytics' THEN '采集官方分析' WHEN 'capture_creator' THEN '采集创作者资格' WHEN 'capture_relationships' THEN '同步关系名单' WHEN 'capture_for_you' THEN '读取 For You 帖子' WHEN 'capture_notifications' THEN CASE WHEN json_extract(input,'$.publication_mode')='follow_back' THEN '识别新关注通知' ELSE '读取通知回复' END WHEN 'follow_back' THEN '定时回关' WHEN 'unfollow' THEN '定时取消关注' ELSE '改写并定时发布' END END),lower(?3))>0";
+        let total: i64 = db.query_row(&format!("SELECT COUNT(*) {condition}"), params![account,state,search,source,task_type], |r| r.get(0)).map_err(|e|e.to_string())?;
         let offset = offset.min((total.saturating_sub(1)/20)*20);
-        let mut statement = db.prepare(&format!("SELECT id,account,action,state,created_at,updated_at,error,input,result {condition} ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET ?5")).map_err(|e|e.to_string())?;
-        let rows = read_jobs(&db, &mut statement, params![account,state,search,source,offset])?;
+        let mut statement = db.prepare(&format!("SELECT id,account,action,state,created_at,updated_at,error,input,result {condition} ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET ?6")).map_err(|e|e.to_string())?;
+        let rows = read_jobs(&db, &mut statement, params![account,state,search,source,task_type,offset])?;
         Ok(json!({"items":rows,"total":total,"offset":offset}))
     }
     pub fn delete_job(&self, account: &str, id: &str, at: i64) -> Result<Value, String> {

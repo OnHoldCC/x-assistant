@@ -31,7 +31,11 @@ try {
    if(operation==='save_automation'){const id=input.id||'plan-'+Date.now(),plan={id,enabled:false,state:'paused',next_run:at,last_run:null,config:{...input}};window.plans=window.plans.filter(plan=>plan.id!==id).concat(plan);return {id};}
    if(operation==='control_automation'){const plan=window.plans.find(plan=>plan.id===input.id);plan.enabled=input.enabled;plan.state=input.enabled?'waiting':'paused';return {saved:true};}
    if(operation==='delete_automation'){window.plans=window.plans.filter(plan=>plan.id!==input.id);return {saved:true};}
-   if(operation==='job_records'){const pageInput=input,rows=(window.jobs).filter(job=>job.account===pageInput.account&&(!pageInput.source||pageInput.source==='all'||(pageInput.source==='automation'?!!job.input?.task_id:!job.input?.task_id))&&(pageInput.state==='all'||job.state===pageInput.state)&&[job.id,job.action,job.error,job.input?.text,job.input?.source?.text].join(' ').toLowerCase().includes(pageInput.search.trim().toLowerCase()));const offset=Math.min(pageInput.offset,Math.floor(Math.max(0,rows.length-1)/20)*20);return {items:structuredClone(rows.slice(offset,offset+20)),total:rows.length,offset};}
+   if(operation==='job_records'){
+    const taskType=job=>job.action==='capture_notifications'&&job.input?.publication_mode==='follow_back'?'capture_notification_follows':job.action==='rewrite_publish'?job.input?.mode==='reply'?job.input.scope==='notifications'?'reply_notifications':'reply_for_you':['news','replicate','similar'].includes(job.input?.mode)?job.input.mode:'rewrite_publish':job.action;
+    const rows=window.jobs.filter(job=>job.account===input.account&&(!input.source||input.source==='all'||(input.source==='automation'?!!job.input?.task_id:!job.input?.task_id))&&(!input.task_type||input.task_type==='all'||taskType(job)===input.task_type)&&(input.state==='all'||(job.state==='completed'&&job.input?.stage==='skipped'?'skipped':job.state)===input.state)&&[job.id,job.action,job.error,job.input?.text,job.input?.source?.text].join(' ').toLowerCase().includes(input.search.trim().toLowerCase()));
+    const offset=Math.min(input.offset,Math.floor(Math.max(0,rows.length-1)/20)*20);return {items:structuredClone(rows.slice(offset,offset+20)),total:rows.length,offset};
+   }
    if(operation==='job_logs')return {items:[{id:1,at:Date.now(),stage:'created',message:'任务已创建'}],total:1,offset:0};
    if(operation==='jobs'){if(window.holdJobPoll)await new Promise(resolve=>window.releaseJobPoll=resolve);return structuredClone(window.jobs);}
    if(operation==='enqueue'){const job={id:'job-'+Date.now(),account:input.account,action:input.action,state:'queued',created_at:at,updated_at:at,error:null};window.jobs.push(job);return {id:job.id};}
@@ -121,6 +125,27 @@ try {
  await page.getByRole('searchbox',{name:'搜索任务',exact:true}).fill('');await recordPager.getByText('共 40 条 · 每页 20 条',{exact:true}).waitFor();await recordPager.getByRole('button',{name:'下一页',exact:true}).click();await recordPager.getByText('第 2 / 2 页',{exact:true}).waitFor();
  await page.getByRole('combobox',{name:'任务状态',exact:true}).click();await page.getByRole('option',{name:'已完成',exact:true}).click();await recordPager.getByText('第 1 / 1 页',{exact:true}).waitFor();await jobs.getByText('没有匹配的任务',{exact:true}).waitFor();
  await page.getByRole('combobox',{name:'任务状态',exact:true}).click();await page.getByRole('option',{name:'全部状态',exact:true}).click();await page.getByRole('combobox',{name:'任务来源',exact:true}).click();await page.getByRole('option',{name:'自动化执行',exact:true}).click();await recordPager.getByText('共 1 条 · 每页 20 条',{exact:true}).waitFor();await jobs.getByText('历史记录 1',{exact:true}).waitFor();
+ await page.getByRole('combobox',{name:'任务来源',exact:true}).click();await page.getByRole('option',{name:'全部来源',exact:true}).click();await recordPager.getByRole('button',{name:'下一页',exact:true}).click();await recordPager.getByText('第 2 / 2 页',{exact:true}).waitFor();
+ await page.getByRole('combobox',{name:'筛选任务类型',exact:true}).click();await page.getByRole('combobox',{name:'筛选任务类型',exact:true}).locator('input').fill('新闻发文');await page.getByRole('option',{name:'新闻发文',exact:true}).click();await recordPager.getByText('第 1 / 1 页',{exact:true}).waitFor();await jobs.getByText('没有匹配的任务',{exact:true}).waitFor();
+ await page.evaluate(()=>{window.jobs=[
+  {id:'news-ok',action:'rewrite_publish',state:'completed',input:{mode:'news',task_id:'plan'}},
+  {id:'news-skipped',action:'rewrite_publish',state:'completed',input:{mode:'news',stage:'skipped',task_id:'plan'}},
+  {id:'news-failed',action:'rewrite_publish',state:'failed',input:{mode:'news',task_id:'plan'}},
+  {id:'comment',action:'rewrite_publish',state:'completed',input:{mode:'reply',scope:'for_you'}},
+  {id:'reply',action:'rewrite_publish',state:'completed',input:{mode:'reply',scope:'notifications'}},
+  {id:'follow-notification',action:'capture_notifications',state:'queued',input:{publication_mode:'follow_back'}},
+ ].map(job=>({...job,account:'example',created_at:Date.now(),updated_at:Date.now(),error:null}));});
+ await recordPager.getByText('共 3 条 · 每页 20 条',{exact:true}).waitFor();
+ for(const status of ['已完成','本轮跳过','失败']){
+  await page.getByRole('combobox',{name:'任务状态',exact:true}).click();await page.getByRole('option',{name:status,exact:true}).click();await recordPager.getByText('共 1 条 · 每页 20 条',{exact:true}).waitFor();await jobs.getByText(status,{exact:true}).waitFor();
+ }
+ await page.getByRole('combobox',{name:'任务来源',exact:true}).click();await page.getByRole('option',{name:'其他任务',exact:true}).click();await jobs.getByText('没有匹配的任务',{exact:true}).waitFor();
+ await page.getByRole('combobox',{name:'任务来源',exact:true}).click();await page.getByRole('option',{name:'全部来源',exact:true}).click();await page.getByRole('combobox',{name:'任务状态',exact:true}).click();await page.getByRole('option',{name:'全部状态',exact:true}).click();
+ for(const [label,title] of [['自动回复（通知）','自动回复'],['自动评论（For You）','自动评论'],['识别新关注通知','识别新关注通知']]){
+  await page.getByRole('combobox',{name:'筛选任务类型',exact:true}).click();await page.getByRole('combobox',{name:'筛选任务类型',exact:true}).locator('input').fill(label);await page.getByRole('option',{name:label,exact:true}).click();await recordPager.getByText('共 1 条 · 每页 20 条',{exact:true}).waitFor();await jobs.getByRole('cell',{name:title,exact:true}).waitFor();
+ }
+ for(const width of [1440,375]){await page.setViewportSize({width,height:1000});await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth);await page.screenshot({path:`/tmp/onhold-task-filters-${width}.png`,fullPage:true});}
+ await page.setViewportSize({width:1440,height:1000});
  await page.evaluate(()=>{window.plans=Array.from({length:41},(_,index)=>({id:'paged-plan-'+index,enabled:false,state:'paused',next_run:Date.now(),last_run:null,config:{action:'follow_back',scope:'manual',targets:['target'+index],limit:5,interval_minutes:60,after_days:7}}));location.hash='automation';});
  const planPager=page.getByRole('navigation',{name:'自动化任务配置分页',exact:true});await planPager.getByText('共 41 条 · 每页 20 条',{exact:true}).waitFor();assert.equal(await automation.locator('tbody tr').count(),20);
  for(let i=0;i<2;i++)await planPager.getByRole('button',{name:'下一页',exact:true}).click();await planPager.getByText('第 3 / 3 页',{exact:true}).waitFor();assert.equal(await automation.locator('tbody tr').count(),1);

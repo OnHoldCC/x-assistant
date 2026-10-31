@@ -35,6 +35,59 @@ fn records_page_all_history_and_keep_search_state_and_account_scoped() {
 }
 
 #[test]
+fn records_filter_task_types_and_displayed_states_before_pagination() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("filters.db");
+    let store = Store::open(&file).unwrap();
+    let db = Connection::open(&file).unwrap();
+    let insert = |id: &str, account: &str, action: &str, state: &str, input: serde_json::Value| {
+        db.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,?,?,?,1,1,?)",
+            params![id,account,action,state,input.to_string()]).unwrap();
+    };
+    for action in ["capture", "capture_analytics", "capture_creator", "capture_relationships", "capture_for_you", "capture_notifications", "follow_back", "unfollow", "rewrite_publish"] {
+        insert(action, "example", action, "completed", json!({}));
+        let rows = store.job_records("example", &json!({"task_type":action})).unwrap();
+        assert_eq!(rows["total"], 1, "{action}");
+        assert_eq!(rows["items"][0]["id"], action);
+    }
+    for (kind, action, input) in [
+        ("capture_notification_follows", "capture_notifications", json!({"publication_mode":"follow_back"})),
+        ("reply_for_you", "rewrite_publish", json!({"mode":"reply","scope":"for_you"})),
+        ("reply_notifications", "rewrite_publish", json!({"mode":"reply","scope":"notifications"})),
+        ("replicate", "rewrite_publish", json!({"mode":"replicate"})),
+        ("similar", "rewrite_publish", json!({"mode":"similar"})),
+    ] {
+        insert(kind, "example", action, "completed", input);
+        let rows = store.job_records("example", &json!({"task_type":kind})).unwrap();
+        assert_eq!(rows["total"], 1, "{kind}");
+        assert_eq!(rows["items"][0]["id"], kind);
+    }
+    for index in 0..23 {
+        let state = if index < 21 { "failed" } else { "completed" };
+        insert(&format!("news-{index:02}"), "example", "rewrite_publish", state,
+            json!({"mode":"news","task_id":"plan","stage":if index==22 {"skipped"} else {"sending"},"text":format!("News item {index:02}")}));
+    }
+    insert("foreign", "other", "rewrite_publish", "completed", json!({"mode":"news"}));
+    insert("hidden", "example", "rewrite_publish", "completed", json!({"mode":"news","hidden":true}));
+    let page = store.job_records("example", &json!({"task_type":"news","offset":20})).unwrap();
+    assert_eq!(page["total"], 23);
+    assert_eq!(page["items"].as_array().unwrap().len(), 3);
+    for (state, total) in [("failed", 21), ("completed", 1), ("skipped", 1)] {
+        let rows = store.job_records("example", &json!({"task_type":"news","state":state,"source":"automation","offset":200})).unwrap();
+        assert_eq!(rows["total"], total, "{state}");
+        assert_eq!(rows["offset"], if total>20 {20} else {0});
+    }
+    assert_eq!(store.job_records("example", &json!({"task_type":"news","state":"failed","source":"automation","search":"News item 03"})).unwrap()["total"], 1);
+    assert_eq!(store.job_records("example", &json!({"task_type":"news","source":"other"})).unwrap()["total"], 0);
+    for kind in ["capture_notifications", "rewrite_publish"] {
+        assert_eq!(store.job_records("example", &json!({"task_type":kind})).unwrap()["total"], 1, "base types exclude their specialized tasks");
+    }
+    for invalid in [json!("unknown"), json!(23)] {
+        assert!(store.job_records("example", &json!({"task_type":invalid})).is_err());
+    }
+}
+
+#[test]
 fn detailed_logs_persist_real_transitions_model_usage_failures_and_cleanup() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("logs.db");

@@ -37,7 +37,7 @@ The frontend uses Vue 3 / TypeScript, Soybean Admin, and Naive UI. The backend u
 - **Automated comments and replies:** read new For You posts or replies in notifications, generate responses, and filter ads, duplicates, and unusable content.
 - **Content tools:** manual rewriting, draft generation, and scheduled publishing.
 - **Relationship management:** relationship lists and configurable follow-back or unfollow tasks.
-- **Task history:** collection, queueing, generation, and sending stages, including failures, duration, and model usage.
+- **Task history:** combined task type, status, source, and search filters, including a separate skipped status; inspect collection, queueing, generation, and sending stages, failures, duration, and model usage.
 
 Create and enable a plan to start automation. Saved plans are paused by default; installing the app does not start posting.
 
