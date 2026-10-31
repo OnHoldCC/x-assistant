@@ -267,6 +267,8 @@ The current reading and publishing workflow does not depend on local translation
 3. Save the paused plan, review its configuration, then click **启用** (Enable). Start with small limits and check the first collection, generation, and send results.
 4. Inspect details in **任务记录** (Task history), and lifetime successes, failures, and token usage in **运营概览** (Operations overview).
 
+For notification follow-back, choose **自动回关** (Automatic follow-back), set the scope to **通知中的新关注者** (New followers in notifications), configure the interval and limits, then save and enable the plan. The app reads follow notifications and checks each profile to confirm the person still follows you and has not already been followed back. This requires no model or tokens. It runs as a separate plan from notification replies.
+
 News plans support one-minute intervals. Actual timing also depends on execution duration, queueing, and daily limits. Browser actions for the same account run serially. Empty candidate pools, source failures, or unsuccessful verification produce a recorded skip reason; a post is not guaranteed every round.
 
 ## Updates and maintenance

@@ -171,7 +171,7 @@ const name = (p: Plan) =>
       : p.config.action === "auto_reply"
         ? "自动评论（For You）"
         : p.config.action === "follow_back"
-          ? "一键回关"
+          ? (p.config.scope === "notifications" ? "自动回关（通知）" : "自动回关")
           : "一键取消关注";
 const newsSources = [
   {value:"web",label:"全网新闻"},
@@ -530,7 +530,7 @@ async function save() {
                 :value="action"
                 aria-label="任务类型"
                 :options="[
-                  { value: 'follow_back', label: '一键回关' },
+                  { value: 'follow_back', label: '自动回关' },
                   { value: 'unfollow', label: '一键取消关注' },
                   { value: 'auto_post', label: '自动发文（新闻）' },
                   { value: 'auto_reply', label: '自动评论（For You）' },
@@ -545,7 +545,7 @@ async function save() {
               ><template v-else-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
-                与回执。</template
+                与回执。新关注者回关请另建「自动回关」任务，目标范围选择「通知中的新关注者」。</template
               ><template v-else
                 >读取 For You 的新帖子，不按评分筛选，每帖建立独立任务，交给
                 Codex
@@ -575,7 +575,7 @@ async function save() {
                   },
                   { value: 'manual', label: '手动指定名单' },
                 ]" /></NFormItem
-            ><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">识别小铃铛中的新关注通知，打开主页确认仍关注你、且尚未回关后执行。需要 1.5.14 或更新的助手；点赞通知不会触发回复。</p><NFormItem v-if="automatic" label="内容语言">
+            ><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">按执行间隔读取小铃铛中的新关注通知，打开对方主页确认仍关注你、且尚未回关后执行，跳过已关注或已处理账号。无需 Codex，不消耗 Token。需要 1.5.14 或更新的助手；点赞、转发和回复通知不会触发回关。</p><NFormItem v-if="automatic" label="内容语言">
               <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖（新闻默认中文）' }, { value: 'en', label: '英文（不限制原帖语言）' }]" />
             </NFormItem><NFormItem v-if="!automatic && scope === 'manual'" label="目标账号"
               ><NInput
