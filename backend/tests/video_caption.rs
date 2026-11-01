@@ -46,7 +46,7 @@ async fn captions_use_visual_input_never_publish_and_count_usage(){
  let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.clone().run_rewrite_queue());
  let job=finished(&store,id).await;assert_eq!(job["state"],"completed");assert_eq!(job["result"]["sent"],false);assert!(job["result"]["url"].is_null());
  assert_eq!(job["input"]["telemetry"]["generations"][0]["usage"]["total_tokens"],120);
- let status=runtime.call("video_caption_status",json!({"download_id":id})).await.unwrap();assert_eq!(status["caption_status"],"ready");assert!(status["requires_review"].as_bool().unwrap());
+ let status=runtime.call("video_caption_status",json!({"download_id":id})).await.unwrap();assert_eq!(status["caption_status"],"ready");assert_eq!(status["caption_job"]["result"]["content_policy"],onhold_backend::video_screening::CONTENT_POLICY);assert!(status["requires_review"].as_bool().unwrap());
  assert_eq!(std::fs::read_to_string(video::folder(dir.path(),id).unwrap().join("caption.txt")).unwrap(),job["result"]["text"].as_str().unwrap());
  let args=std::fs::read_to_string(dir.path().join("args")).unwrap();for required in ["--image","--output-schema","shell_tool","unified_exec","web_search=\"disabled\""]{assert!(args.contains(required),"{required}");}
  let stats=store.dashboard(Some("example"),7,now()).unwrap();let row=stats["task_stats"].as_array().unwrap().iter().find(|r|r["action"]=="video_caption").unwrap();assert_eq!(row["tokens"],120);assert_eq!(row["completed"],1);
