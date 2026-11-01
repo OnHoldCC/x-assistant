@@ -1,6 +1,7 @@
 import {LANGUAGES} from './languages.mjs';
 import './analysis-core.js';
 import {createCdpBridge} from './cdp-bridge.js';
+import {downloadTikTokVideo} from './tiktok.js';
 import {DEFAULTS, validateSettings, translationAllowed, translationHosts} from './core.js';
 
 const WEB_ORIGINS=['https://*/*','http://*/*'];
@@ -171,6 +172,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     await ready;
     const {ownPage,xPage,allowedWeb}=await translationContext(sender);
+    if(message.type==='TIKTOK_DOWNLOAD'){
+      if(!ownPage)throw Error('只允许插件页面下载视频');
+      return downloadTikTokVideo();
+    }
     if(message.type==='QUEUE_REWRITE'&&xPage)return cdpBridge.rewrite(message.data);
     if(['BOOKMARK_SAVE','BOOKMARK_GET'].includes(message.type)&&xPage)return cdpBridge.bookmark(message.data);
     if(message.type.startsWith('CDP_')){

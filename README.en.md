@@ -273,6 +273,8 @@ News plans default to RSS-based drafting. Searching to verify headlines without 
 
 From companion version 1.5.21, a confirmed send remains successful even if its page cannot be cleaned up. An uncertain send fails only that job, retains its page for inspection, and is never retried automatically. Neither case pauses the whole plan; later jobs continue. Review and clean up drafts in retained pages manually.
 
+Manual TikTok downloads (companion 1.5.22): open a specific `https://www.tiktok.com/@creator/video/id` page and select **下载当前 TikTok 视频** in the extension popup. Allow the optional downloads permission on first use. Files go to `OnHold/TikTok/` inside the browser's downloads directory. The extension uses the playback version and does not fall back to the watermarked download version; inspect the actual footage and ending for remaining branding. This action only downloads: it does not call a model or publish to X. Codex CLI can run FFmpeg locally on the downloaded files; prefer lossless remuxing when an unwatermarked playback version exists. Content selection excludes national politics and graphic or bloody footage; uncertain content must not be published. Automatic video screening and uploading are not implemented.
+
 ## Updates and maintenance
 
 ### Docker operations
