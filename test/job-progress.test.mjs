@@ -38,3 +38,10 @@ test('empty For You batches show actual reads and filter reasons instead of impl
  delete parent.input.capture_summary;
  assert.equal(jobProgress(parent).text,'本轮没有新的可回复帖子');
 });
+test('video progress distinguishes old captions, policy rejection and unresolved processing',()=>{
+ const completed={action:'video_caption',state:'completed'};
+ const old=jobProgress(job({...completed,result:{status:'ready'}}));assert.equal(old.value,0.5);assert.match(old.text,/仅文案已生成/);assert.doesNotMatch(old.text,/未通过/);
+ const rejected=jobProgress(job({...completed,result:{status:'rejected',skip_reason:'直播引流广告'}}));assert.equal(rejected.value,0);assert.match(rejected.text,/已排除，未发布：直播引流广告/);
+ const review=jobProgress(job({...completed,result:{status:'needs_review',skip_reason:'片尾水印仍存在'}}));assert.equal(review.value,0);assert.match(review.text,/需人工检查.*片尾水印/);
+ const ready=jobProgress(job({...completed,result:{status:'ready',processing:{verified:true}}}));assert.equal(ready.value,1);assert.match(ready.text,/已就绪/);
+});

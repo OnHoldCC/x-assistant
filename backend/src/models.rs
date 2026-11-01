@@ -722,7 +722,8 @@ impl Runtime {
                     let response=call_codex_images(&config,VIDEO_CAPTION_INSTRUCTIONS,&json!({"phase":"prepare","source":job["input"]["source"],"video":preparation,"language":"en"}).to_string(),&images,&mut usage).await?;
                     let raw:Value=serde_json::from_str(response.trim()).map_err(|_|"Codex 未返回有效的视频配文")?;
                     let mut value=crate::video::validate_caption(&raw)?;
-                    if value["status"]=="ready" && !value["editing"].is_null() {
+                    if value["status"]=="ready" && value["editing"].is_null(){return Err("模型未返回水印和片尾检查方案，视频未完成处理；未安排发布".into());}
+                    if value["status"]=="ready" {
                         self.store.video_step(id,"processing",crate::store::now())?;
                         let mut processing=crate::video_processing::prepare(&self.home,id,&value["editing"]).await?;
                         let edited=value["editing"]["trim_end_seconds"].as_f64().unwrap_or(0.0)>0.0||value["editing"]["regions"].as_array().is_some_and(|v|!v.is_empty());

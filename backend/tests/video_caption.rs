@@ -37,7 +37,7 @@ async fn finished(store:&Store,id:&str)->Value{
 #[tokio::test]
 async fn captions_use_visual_input_never_publish_and_count_usage(){
  let (dir,store,data)=setup("A kitten and a confetti balloon");let id=data["download_id"].as_str().unwrap();
- response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"One piece of confetti decided gravity was optional. #Cats #FunnyPets","reason":""}));
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"One piece of confetti decided gravity was optional. #Cats #FunnyPets","reason":"","editing":{"regions":[],"trim_end_seconds":0}}));
  store.enqueue_video_caption("example",&data,false,now()).unwrap();store.enqueue_video_caption("example",&data,true,now()).unwrap();
  assert!(store.enqueue_video_caption("other",&data,false,now()).is_err());
  let client=uuid::Uuid::new_v4().to_string();store.session_status(&client,"example","logged_in","",now()).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,serde_json::from_str::<Value>(include_str!("../../extension/manifest.json")).unwrap()["version"].as_str().unwrap()).unwrap();
@@ -60,7 +60,7 @@ async fn forbidden_titles_skip_the_model_and_failed_attempts_retry_without_redow
  let (dir,store,data)=setup("A kitten playing");let id=data["download_id"].as_str().unwrap();response(dir.path(),&json!({"invalid":"response"}));
  store.enqueue_video_caption("example",&data,false,now()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.clone().run_rewrite_queue());
  assert_eq!(finished(&store,id).await["state"],"failed");
- response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A tiny moment of kitten chaos. #Cats","reason":""}));
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A tiny moment of kitten chaos. #Cats","reason":"","editing":{"regions":[],"trim_end_seconds":0}}));
  runtime.call("retry_video_caption",json!({"download_id":id})).await.unwrap();runtime.call("retry_video_caption",json!({"download_id":id})).await.unwrap();
  let job=finished(&store,id).await;assert_eq!(job["state"],"completed");assert_eq!(job["input"]["telemetry"]["generations"].as_array().unwrap().len(),2);assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"xx");
  assert!(runtime.call("video_caption_status",json!({"download_id":"../../secrets"})).await.is_err());worker.abort();
@@ -128,4 +128,12 @@ async fn unsafe_or_unresolved_watermarks_stop_after_one_verification_and_keep_bo
  store.enqueue_video_caption("example",&data,false,now()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.run_rewrite_queue());
  let job=finished(&store,id).await;assert_eq!(job["state"],"completed","{job}");assert_eq!(job["result"]["status"],"needs_review");assert_eq!(job["result"]["text"],"");assert_eq!(job["result"]["processing"]["verified"],false);assert!(std::fs::metadata(video::folder(dir.path(),id).unwrap().join("processed-preview.jpg")).unwrap().len()>100,"reprocessing must replace a stale cached preview before model review");
  assert_eq!(job["input"]["telemetry"]["generations"].as_array().unwrap().len(),2);assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"xx");assert!(store.enqueue_video_publication(id,"example",false,now()).is_err());worker.abort();
+}
+
+#[tokio::test]
+async fn new_model_results_cannot_stop_silently_at_a_legacy_caption_without_video_checks(){
+ let (dir,store,data)=setup("A kitten plays");let id=data["download_id"].as_str().unwrap();
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A playful kitten. #Cats","reason":""}));
+ store.enqueue_video_caption("example",&data,false,now()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.run_rewrite_queue());
+ let job=finished(&store,id).await;assert_eq!(job["state"],"failed");assert!(job["error"].as_str().unwrap().contains("未返回水印和片尾检查方案"));assert!(store.video_publication(id).unwrap().is_null());assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"x");worker.abort();
 }
