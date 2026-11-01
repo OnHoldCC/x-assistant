@@ -33,3 +33,13 @@ test('TikTok page capture closes its reader and rejects verification pages witho
  await collectTikTokVideos(job,async()=>downloads++,'example',async()=>{});assert.equal(downloads,1);assert.equal(removed,1);assert.equal(detached,1);
  blocked=true;await assert.rejects(collectTikTokVideos(job,async()=>assert.fail(),'example',async()=>{}),/安全验证/);assert.equal(removed,2);assert.equal(detached,2);
 });
+
+test('TikTok homepage reads embedded feed data when there are no video anchor links',async t=>{
+ const previous={document:globalThis.document,location:globalThis.location};t.after(()=>{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});
+ const {inspectTikTokVideos}=await import('../extension/tiktok.js');
+ globalThis.location={protocol:'https:',hostname:'www.tiktok.com'};
+ const raw=JSON.stringify({__DEFAULT_SCOPE__:{'webapp.foryou.video':{statusCode:0,itemList:[{id:'12345678901234567890',author:{uniqueId:'kitten.creator'},video:{},desc:'A kitten plays'},{id:'456',author:{uniqueId:'advert'},video:{},isAd:true},{id:'789',author:{uniqueId:'../../bad'},video:{}}]}}});
+ globalThis.document={body:{innerText:''},querySelectorAll:()=>[],getElementById:id=>id==='__UNIVERSAL_DATA_FOR_REHYDRATION__'?{textContent:raw}:null};
+ assert.deepEqual(inspectTikTokVideos(),{urls:['https://www.tiktok.com/@kitten.creator/video/12345678901234567890'],blocked:false});
+ globalThis.document.getElementById=()=>({textContent:'invalid JSON'});assert.deepEqual(inspectTikTokVideos(),{urls:[],blocked:false});
+});
