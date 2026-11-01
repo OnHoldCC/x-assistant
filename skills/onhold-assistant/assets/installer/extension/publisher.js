@@ -106,9 +106,10 @@ export async function runPublication(job, call, owner, verify) {
  };
  const network=async(source,method,event)=>{
   if(source.tabId!==tab.id)return;
-  if(video&&method==='Network.requestWillBeSent'&&isMediaUpload(event.request?.url))uploads.add(event.requestId);
+  if(video&&method==='Network.requestWillBeSent'&&['GET','POST'].includes(event.request?.method)&&isMediaUpload(event.request?.url))uploads.add(event.requestId);
   if(video&&uploads.has(event.requestId)){
    if(method==='Network.responseReceived'&&event.response.status>=400)failure='X 视频上传返回 HTTP '+event.response.status+'，未发送推文';
+   if(method==='Network.responseReceived'&&event.response.status===204)uploads.delete(event.requestId);
    if(method==='Network.loadingFailed')failure='视频上传连接中断，未发送推文';
    if(method==='Network.loadingFinished'){
     uploads.delete(event.requestId);
