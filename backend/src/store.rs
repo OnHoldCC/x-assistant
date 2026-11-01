@@ -151,6 +151,7 @@ mod identities;
 mod ingest;
 mod jobs;
 mod publications;
+mod video_caption;
 mod news_queue;
 mod relationships;
 pub use publications::validate_rewrite;

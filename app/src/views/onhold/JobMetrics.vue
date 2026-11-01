@@ -13,7 +13,7 @@ const m = computed(() => jobMetrics(props.job)),
   );
 </script>
 <template>
-  <template v-if="job.action === 'rewrite_publish'"
+  <template v-if="['rewrite_publish','video_caption'].includes(job.action)"
     ><small v-if="!details && job.input?.model_not_called && m.attempts === 0">未调用模型 · 0 tokens</small><small v-else-if="!details"
       >生成 {{ duration(m.generation_ms) }} · {{ tokenText }}</small
     >
@@ -25,7 +25,7 @@ const m = computed(() => jobMetrics(props.job)),
         ><NDescriptionsItem label="生成耗时">{{
           duration(m.generation_ms)
         }}</NDescriptionsItem
-        ><NDescriptionsItem label="发送耗时">{{
+        ><NDescriptionsItem v-if="job.action==='rewrite_publish'" label="发送耗时">{{
           duration(m.send_ms)
         }}</NDescriptionsItem
         ><NDescriptionsItem label="模型调用次数">{{

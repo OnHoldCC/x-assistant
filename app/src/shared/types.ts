@@ -117,7 +117,7 @@ export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<stri
 export type Job = {
   id: string;
   account: string;
-  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "follow_back" | "unfollow" | "rewrite_publish";
+  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "follow_back" | "unfollow" | "rewrite_publish" | "video_caption";
   state: "queued" | "rewriting" | "running" | "completed" | "failed";
   created_at: number;
   updated_at: number;

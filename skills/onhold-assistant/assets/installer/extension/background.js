@@ -172,6 +172,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     await ready;
     const {ownPage,xPage,allowedWeb}=await translationContext(sender);
+    if(['TIKTOK_LAST','TIKTOK_STATUS','TIKTOK_RETRY'].includes(message.type)){
+      if(!ownPage)throw Error('只允许插件页面读取视频配文');
+      return message.type==='TIKTOK_LAST'?cdpBridge.lastVideo():cdpBridge.captionVideo(message.data?.download_id,message.type==='TIKTOK_RETRY');
+    }
     if(message.type==='TIKTOK_DOWNLOAD'){
       if(!ownPage)throw Error('只允许插件页面下载视频');
       return downloadTikTokVideo(url=>cdpBridge.downloadVideo(url));

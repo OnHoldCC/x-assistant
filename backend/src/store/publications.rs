@@ -187,10 +187,10 @@ impl Store {
         self.expire_automation(at)?;
         let mut db = self.lock()?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
-        tx.execute("UPDATE jobs SET state='failed',error='Codex 改写中断，请在任务队列重试',updated_at=? WHERE action='rewrite_publish' AND state='rewriting' AND updated_at<?",params![at,at-180_000]).map_err(|e|e.to_string())?;
+        tx.execute("UPDATE jobs SET state='failed',error='Codex 改写中断，请在任务队列重试',updated_at=? WHERE action IN ('rewrite_publish','video_caption') AND state='rewriting' AND updated_at<?",params![at,at-180_000]).map_err(|e|e.to_string())?;
         tx.execute("UPDATE jobs SET state='failed',error=CASE WHEN json_extract(input,'$.stage')='sending' THEN '发布中断，请到 X 核对结果；不会自动重发' ELSE '浏览器连接中断，未发送，可重试任务' END,updated_at=? WHERE action='rewrite_publish' AND state='running' AND updated_at<?",params![at,at-120_000]).map_err(|e|e.to_string())?;
-        let row: Option<(String,String,String)> = tx.query_row("SELECT id,account,input FROM jobs WHERE action='rewrite_publish' AND state='queued' AND json_extract(input,'$.stage')='rewrite' AND (json_extract(input,'$.task_id') IS NULL OR EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1)) ORDER BY created_at LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())?;
-        if let Some((id, account, input)) = row {
+        let row: Option<(String,String,String,String)> = tx.query_row("SELECT id,account,input,action FROM jobs WHERE action IN ('rewrite_publish','video_caption') AND state='queued' AND json_extract(input,'$.stage')='rewrite' AND (json_extract(input,'$.task_id') IS NULL OR EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1)) ORDER BY created_at LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|e|e.to_string())?;
+        if let Some((id, account, input, action)) = row {
             tx.execute(
                 "UPDATE jobs SET state='rewriting',client='codex_cli',updated_at=? WHERE id=?",
                 params![at, id],
@@ -198,7 +198,7 @@ impl Store {
             .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
             Ok(
-                json!({"id":id,"account":account,"input":serde_json::from_str::<Value>(&input).map_err(|e|e.to_string())?}),
+                json!({"id":id,"account":account,"action":action,"input":serde_json::from_str::<Value>(&input).map_err(|e|e.to_string())?}),
             )
         } else {
             tx.commit().map_err(|e| e.to_string())?;
@@ -217,7 +217,7 @@ impl Store {
         usage: Option<&Value>,
     ) -> Result<(), String> {
         let db = self.lock()?;
-        let raw:String=db.query_row("SELECT input FROM jobs WHERE id=? AND action='rewrite_publish' AND state='rewriting'",[id],|r|r.get(0)).map_err(|_|"生成任务已结束")?;
+        let raw:String=db.query_row("SELECT input FROM jobs WHERE id=? AND action IN ('rewrite_publish','video_caption') AND state='rewriting'",[id],|r|r.get(0)).map_err(|_|"生成任务已结束")?;
         let mut input: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
         let normalized = usage.and_then(crate::models::normalize_usage);
         if !input["telemetry"].is_object() {

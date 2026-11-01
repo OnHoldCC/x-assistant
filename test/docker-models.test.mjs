@@ -103,3 +103,11 @@ test('RSS-grounded drafts use the news schema with web search disabled',async()=
   assert.equal(response.status,200);const result=await response.json();assert.equal(result.usage.total_tokens,110);
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('video captions attach only bounded images from shared video storage with tools disabled',async()=>{
+ const {createCodexServer}=await import('../docker/codex.mjs');const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'onhold-caption-images-'))),image=path.join(root,'caption-preview.jpg');fs.writeFileSync(image,Buffer.from([255,216,0,0,255,217]));let calls=0;
+ const server=createCodexServer('caption-key',async(args,_prompt,_timeout,directory)=>{calls++;assert.equal(args[args.indexOf('--image')+1],image);assert.ok(args.includes('web_search="disabled"'));assert.ok(args.includes('shell_tool'));assert.ok(args[args.indexOf('--output-schema')+1].endsWith('video-caption-schema.json'));fs.writeFileSync(args[args.indexOf('--output-last-message')+1],'{"schema_version":1,"status":"ready","text":"A kitten playing.","reason":""}');return {code:0,usage:{input_tokens:10,output_tokens:5}};},root);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const request=body=>fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer caption-key'},body:JSON.stringify({operation:'generate',instructions:'caption instructions',prompt:'untrusted title',output_format:'video_caption_v1',...body})});
+ try{assert.equal((await request({image_paths:[]})).status,422);assert.equal((await request({image_paths:['/etc/passwd']})).status,422);assert.equal(calls,0);const valid=await request({image_paths:[image]});assert.equal(valid.status,200,await valid.text());assert.equal(calls,1);}
+ finally{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
+});

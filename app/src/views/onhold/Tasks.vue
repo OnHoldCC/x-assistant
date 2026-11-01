@@ -294,6 +294,9 @@ const columns: DataTableColumns<Job> = [
       h(NSpace, { size: 2 }, () => [
         button("查看", () => open(j)),
         button("编辑", () => open(j, true), !editable(j) || !!working.value),
+        j.state === "failed" && j.action === "video_caption"
+          ? button("重试配文", () => update("retry_video_caption", j, { download_id: j.id }), !!working.value)
+          : null,
         j.state === "failed" &&
         ["capture", "capture_analytics"].includes(j.action)
           ? button(
@@ -459,6 +462,11 @@ const columns: DataTableColumns<Job> = [
           ><JobProgress :job="viewed" />
           <p>{{ jobMessage(viewed) }}</p>
           <JobMetrics :job="viewed" details />
+          <template v-if="viewed.action === 'video_caption' && viewed.input?.text">
+            <p>英文配文</p>
+            <p class="business-pre">{{ viewed.input.text }}</p>
+            <NButton @click="copy">复制正文</NButton>
+          </template>
           <template v-if="viewed.action === 'rewrite_publish'"
             ><p v-if="viewed.input?.query">
               新闻搜索主题：{{ viewed.input.query }}

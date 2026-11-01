@@ -40,6 +40,7 @@ export const jobLabels: Record<Job["action"], string> = {
   follow_back: "定时回关",
   unfollow: "定时取消关注",
   rewrite_publish: "改写并定时发布",
+  video_caption: "视频配文",
 };
 export const jobTitle = (j: Pick<Job, "action" | "input">) =>
   j.action === "capture_notifications" && j.input?.publication_mode === "follow_back"
@@ -56,6 +57,7 @@ export const jobTitle = (j: Pick<Job, "action" | "input">) =>
           ? "生成同类文章"
           : jobLabels[j.action];
 export function jobLabel(j: Job) {
+  if(j.action==="video_caption"){if(j.state==="rewriting")return "生成中";if(j.state==="queued")return "等待生成";}
   if (j.state === "completed" && j.input?.stage === "skipped") return "本轮跳过";
   if (
     j.action === "rewrite_publish" &&
@@ -73,6 +75,7 @@ export function jobLabel(j: Job) {
       : "待设置时间";
 }
 export function jobMessage(j: Job) {
+  if(j.action==="video_caption")return j.error||j.input?.text||j.result?.skip_reason||(j.state==="rewriting"?"Codex 正在检查视频画面并生成英文配文":j.state==="completed"?"视频配文处理完成，未发布":"等待 Codex 生成视频配文");
   if (j.error) return [j.error, j.result?.cleanup_warning].filter(Boolean).join(" · ");
   if (j.state === "completed" && j.input?.stage === "skipped" && j.result?.sent === false)
     return j.result.skip_reason || "本轮未发布";

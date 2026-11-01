@@ -16,7 +16,7 @@ ENV ONHOLD_SOURCE_COMMIT=$ONHOLD_SOURCE_COMMIT
 WORKDIR /source
 COPY backend/ backend/
 COPY extension/manifest.json extension/compatibility.json extension/
-COPY lib/replicate-schema.json lib/reply-schema.json lib/news-schema.json lib/
+COPY lib/replicate-schema.json lib/reply-schema.json lib/news-schema.json lib/video-caption-schema.json lib/
 ENV CARGO_BUILD_JOBS=1
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,id=onhold-rust-${TARGETARCH},target=/source/backend/target,sharing=locked cargo build --release --locked --manifest-path backend/Cargo.toml && cp backend/target/release/onhold-backend /source/onhold-backend
 
@@ -24,6 +24,7 @@ FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde
 ARG ONHOLD_SOURCE_COMMIT=unknown
 LABEL org.opencontainers.image.revision=$ONHOLD_SOURCE_COMMIT
 COPY --from=backend /etc/ssl/certs /etc/ssl/certs
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /data/admin /data/codex /secrets && chown -R 1000:1000 /data /secrets
 COPY --from=backend /source/onhold-backend /usr/local/bin/onhold-backend
 COPY --from=ui /source/app/dist /opt/onhold/web

@@ -12,7 +12,7 @@ function execute(args,prompt,timeout=120000,directory){return new Promise((resol
   child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',code=>{clearTimeout(timer);let usage=null;if(events&&fs.existsSync(events)&&fs.statSync(events).size<=8_000_000)usage=codexUsage(fs.readFileSync(events,'utf8'));resolve(events?{code,usage}:code);});
   if(prompt){child.stdin.on('error',()=>{});child.stdin.end(prompt);}
 });}
-export function createCodexServer(key,run=execute){
+export function createCodexServer(key,run=execute,imageRoot='/data/admin/media/tiktok'){
 let busy=false;
 return http.createServer(async(req,res)=>{
   const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
@@ -23,13 +23,21 @@ return http.createServer(async(req,res)=>{
     const body=JSON.parse(Buffer.concat(chunks));
     if(body.operation==='status'){const ready=await run(['login','status'],null,10000)===0;return send(200,{ready,message:ready?'Codex CLI 已登录':'Codex 尚未登录，请通过安装 Skill 完成设备登录'});}
     if(body.operation!=='generate'||typeof body.instructions!=='string'||body.instructions.length>10000||typeof body.prompt!=='string'||body.prompt.length>120000)return send(422,{error:'Invalid input'});
-    if(body.output_format!=null&&!['replicate_v1','reply_v1','news_v1','news_draft_v1'].includes(body.output_format))return send(422,{error:'Invalid output format'});
+    if(body.output_format!=null&&!['replicate_v1','reply_v1','news_v1','news_draft_v1','video_caption_v1'].includes(body.output_format))return send(422,{error:'Invalid output format'});
+    const images=body.image_paths??[];
+    if(!Array.isArray(images)||images.length>1||images.length&&body.output_format!=='video_caption_v1'||body.output_format==='video_caption_v1'&&images.length!==1)return send(422,{error:'Invalid caption images'});
+    for(const image of images){
+      if(typeof image!=='string'||image.length>4096||path.basename(image)!=='caption-preview.jpg')return send(422,{error:'Invalid caption image'});
+      const real=fs.realpathSync(image),root=fs.realpathSync(imageRoot);
+      if(real!==path.resolve(image)||!real.startsWith(root+path.sep)||fs.statSync(real).size>2_000_000)return send(422,{error:'Caption image outside video storage'});
+    }
     if(busy)return send(409,{error:'Model busy'});busy=true;
     const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-codex-'));fs.chmodSync(directory,0o700);
     try {
       const output=path.join(directory,'response.txt');
       const args=['exec','--json','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--ignore-user-config','--ignore-rules','--disable','shell_tool','--disable','unified_exec','-c',body.output_format==='news_v1'?'web_search="live"':'web_search="disabled"','--color','never','--output-last-message',output,'-'];
-      if(body.output_format)args.push('--output-schema',fileURLToPath(new URL(['news_v1','news_draft_v1'].includes(body.output_format)?'../lib/news-schema.json':body.output_format==='reply_v1'?'../lib/reply-schema.json':'../lib/replicate-schema.json',import.meta.url)));
+      if(body.output_format)args.push('--output-schema',fileURLToPath(new URL(body.output_format==='video_caption_v1'?'../lib/video-caption-schema.json':['news_v1','news_draft_v1'].includes(body.output_format)?'../lib/news-schema.json':body.output_format==='reply_v1'?'../lib/reply-schema.json':'../lib/replicate-schema.json',import.meta.url)));
+      for(const image of images)args.push('--image',image);
       if(body.model){if(typeof body.model!=='string'||body.model.length>120)return send(422,{error:'Invalid model'});args.push('--model',body.model);}
       const outcome=await run(args,body.instructions+'\n\n'+body.prompt,120000,directory),usage=normalizeUsage(outcome?.usage);
       if((typeof outcome==='number'?outcome:outcome.code)!==0)return send(422,{error:'Codex 执行失败，请检查登录及模型权限',usage});
