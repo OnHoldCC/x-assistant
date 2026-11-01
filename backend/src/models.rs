@@ -534,7 +534,7 @@ impl Runtime {
     }
     pub async fn call(&self, operation: &str, input: Value) -> Result<Value, String> {
         match operation {
-            "news_sources" => self.news.fetch(input["source"].as_str().unwrap_or("mixed")).await,
+            "news_sources" => Err("新闻取材功能已移除".into()),
             "download_tiktok_video" => crate::video::download(&self.home,input["url"].as_str().ok_or("缺少 TikTok 视频页面 URL")?).await,
             "local_models" => {
                 let profiles = std::env::var("ONHOLD_PROFILES").unwrap_or_default();

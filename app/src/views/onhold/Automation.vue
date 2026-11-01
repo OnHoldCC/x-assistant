@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { NButton, NTag, NSpace } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import { api } from "@/shared/api";
-import type { Job, NewsSource, NewsFeed } from "@/shared/types";
+import type { Job } from "@/shared/types";
 import { useWorkspace } from "./workspace";
 import { time, localDate } from "./format";
 import JobProgress from "./JobProgress.vue";
@@ -22,11 +22,7 @@ type Plan = {
     limit: number;
     after_days: number;
     stop_at?: number | null;
-    query?: string | null;
     language?: "auto" | "en";
-    news_source?: NewsSource;
-    include_source_link?: boolean;
-    allow_news_search?: boolean;
     scope: string;
     targets: string[];
   };
@@ -44,13 +40,7 @@ const w = useWorkspace(),
   limit = ref<number | null>(5),
   days = ref<number | null>(7),
   stopAt = ref(""),
-  query = ref(""),
   language = ref("auto"),
-  newsSource = ref("international"),
-  allowNewsSearch = ref(false),
-  includeSourceLink = ref(false),
-  sourcePreview = ref<NewsFeed | null>(null),
-  previewing = ref(false),
   targets = ref(""),
   error = ref(""),
   busy = ref(false),
@@ -126,12 +116,7 @@ function open(plan: Plan | null, view = false) {
   days.value = plan?.config.after_days || 7;
   targets.value = plan?.config.targets.join(", ") || "";
   stopAt.value = localDate(plan?.config.stop_at);
-  query.value = plan?.config.query || "";
   language.value = plan?.config.language || "auto";
-  newsSource.value = plan?.config.news_source || "international";
-  allowNewsSearch.value = plan?.config.allow_news_search === true;
-  includeSourceLink.value = plan ? plan.config.include_source_link ?? true : false;
-  sourcePreview.value = null;
   editorOpen.value = true;
 }
 function fromRelations(value: "follow_back" | "unfollow", handles: string[]) {
@@ -153,46 +138,24 @@ watch([()=>route.query,()=>w.selected],()=>{
 function changeAction(value: string) {
   action.value = value;
   if(!["reply_notifications","auto_reply"].includes(value) && interval.value==="25s")interval.value="1";
-  if (value === "auto_post") limit.value = 1;
   scope.value =
-    value === "auto_post"
-      ? "news"
-      : value === "reply_notifications"
+    value === "reply_notifications"
         ? "notifications"
         : value === "auto_reply"
           ? "for_you"
           : value === "follow_back" ? "notifications" : "automation_owned";
 }
 const automatic = computed(() =>
-  ["auto_reply", "reply_notifications", "auto_post"].includes(action.value),
+  ["auto_reply", "reply_notifications"].includes(action.value),
 );
 const name = (p: Plan) =>
-  p.config.action === "auto_post"
-    ? "自动发文"
-    : p.config.action === "reply_notifications"
+  p.config.action === "reply_notifications"
       ? "自动回复（通知）"
       : p.config.action === "auto_reply"
         ? "自动评论（For You）"
         : p.config.action === "follow_back"
           ? (p.config.scope === "notifications" ? "自动回关（通知）" : "自动回关")
           : "一键取消关注";
-const newsSources = [
-  {value:"web",label:"全网新闻"},
-  {value:"weibo",label:"微博热点"},
-  {value:"rednote",label:"小红书热点"},
-  {value:"hot_topics",label:"微博 + 小红书热点"},
-  {value:"international",label:"国外新闻（RSS）"},
-  {value:"mixed",label:"微博、小红书与国外新闻"},
-];
-const sourceNames:Record<string,string>={weibo:"微博",rednote:"小红书",bbc:"BBC 娱乐",guardian:"Guardian 文化",variety:"Variety 娱乐",deadline:"Deadline 娱乐"};
-watch(newsSource,()=>sourcePreview.value=null);
-async function previewSources(){
-  const source=newsSource.value;previewing.value=true;error.value="";
-  try{const value=await api<NewsFeed>("news_sources",{source});if(newsSource.value===source)sourcePreview.value=value;}
-  catch(c){error.value=c instanceof Error?c.message:String(c);}
-  finally{previewing.value=false;}
-}
-const previewItems=computed(()=>sourcePreview.value?.items.filter((item,index,items)=>items.findIndex(other=>other.platform===item.platform)===index)||[]);
 const status = (p: Plan) => {
   const phase =
     p.last_job && ["queued", "running"].includes(p.last_job.state)
@@ -219,6 +182,7 @@ const status = (p: Plan) => {
 const plans = computed(() =>
   (state.value?.tasks || []).filter(
     (p) =>
+      p.config.action !== "auto_post" &&
       (filter.value === "all" ||
         (filter.value === "enabled" ? p.enabled : !p.enabled)) &&
       [name(p), p.id, ...p.config.targets]
@@ -250,9 +214,7 @@ const columns: DataTableColumns<Plan> = [
     width: 260,
     ellipsis: { tooltip: true },
     render: (p) =>
-      p.config.action === "auto_post"
-        ? `${newsSources.find(source=>source.value===p.config.news_source)?.label || '新闻搜索'} · ${p.config.query || '请设置主题'}`
-        : p.config.action === "reply_notifications"
+      p.config.action === "reply_notifications"
           ? "小铃铛 · 对我的帖子的回复"
           : p.config.action === "auto_reply"
             ? "For You 新帖子 · 每帖一个任务"
@@ -279,7 +241,7 @@ const columns: DataTableColumns<Plan> = [
     width: 100,
     render: (p) =>
       p.config.limit +
-      (["auto_reply", "reply_notifications", "auto_post"].includes(
+      (["auto_reply", "reply_notifications"].includes(
         p.config.action,
       )
         ? " 条帖子"
@@ -373,9 +335,7 @@ async function save() {
       ...(editing.value ? { id: editing.value.id } : {}),
       action: action.value,
       scope:
-        action.value === "auto_post"
-          ? "news"
-          : action.value === "reply_notifications"
+        action.value === "reply_notifications"
             ? "notifications"
             : action.value === "auto_reply"
               ? "for_you"
@@ -385,9 +345,7 @@ async function save() {
       limit: limit.value,
       after_days: days.value,
       stop_at: stop,
-      query: action.value === "auto_post" ? query.value : null,
       language: automatic.value ? language.value : "auto",
-      ...(action.value === "auto_post" ? {news_source: newsSource.value,include_source_link:includeSourceLink.value,allow_news_search:allowNewsSearch.value} : {}),
       targets: (automatic.value ? "" : targets.value)
         .split(/[,，\s]+/)
         .map((v) => v.replace(/^@/, "").trim().toLowerCase())
@@ -535,16 +493,12 @@ async function save() {
                 :options="[
                   { value: 'follow_back', label: '自动回关' },
                   { value: 'unfollow', label: '一键取消关注' },
-                  { value: 'auto_post', label: '自动发文（新闻）' },
                   { value: 'auto_reply', label: '自动评论（For You）' },
                   { value: 'reply_notifications', label: '自动回复（通知）' },
                 ]"
                 @update:value="changeAction" /></NFormItem
             ><NAlert v-if="automatic"
-              ><template v-if="action === 'auto_post'"
-                >Codex
-                根据最近48小时的原文摘要生成新闻短帖；默认不联网搜索。没有新摘要或候选已被否决且内容未变化时，不调用模型。不使用评分模型，跳过已处理新闻。</template
-              ><template v-else-if="action === 'reply_notifications'"
+              ><template v-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
                 与回执。新关注者回关请另建「自动回关」任务，目标范围选择「通知中的新关注者」。</template
@@ -578,7 +532,7 @@ async function save() {
                   { value: 'manual', label: '手动指定名单' },
                 ]" /></NFormItem
             ><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">按执行间隔读取小铃铛中的新关注通知，打开对方主页确认仍关注你、且尚未回关后执行，跳过已关注或已处理账号。无需 Codex，不消耗 Token。需要 1.5.14 或更新的助手；点赞、转发和回复通知不会触发回关。</p><NFormItem v-if="automatic" label="内容语言">
-              <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖（新闻默认中文）' }, { value: 'en', label: '英文（不限制原帖语言）' }]" />
+              <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖' }, { value: 'en', label: '英文（不限制原帖语言）' }]" />
             </NFormItem><NFormItem v-if="!automatic && scope === 'manual'" label="目标账号"
               ><NInput
                 v-model:value="targets"
@@ -626,34 +580,6 @@ async function save() {
                 :max="365"
                 :precision="0"
                 :input-props="{ 'aria-label': '关注满多少天' }" /></NFormItem
-            ><NFormItem v-if="action === 'auto_post'" label="新闻来源">
-              <NSelect v-model:value="newsSource" role="combobox" aria-label="新闻来源"
-                :menu-props="{role:'listbox'}" :node-props="(option: {label?: unknown}) => ({role:'option','aria-label':String(option.label)})"
-                :options="newsSources" />
-            </NFormItem>
-            <NFormItem v-if="action === 'auto_post'" label="新闻生成方式">
-              <div class="business-stack">
-                <NCheckbox v-model:checked="allowNewsSearch" :disabled="readOnly">允许联网核实无摘要的热点（额外消耗 Token）</NCheckbox>
-                <p class="business-muted">默认省Token：只对有原文摘要的新候选生成内容。关闭时，只有热榜标题或没有新资料就跳过，不调用模型。全网搜索来源需要开启此选项；联网核实可能显著增加用量。</p>
-              </div>
-            </NFormItem>
-            <div v-if="action === 'auto_post' && newsSource !== 'web'" class="mb-16px business-stack">
-              <NButton :loading="previewing" :disabled="previewing" @click="previewSources">预览取材</NButton>
-              <template v-if="sourcePreview">
-                <p>采集于 {{time(sourcePreview.retrieved_at)}}{{sourcePreview.cached?' · 缓存结果':''}}</p>
-                <p>{{Object.entries(sourcePreview.counts).map(([key,count])=>`${sourceNames[key]||key} ${count} 条`).join(' · ')}}</p>
-                <ul><li v-for="item in previewItems" :key="item.platform"><a :href="item.url" target="_blank" rel="noreferrer">{{sourceNames[item.platform]||item.platform}}：{{item.title}}</a></li></ul>
-                <p v-for="failure in sourcePreview.errors" :key="failure.platform">{{sourceNames[failure.platform]||failure.platform}}：{{failure.error}}</p>
-              </template>
-              <p class="business-muted">热榜用于选题；生成前仍需核实事实和原文时间。来源保留在任务记录。</p>
-            </div>
-            <NFormItem v-if="action === 'auto_post'" label="发布正文"><NCheckbox v-model:checked="includeSourceLink" :disabled="readOnly">附上来源链接</NCheckbox></NFormItem>
-            <NFormItem v-if="action === 'auto_post'" label="新闻搜索主题"
-              ><NInput
-                v-model:value="query"
-                :maxlength="500"
-                :input-props="{ required: true, 'aria-label': '新闻搜索主题' }"
-                :placeholder="newsSource === 'weibo' ? '微博娱乐八卦热点' : '例如：各行业热点新闻'" /></NFormItem
             ><NFormItem label="自动停止时间（可选）"
               ><NInput
                 v-model:value="stopAt"

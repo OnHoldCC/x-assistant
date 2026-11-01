@@ -33,7 +33,6 @@ The frontend uses Vue 3 / TypeScript, Soybean Admin, and Naive UI. The backend u
 ## Features
 
 - **Operations overview:** account metrics, successful, failed, and skipped tasks by type, and token usage.
-- **News posts:** collect candidates from news RSS feeds, Weibo, and Xiaohongshu hotlists; generate and publish on a schedule, retaining sources, skip reasons, and publication receipts.
 - **Automated comments and replies:** read new For You posts or replies in notifications, generate responses, and filter ads, duplicates, and unusable content.
 - **Content tools:** manual rewriting, draft generation, and scheduled publishing.
 - **Relationship management:** relationship lists and configurable follow-back or unfollow tasks.
@@ -54,7 +53,7 @@ Choose one installation method. All use the same browser connection procedure.
 You also need:
 
 - Chrome 120+ or a compatible desktop version of Edge, and a working X account. Load the extension in developer mode.
-- Network access to GitHub, container registries, and dependency sources. The first build downloads dependencies and requires several GB of free disk space. Model calls and news collection also need network access.
+- Network access to GitHub, container registries, and dependency sources. The first build downloads dependencies and requires several GB of free disk space. Model calls and video downloads also need network access.
 - Model setup for AI features, as described below. The base installation does not download translation or scoring models.
 
 This guide assumes the **backend, browser, and X session run on the same computer**. Mobile browsers cannot load this desktop extension. Remote server deployment is outside this default setup.
@@ -218,7 +217,7 @@ The extension uses the `debugger` permission for CDP browser actions, so Chrome 
 
 ## Configure a model
 
-Viewing data and managing tasks do not require an AI model. News publishing, automated comments, notification replies, and the replicate action (**发同款**) currently use **Codex CLI**. The **自带 API Key** (Bring your own API key) option supports manual features such as rewriting and analysis; it does not replace Codex for those automation tasks.
+Viewing data and managing tasks do not require an AI model. Automated comments, notification replies, and the replicate action (**发同款**) currently use **Codex CLI**. The **自带 API Key** (Bring your own API key) option supports manual features such as rewriting and analysis; it does not replace Codex for those automation tasks.
 
 ### Docker: enable Codex and sign in
 
@@ -262,14 +261,14 @@ The current reading and publishing workflow does not depend on local translation
 
 ## Enable automation
 
-1. Create a plan in **自动化任务配置** (Automation configuration), choosing an account and task type: news publishing, For You comments, or notification replies.
-2. Set the language, interval, per-round limit, and daily limit. News plans also require a source and topic.
+1. Create a plan in **自动化任务配置** (Automation configuration), choosing an account and task type: For You comments or notification replies.
+2. Set the language, interval, per-round limit, and daily limit.
 3. Save the paused plan, review its configuration, then click **启用** (Enable). Start with small limits and check the first collection, generation, and send results.
 4. Inspect details in **任务记录** (Task history), and lifetime successes, failures, and token usage in **运营概览** (Operations overview).
 
 For notification follow-back, choose **自动回关** (Automatic follow-back), set the scope to **通知中的新关注者** (New followers in notifications), configure the interval and limits, then save and enable the plan. The app reads follow notifications and checks each profile to confirm the person still follows you and has not already been followed back. This requires no model or tokens. It runs as a separate plan from notification replies.
 
-News plans default to RSS-based drafting. Searching to verify headlines without summaries requires explicitly enabling the news search option. Rejected candidates are not checked again until their title, summary, or configured topic changes; rounds without usable summaries skip generation without model tokens. News collection supports one-minute intervals. Actual timing also depends on execution duration, queueing, and daily limits. Browser actions for the same account run serially. Empty candidate pools, source failures, or unsuccessful verification produce a recorded skip reason; a post is not guaranteed every round.
+News publishing has been removed. News plans cannot be created, enabled or rerun; existing plans are disabled on startup and pending news jobs are cancelled. Historical posts, execution logs and token usage remain available. The archived hotlist is read-only and no longer fetches new content.
 
 From companion version 1.5.21, a confirmed send remains successful even if its page cannot be cleaned up. An uncertain send fails only that job, retains its page for inspection, and is never retried automatically. Neither case pauses the whole plan; later jobs continue. Review and clean up drafts in retained pages manually.
 
@@ -403,7 +402,7 @@ The Tauri 2 desktop version has additional platform dependencies and offline ass
 The following detailed references are currently in Chinese:
 
 - [Docker deployment](docs/DOCKER.md) and [maintenance, updates, and recovery](skills/onhold-assistant/references/docker.md)
-- [Automation and operations definitions](docs/OPERATIONS-0.9.md) and [news sources and verification](docs/NEWS-SOURCES.md)
+- [Automation and operations definitions](docs/OPERATIONS-0.9.md) and [archived news fields](docs/NEWS-SOURCES.md)
 - [Backend collection and session storage](docs/BACKEND-CAPTURE.md) and [account metrics](docs/X-OPERATIONS-METRICS.md)
 - [UI design reference](docs/ONHOLD-UI.md) and [release notes](docs/RELEASE-0.9.5.md)
 

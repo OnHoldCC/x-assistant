@@ -109,6 +109,8 @@ impl Store {
         db.execute_batch("PRAGMA foreign_keys=OFF;")
             .map_err(|e| e.to_string())?;
         schema::migrate(&mut db)?;
+        db.execute("UPDATE automation_tasks SET enabled=0,state='paused' WHERE json_extract(value,'$.action')='auto_post'",[]).map_err(|e|e.to_string())?;
+        db.execute("UPDATE jobs SET state='failed',error='新闻发文功能已移除，未发送',updated_at=? WHERE state='queued' AND json_extract(input,'$.mode')='news'",[now()]).map_err(|e|e.to_string())?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
             .map_err(|e| e.to_string())?;
         Ok(Self {

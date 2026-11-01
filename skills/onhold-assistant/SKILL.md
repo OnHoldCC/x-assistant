@@ -1,6 +1,6 @@
 ---
 name: onhold-assistant
-description: Install, update or diagnose OnHold Assistant by fetching its open-source repository and building with the user's local Docker. Guides browser extension installation, version reload, X connection and first data collection; local translation is optional; news writing uses public hotlists/RSS and Codex verification.
+description: Install, update or diagnose OnHold Assistant by fetching its open-source repository and building with the user's local Docker. Guides browser extension installation, version reload, X connection and first data collection; local translation is optional; TikTok video page URLs can be downloaded by the paired backend.
 ---
 
 用户说“安装 OnHold”“更新 OnHold”或“升级后台和插件”后直接执行，把后台和浏览器运行中的插件作为同一次升级验证。主流程是 **AI 拉开源代码 → 本地 Docker 构建 → 启动并验证 → 打开浏览器引导插件与数据**。不分发应用镜像，不安装桌面程序；本 Skill 不携带应用源码或模型权重。
@@ -45,7 +45,7 @@ Codex 用户本人在官方页面完成设备授权，不复制或打印宿主�
 
 模型默认 CPU，各 2 线程；Mac Docker 不等于原生 Metal 加速。默认后台内存上限 384 MiB，选配网关 256 MiB、翻译 3 GiB；上限不等于实际 RSS。报告实测平台，不把 ARM64 成功说成所有平台已验收。
 
-自动发文可先用 60s hot-topics 的公开 API 获取微博、小红书热榜，并按 news-aggregator-skill 的方式读取 BBC 娱乐、Guardian 文化 RSS，再交给 Codex 核实最近48小时新闻。无需额外安装这两个项目的全部依赖、浏览器或 Python；后台预览 `news_sources` 可核对实际来源计数与错误，5分钟缓存。热榜标题是选题线索，采集时间不是原文发布时间；全部来源失败时不空转调用模型。按用户配置生成短帖，保留来源、发布时间和去重记录；正文不附链接时来源仍存任务记录。当前只支持文字，不声称已支持自动图片/视频上传。不再安装评分模型。安装验收不启用发布计划，不把生成草稿等同于公开发送成功。
+新闻发文功能已移除，不创建、启用或重试新闻计划，也不调用 `news_sources`。历史新闻、执行日志和 Token 用量仅供查看。TikTok 下载由插件将具体视频页面 URL 交给已配对后端的 `download_tiktok_video` 接口，文件保存在后端 `media/tiktok/`。下载本身不调用模型；视频处理与配文尚未接成自动流程，不声称已支持自动视频上传。选题排除国家政治和血腥内容，无法确定时不发布。不再安装评分模型。安装验收不启用发布计划，不把生成草稿等同于公开发送成功。
 
 ## 更新与维护
 

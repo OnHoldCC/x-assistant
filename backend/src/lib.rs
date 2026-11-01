@@ -62,6 +62,18 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
             .and_then(Value::as_str)
             .ok_or_else(|| format!("缺少 {key}"))
     };
+    if operation=="save_automation" && input["action"]=="auto_post" {
+        return Err("新闻发文功能已移除".into());
+    }
+    if operation=="run_automation" || operation=="control_automation" && input["enabled"]==true {
+        let state=store.automation_state(text("account")?)?;
+        if state["tasks"].as_array().is_some_and(|tasks|tasks.iter().any(|task|task["id"]==input["id"]&&task["config"]["action"]=="auto_post")) {
+            return Err("新闻发文功能已移除".into());
+        }
+    }
+    if ["retry_rewrite","begin_publish","schedule_publication"].contains(&operation) && store.is_news_job(text("id")?)? {
+        return Err("新闻发文功能已移除，历史任务不能重发".into());
+    }
     match operation {
         "learn_x_session" => store.learn_x_session(&input, now()),
         "refresh_x_session" => store.refresh_x_session(&input, now()),

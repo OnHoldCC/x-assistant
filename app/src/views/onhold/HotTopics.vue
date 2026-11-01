@@ -48,8 +48,8 @@ watch([() => w.selected, page, channel, status], (_, __, cleanup) => {
 }, { immediate: true });
 </script>
 <template>
-  <NCard title="热点列表">
-    <p class="mb-16px text-muted">按新闻时间从新到旧排列，热榜未提供发布时间时使用采集时间。每次只处理一条，当前批次处理完再取下一批；无法核实或过期的内容会跳过。</p>
+  <NCard title="历史热点">
+    <p class="mb-16px text-muted">新闻发文已移除。这里只保留历史取材和发布结果，不再采集、生成或发布新闻。</p>
     <NAlert v-if="error" type="error" class="mb-16px">{{ error }}</NAlert>
     <div v-if="data?.batch" class="mb-16px">
       <div class="mb-8px">本批整体进度 · {{ data.batch.total }} 条 · 待处理 {{ data.batch.counts.pending || 0 }} · 处理中 {{ data.batch.counts.processing || 0 }} · 已发布 {{ data.batch.counts.published || 0 }} · 跳过 {{ data.batch.counts.skipped || 0 }} · 失败 {{ data.batch.counts.failed || 0 }} · 待核对 {{ data.batch.counts.uncertain || 0 }}</div>

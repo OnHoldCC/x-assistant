@@ -205,6 +205,9 @@ impl Store {
             Ok(Value::Null)
         }
     }
+    pub fn is_news_job(&self,id:&str)->Result<bool,String>{
+        self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='news')",[id],|row|row.get(0)).map_err(|e|e.to_string())
+    }
     pub fn record_generation(
         &self,
         id: &str,

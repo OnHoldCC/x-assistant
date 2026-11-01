@@ -52,7 +52,7 @@ export const generatedRoutes: GeneratedRoute[] = [
     "name": "hotspots",
     "path": "/hotspots",
     "component": "layout.base$view.hotspots",
-    "meta": { "title": "热点列表", "constant": true, "icon": "mdi:newspaper-variant-outline", "order": 5, "hideInMenu": false }
+    "meta": { "title": "历史热点", "constant": true, "icon": "mdi:newspaper-variant-outline", "order": 5, "hideInMenu": true }
   },
   {
     "name": "tasks",

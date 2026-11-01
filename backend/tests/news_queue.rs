@@ -12,6 +12,7 @@ fn setup() -> (tempfile::TempDir,Store,String,String,i64) {
     (dir,store,client,task,at)
 }
 fn start(store:&Store,task:&str,at:i64)->String {
+    if store.automation_state("example").unwrap()["tasks"].as_array().unwrap().iter().any(|p|p["id"]==task&&p["enabled"]==false){store.control_automation("example",task,true,at).unwrap();}
     let run=store.run_automation("example",task,at).unwrap();
     assert_eq!(run["job_ids"].as_array().unwrap().len(),1,"even older limit=5 plans process one item");
     let id=run["id"].as_str().unwrap().to_owned();assert_eq!(store.claim_rewrite(at).unwrap()["id"],id);id
