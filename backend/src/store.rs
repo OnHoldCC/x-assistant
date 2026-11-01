@@ -160,6 +160,7 @@ mod ingest;
 mod jobs;
 mod publications;
 mod video_caption;
+mod video_screening;
 mod news_queue;
 mod relationships;
 pub use publications::validate_rewrite;

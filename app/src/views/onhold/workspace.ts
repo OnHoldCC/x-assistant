@@ -1,4 +1,4 @@
-import { computed, ref, watch, onScopeDispose } from "vue";
+import { computed, ref, shallowRef, watch, onScopeDispose } from "vue";
 import { defineStore } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -17,9 +17,9 @@ export const useWorkspace = defineStore("onhold-workspace", () => {
   const account = ref(""),
     days = ref("7"),
     analyticsPeriod = ref("7d"),
-    data = ref<Dashboard | null>(null),
-    clients = ref<Client[]>([]),
-    jobs = ref<Job[]>([]),
+    data = shallowRef<Dashboard | null>(null),
+    clients = shallowRef<Client[]>([]),
+    jobs = shallowRef<Job[]>([]),
     error = ref(""),
     notice = ref(""),
     refreshing = ref(false),
@@ -189,7 +189,6 @@ export const useWorkspace = defineStore("onhold-workspace", () => {
       workspaceRevision,
       setupOpen,
       () => activeCapture.value?.id,
-      () => route.name,
     ],
     (_, __, cleanup) => {
       let alive = true;

@@ -143,7 +143,7 @@ watch([()=>route.query,()=>w.selected],()=>{
 },{immediate:true});
 function changeAction(value: string) {
   action.value = value;
-  if(value==='auto_video'){interval.value='1';limit.value=1;language.value='en';}
+  if(value==='auto_video'){interval.value='1';limit.value=5;language.value='en';}
   if(!["reply_notifications","auto_reply"].includes(value) && interval.value==="25s")interval.value="1";
   scope.value =
     value === "auto_video" ? "tiktok" : value === "reply_notifications"
@@ -507,7 +507,7 @@ async function save() {
                 ]"
                 @update:value="changeAction" /></NFormItem
             ><NAlert v-if="automatic"
-              ><template v-if="action === 'auto_video'">直接读取配置的 TikTok 页面推荐流，每轮最多保存1条未处理的视频，下载前按页面文字和标签过滤中国人物及中国相关话题，检查抽样画面后生成英文配文。排除广告、国家政治和血腥内容，存疑时标为待检查。下载不可用的视频短时跳过1小时，继续选择其它候选；人物国籍不按外貌推断。保留原片和处理后文件，检查边缘水印、末尾品牌卡并生成带1–2个英文标签的配文。无法安全处理时停在待检查。可选审核后发布或合格后自动上传到X，只有明确回执才算成功，结果不明不自动重发。需要1.5.29或更新的助手和后端 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
+              ><template v-if="action === 'auto_video'">直接读取配置的 TikTok 页面推荐流，每批最多下载5条未处理的视频，先统一审核敏感内容，只为通过的视频生成文案，下载前按页面文字和标签过滤中国人物及中国相关话题，不通过或存疑的视频不生成文案；合格视频按原间隔串行发布。排除广告、中国相关、国家政治、血腥/严重暴力、色情和仇恨煽动内容，存疑时标为待检查。下载不可用的视频短时跳过1小时，继续选择其它候选；人物国籍不按外貌推断。保留原片和处理后文件，检查小面积水印、末尾品牌卡并生成带1–2个英文标签的配文。无法安全处理时停在待检查。可选审核后发布或合格后自动上传到X，只有明确回执才算成功，结果不明不自动重发。需要1.5.30或更新的助手和后端 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
                 与回执。新关注者回关请另建「自动回关」任务，目标范围选择「通知中的新关注者」。</template
@@ -579,7 +579,7 @@ async function save() {
               ><NInputNumber
                 v-model:value="limit"
                 :min="1"
-                :max="action === 'auto_video' ? 1 : 20"
+                :max="action === 'auto_video' ? 5 : 20"
                 :precision="0"
                 :input-props="{ 'aria-label': '每次最多' }" /></NFormItem
             ><NFormItem

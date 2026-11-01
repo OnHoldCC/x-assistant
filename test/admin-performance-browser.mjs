@@ -82,6 +82,17 @@ try {
     ),
     "task records does not load analytics charts",
   );
+  const switchedAt=Date.now();
+  await page.getByRole("menuitem",{name:"作者",exact:true}).first().click();
+  await page.clock.runFor(50);
+  await page.locator('a[href="https://github.com/OnHoldCC/x-assistant"]').waitFor({timeout:5000});
+  const switchMs=Date.now()-switchedAt;
+  assert.equal(await page.evaluate(()=>window.dashboardCalls),1,"tab changes must not restart the blocked dashboard request");
+  assert.equal(await page.locator('.workspace-page').evaluate(node=>getComputedStyle(node).opacity),'1',"the new tab is immediately visible without a fade-in wait");
+  await page.getByRole("menuitem",{name:"任务记录",exact:true}).first().click();
+  await page.getByRole("searchbox",{name:"搜索任务",exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>window.dashboardCalls),1,"returning to a tab reuses workspace data");
+  console.log('Author tab switch while dashboard is blocked:',switchMs,'ms');
   await page.clock.runFor(30_000);
   assert.equal(
     await page.evaluate(() => window.dashboardCalls),

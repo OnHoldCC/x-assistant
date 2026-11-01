@@ -42,6 +42,7 @@ export const jobLabels: Record<Job["action"], string> = {
   rewrite_publish: "改写并定时发布",
   capture_tiktok: "读取 TikTok 视频",
   video_caption: "视频配文",
+  video_screening: "批量视频审核",
 };
 export const jobTitle = (j: Pick<Job, "action" | "input">) =>
   j.action === "capture_notifications" && j.input?.publication_mode === "follow_back"
@@ -58,7 +59,8 @@ export const jobTitle = (j: Pick<Job, "action" | "input">) =>
           ? "生成同类文章"
           : jobLabels[j.action];
 export function jobLabel(j: Job) {
-  if(j.action==="video_caption"){if(j.state==="rewriting")return "生成中";if(j.state==="queued")return "等待生成";}
+  if(j.action==="video_screening"){if(j.state==="rewriting")return "审核中";if(j.state==="queued")return "等待审核";}
+  if(j.action==="video_caption"){if(j.state==="rewriting")return "生成中";if(j.state==="queued")return j.input?.stage==="screening"?"等待审核":"等待生成";}
   if (j.state === "completed" && j.input?.stage === "skipped") return "本轮跳过";
   if (
     j.action === "rewrite_publish" &&
@@ -76,7 +78,8 @@ export function jobLabel(j: Job) {
       : "待设置时间";
 }
 export function jobMessage(j: Job) {
-  if(j.action==="capture_tiktok")return j.error||j.result?.skip_reason||(j.state==="completed"?`已下载 ${j.result?.prepared||0} 条视频，配文已排队，未发布`:j.state==="running"?"正在读取 TikTok 来源并下载新视频":"等待插件读取 TikTok 来源");
+  if(j.action==="video_screening")return j.error||j.result?.skip_reason||(j.state==="completed"?`批量审核：通过 ${j.result?.allowed||0} · 排除 ${j.result?.excluded||0} · 待检查 ${j.result?.needs_review||0}`:j.state==="rewriting"?"Codex 正在批量区分敏感内容，尚未生成文案":"等待批量视频审核");
+  if(j.action==="capture_tiktok")return j.error||j.result?.skip_reason||(j.state==="completed"?`已下载 ${j.result?.prepared||0} 条视频，先审核再生成，未发布`:j.state==="running"?"正在读取 TikTok 来源并下载新视频":"等待插件读取 TikTok 来源");
   if(j.action==="video_caption")return (j.state==="rewriting"&&j.input?.video_step==="processing"?"FFmpeg 正在处理水印和片尾":j.state==="rewriting"&&j.input?.video_step==="verifying"?"正在复核处理后视频":null)||j.error||j.input?.text||j.result?.skip_reason||(j.state==="rewriting"?"Codex 正在检查视频画面并生成英文配文":j.state==="completed"?"视频配文处理完成，未发布":"等待 Codex 生成视频配文");
   if (j.error) return [j.error, j.result?.cleanup_warning].filter(Boolean).join(" · ");
   if (j.state === "completed" && j.input?.stage === "skipped" && j.result?.sent === false)

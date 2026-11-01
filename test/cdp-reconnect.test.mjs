@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source=fs.readFileSync(new URL('../extension/cdp-bridge.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replaceAll('export function','function')+'\nglobalThis.makeBridge=createCdpBridge;';
+const tabSource=fs.readFileSync(new URL('../extension/task-tab.js',import.meta.url),'utf8').replace('export async function','async function');
+const source=tabSource+'\n'+fs.readFileSync(new URL('../extension/cdp-bridge.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replaceAll('export function','function')+'\nglobalThis.makeBridge=createCdpBridge;';
 const flush=async()=>{for(let i=0;i<120;i++)await Promise.resolve();};
 function fixture({local,session,attached=true}={}) {
  const state={local:local||{cdpConfig:{endpoint:'http://127.0.0.1:18431',token:'a'.repeat(64)},cdpClient:'fixture-client',cdpAutoConnect:true,cdpBinding:{account:'owner',tabId:7}},session:session||{cdpTab:7,cdpAccount:'owner'},online:true,validKey:true,owner:'owner',tabs:[{id:7,url:'https://x.com/home',lastAccessed:1}],created:[],attached:new Set(attached?[7]:[]),attachCount:0,learned:0,sockets:[],timers:new Map(),intervals:new Map(),alarms:new Map()};

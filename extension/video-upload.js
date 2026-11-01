@@ -36,12 +36,13 @@ export async function uploadVideo(job,command,call,owner,inspect,mediaIds,failur
   const finished=await command('Runtime.callFunctionOn',{objectId:handle,functionDeclaration:'function(){return this.finish()}',returnByValue:true});
   if(finished.exceptionDetails||finished.result?.value!==true)throw Error('X 未接受完整视频，未发送');
  }finally{if(handle)await command('Runtime.releaseObject',{objectId:handle}).catch(()=>{});}
- for(let attempt=0;attempt<360;attempt++){
+ let page;const until=Date.now()+300000;
+ for(let attempt=0;attempt<1200&&Date.now()<until;attempt++){
   if(failure())throw Error(failure());
-  const page=await inspect();
+  page=await inspect();
   if(page?.ready&&page.enabled&&page.mediaReady&&mediaIds.size===1)return [...mediaIds][0];
   if(attempt%20===0)await call('video_upload_chunk',{id:job.id,client:job.client,offset:0},30000);
   await new Promise(resolve=>setTimeout(resolve,250));
  }
- throw Error('视频上传或处理超时，页面已保留；未发送推文');
+ throw Error('视频上传或处理等待5分钟后仍未就绪（Post按钮'+(page?.enabled?'可用':'不可用')+'，视频'+(page?.mediaReady?'就绪':'处理中')+'，媒体回执'+mediaIds.size+'条），页面已保留；未发送推文');
 }

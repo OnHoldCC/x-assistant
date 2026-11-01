@@ -19,14 +19,15 @@ export function jobProgress(job:Job):{value:number|null;max:number;text:string}{
     const ended=job.state==='failed'?'已停止':job.state==='completed'?'本轮结束':job.state==='queued'?'等待执行':'执行中';
     return {value:total==null?(job.state==='running'?null:0):Math.min(count,total),max:total||1,text:total==null?`${ended} · ${summary}（目标总数未知）`:`${ended} · 已确认 ${count}/${total} · ${summary}${job.state==='completed'&&count<total?` · 剩余 ${total-count} 未处理`:''}`};
   }
-  if(job.action==='capture_tiktok')return {value:job.state==='completed'?1:job.state==='running'?null:0,max:1,text:job.error||job.result?.skip_reason||(job.state==='completed'?`已下载 ${job.result?.prepared||0} 条视频，配文已排队`:job.state==='running'?'正在读取 TikTok 来源并下载新视频':'等待读取 TikTok 来源')};
+  if(job.action==='capture_tiktok')return {value:job.state==='completed'?1:job.state==='running'?null:0,max:1,text:job.error||job.result?.skip_reason||(job.state==='completed'?`已下载 ${job.result?.prepared||0} 条视频，批量审核已排队`:job.state==='running'?'正在读取 TikTok 来源并下载新视频':'等待读取 TikTok 来源')};
+  if(job.action==='video_screening')return {value:job.state==='completed'?1:job.state==='rewriting'?null:0,max:1,text:job.error||job.result?.skip_reason||(job.state==='completed'?`批量审核完成：通过 ${job.result?.allowed||0} · 排除 ${job.result?.excluded||0} · 待检查 ${job.result?.needs_review||0}`:job.state==='rewriting'?'正在批量审核敏感内容，不生成文案':'等待批量视频审核')};
   if(job.action==='video_caption'){
     if(job.state==='completed'){
       if(job.result?.status==='rejected')return {value:0,max:1,text:`已排除，未发布：${job.result.skip_reason||'内容不符合视频规则'}`};
       if(job.result?.status==='needs_review')return {value:0,max:1,text:`需人工检查，未发布：${job.result.skip_reason||'画面、水印或片尾无法确认'}`};
       return job.result?.processing?.verified?{value:1,max:1,text:'视频与文案已就绪，查看视频发布任务或审核后发布'}:{value:0.5,max:1,text:'仅文案已生成，尚未处理视频；点击“检查水印并处理”继续'};
     }
-    return {value:job.state==='rewriting'?null:0,max:1,text:job.state==='rewriting'?(job.input?.video_step==='processing'?'FFmpeg 正在处理水印和片尾':job.input?.video_step==='verifying'?'Codex 正在复核处理后视频':'Codex 正在检查画面、片尾并生成英文配文'):job.state==='failed'?job.error||'配文生成失败，视频已保留':'等待模型生成视频配文'};
+    return {value:job.state==='rewriting'?null:0,max:1,text:job.state==='rewriting'?(job.input?.video_step==='processing'?'FFmpeg 正在处理水印和片尾':job.input?.video_step==='verifying'?'Codex 正在复核处理后视频':'Codex 正在检查画面、片尾并生成英文配文'):job.state==='failed'?job.error||'配文生成失败，视频已保留':job.input?.stage==='screening'?'等待本批敏感内容审核，通过后才生成文案':'等待模型生成视频配文'};
   }
   if(job.action==='rewrite_publish'){
     const replicate=job.input?.mode==='replicate',reply=job.input?.mode==='reply',news=job.input?.mode==='news';

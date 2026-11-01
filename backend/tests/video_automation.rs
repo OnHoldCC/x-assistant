@@ -7,7 +7,7 @@ fn video_plans_schedule_owned_deduplicated_captions_and_pause_without_blocking_o
  let client=uuid::Uuid::new_v4().to_string();store.session_status(&client,"example","logged_in","",at).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,"1.5.25").unwrap();
  let config=json!({"action":"auto_video","interval_minutes":1,"limit":1,"source_urls":["https://www.tiktok.com/search?q=cats"]});
  let mut invalid=config.clone();invalid["source_urls"]=json!(["https://evil.example/"]);assert!(store.save_automation("example",&invalid,at).is_err());
- invalid=config.clone();invalid["limit"]=json!(2);assert!(store.save_automation("example",&invalid,at).is_err());
+ invalid=config.clone();invalid["limit"]=json!(6);assert!(store.save_automation("example",&invalid,at).is_err());
  invalid=config.clone();invalid["source_urls"]=json!(["https://www.tiktok.com/","https://www.tiktok.com/@cats"]);assert!(store.save_automation("example",&invalid,at).is_err());
  let task=store.save_automation("example",&config,at).unwrap()["id"].as_str().unwrap().to_owned();
  assert!(store.run_automation("example",&task,at).is_err());store.control_automation("example",&task,true,at).unwrap();assert!(store.run_automation("example",&task,at).is_err(),"old plugins cannot receive video work");
@@ -30,6 +30,8 @@ fn video_plans_schedule_owned_deduplicated_captions_and_pause_without_blocking_o
  store.finish_video_capture(&next,&client,None,at+7).unwrap().unwrap();let records=store.job_records("example",&json!({"task_type":"capture_tiktok","state":"skipped"})).unwrap();assert_eq!(records["total"],1);assert_eq!(records["items"][0]["result"]["sent"],false);
  let limited=store.run_automation("example",&task,at+8).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at+8).unwrap();store.finish_video_capture(&limited,&client,Some("TikTok 页面返回 HTTP 429"),at+9).unwrap().unwrap();
  let state=store.automation_state("example").unwrap();let plan=&state["tasks"][0];assert_eq!(plan["enabled"],true);assert!(plan["next_run"].as_i64().unwrap()>=at+9+15*60_000);assert!(plan["last_job"]["error"].as_str().unwrap().contains("未调用模型"));
+ assert!(store.run_automation("example",&task,at+10).is_err(),"manual execution cannot bypass the API cooldown");
+ let at=at+15*60_000+20;store.session_status(&client,"example","logged_in","",at).unwrap();
  let batch=store.run_automation("example",&task,at+10).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at+10).unwrap();
  let china="https://www.tiktok.com/embed/v2/234";let denied="https://www.tiktok.com/embed/v2/345";
  assert!(store.skip_video_source(&batch,"wrong",china,"中国相关",false,at+10).is_err());
@@ -54,6 +56,7 @@ fn video_publishing_is_opt_in_and_stops_when_its_plan_is_paused(){
  let task=store.save_automation("example",&config,at).unwrap()["id"].as_str().unwrap().to_owned();store.control_automation("example",&task,true,at).unwrap();let capture=store.run_automation("example",&task,at).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at).unwrap();
  let id=uuid::Uuid::new_v4().to_string();let data=json!({"download_id":id,"id":"123","source":"https://www.tiktok.com/embed/v2/123","title":"Kitten","capture_job":capture,"capture_client":client});store.enqueue_video_caption("example",&data,false,at).unwrap();store.finish_video_capture(&capture,&client,None,at).unwrap();store.claim_rewrite(at).unwrap();
  let ready=json!({"status":"ready","text":"A playful kitten. #Cats","processing":{"verified":true}});store.finish_video_caption(&id,Ok(&ready),true,at).unwrap();
- let pub_id=store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"].as_str().unwrap().to_owned();assert_eq!(store.claim(&client,"example",at).unwrap()["id"],pub_id);
+ let pub_id=store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"].as_str().unwrap().to_owned();assert!(store.claim(&client,"example",at).unwrap().is_null(),"batch output must respect the plan interval");
+ let at=at+60_000;store.session_status(&client,"example","logged_in","",at).unwrap();assert_eq!(store.claim(&client,"example",at).unwrap()["id"],pub_id);
  store.control_automation("example",&task,false,at).unwrap();assert!(store.video_upload_context(&pub_id,&client,at).is_err());assert!(store.begin_publish(&pub_id,&client,at).is_err());
 }

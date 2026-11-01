@@ -11,8 +11,8 @@ pub fn editing(value: &Value) -> Result<Value, String> {
         if region.as_object().is_none_or(|v|v.len()!=4){return Err("水印区域字段无效".into());}
         let n = |key| region[key].as_u64().filter(|v| *v <= 1000).ok_or("水印坐标无效");
         let (x,y,w,h) = (n("x")?,n("y")?,n("width")?,n("height")?);
-        if x < 2 || y < 2 || w < 5 || h < 5 || x+w > 998 || y+h > 998 || w*h > 80_000 || !(x < 200 || y < 200 || x+w > 800 || y+h > 800) {
-            return Err("水印区域过大或接近主体，需人工处理".into());
+        if x < 2 || y < 2 || w < 5 || h < 5 || x+w > 998 || y+h > 998 || w*h > 80_000 {
+            return Err("水印区域过大或超出画面，需人工处理".into());
         }
         area += w*h;
     }
@@ -35,8 +35,8 @@ pub async fn probe(path: &Path) -> Result<Value, String> {
 pub async fn tail(home: &Path, id: &str, source: &Path, name: &str) -> Result<PathBuf, String> {
     let meta = probe(source).await?;
     let path = folder(home,id)?.join(name);
-    let start = (meta["duration"].as_f64().unwrap()-3.0).max(0.0).to_string();
-    let output = tokio::time::timeout(std::time::Duration::from_secs(30),media_command("ffmpeg").args(["-hide_banner","-loglevel","error","-y","-protocol_whitelist","file,crypto,data","-ss",&start,"-i"]).arg(source).args(["-an","-sn","-vf","fps=3,scale=240:-2,tile=3x3","-frames:v","1","-q:v","4"]).arg(&path).output()).await.map_err(|_|"片尾检查超时")?.map_err(|_|"未找到 FFmpeg")?;
+    let start = (meta["duration"].as_f64().unwrap()-5.0).max(0.0).to_string();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(30),media_command("ffmpeg").args(["-hide_banner","-loglevel","error","-y","-protocol_whitelist","file,crypto,data","-ss",&start,"-i"]).arg(source).args(["-an","-sn","-vf","fps=1.8,scale=240:-2,tile=3x3","-frames:v","1","-q:v","4"]).arg(&path).output()).await.map_err(|_|"片尾检查超时")?.map_err(|_|"未找到 FFmpeg")?;
     if !output.status.success() || std::fs::metadata(&path).map_or(true,|m|m.len()==0||m.len()>2_000_000) { return Err("无法读取视频片尾，未进入发布队列".into()); }
     Ok(path)
 }
@@ -54,7 +54,7 @@ pub async fn prepare(home: &Path, id: &str, plan: &Value) -> Result<Value, Strin
     let meta = probe(source).await?;
     let duration = meta["duration"].as_f64().unwrap();
     let trim = plan["trim_end_seconds"].as_f64().unwrap();
-    if trim > duration*0.2 || duration-trim < 1.0 { return Err("片尾裁剪会丢失过多内容，需人工处理".into()); }
+    if duration-trim < 1.0 { return Err("片尾裁剪会丢失过多内容，需人工处理".into()); }
     let (w,h) = (meta["width"].as_u64().unwrap(),meta["height"].as_u64().unwrap());
     let mut filters = Vec::new();
     for r in plan["regions"].as_array().unwrap() {

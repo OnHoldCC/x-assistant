@@ -295,10 +295,13 @@ const columns: DataTableColumns<Job> = [
       h(NSpace, { size: 2 }, () => [
         button("查看", () => open(j)),
         button("编辑", () => open(j, true), !editable(j) || !!working.value),
-        j.action === "video_caption" && j.state === "completed" && j.result?.status === "ready"
-          ? button(j.result.processing?.verified ? "审核后发布视频" : "检查水印并处理", () => update(j.result?.processing?.verified ? "enqueue_video_publication" : "prepare_video", j, { download_id: j.id }), !!working.value)
+        j.action === "video_caption" && j.state === "completed" && ["ready","needs_review"].includes(j.result?.status || "") && (!j.input?.screening_job || j.input.screening_passed)
+          ? button(j.result?.processing?.verified ? "审核后发布视频" : "检查水印并处理", () => update(j.result?.processing?.verified ? "enqueue_video_publication" : "prepare_video", j, { download_id: j.id }), !!working.value)
           : null,
-        j.state === "failed" && j.action === "video_caption"
+        j.state === "failed" && j.action === "video_screening"
+          ? button("重试审核（不重新下载）", () => update("retry_video_screening", j), !!working.value)
+          : null,
+        j.state === "failed" && j.action === "video_caption" && j.input?.stage !== "screening"
           ? button("重试配文", () => update("retry_video_caption", j, { download_id: j.id }), !!working.value)
           : null,
         j.state === "failed" &&
@@ -466,6 +469,7 @@ const columns: DataTableColumns<Job> = [
           ><JobProgress :job="viewed" />
           <p>{{ jobMessage(viewed) }}</p>
           <JobMetrics :job="viewed" details />
+          <div v-if="viewed.action === 'video_screening' && viewed.result?.items" class="business-stack"><p v-for="item in viewed.result.items" :key="item.download_id" class="business-pre">{{item.download_id}} · {{item.status==='allowed'?'通过':item.status==='excluded'?'排除':'待检查'}}：{{item.reason}}</p></div>
           <p v-if="['capture_tiktok','video_caption'].includes(viewed.action) && viewed.input?.source" class="business-pre">视频来源：{{ viewed.input.source.url }}</p>
           <template v-if="viewed.action === 'video_caption' && viewed.input?.text">
             <p>英文配文</p>

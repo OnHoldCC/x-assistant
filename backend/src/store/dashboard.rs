@@ -221,7 +221,7 @@ impl Store {
                     CASE WHEN j.action='capture_notifications' THEN coalesce(json_extract(j.input,'$.publication_mode'),'reply') END AS publication_mode,
                     coalesce(sum(json_extract(g.value,'$.usage.total_tokens')),0) AS tokens,
                     sum(CASE WHEN g.key IS NOT NULL AND json_extract(g.value,'$.usage.total_tokens') IS NULL THEN 1 ELSE 0 END)
-                        + CASE WHEN j.action IN ('rewrite_publish','video_caption') AND count(g.key)=0 AND coalesce(json_extract(j.input,'$.model_not_called'),0)=0 AND
+                        + CASE WHEN j.action IN ('rewrite_publish','video_caption','video_screening') AND count(g.key)=0 AND coalesce(json_extract(j.input,'$.model_not_called'),0)=0 AND
                             (j.state IN ('rewriting','completed','failed') OR json_extract(j.input,'$.stage') IN ('ready','sending'))
                             THEN 1 ELSE 0 END AS missing_usage
                 FROM jobs j LEFT JOIN json_each(j.input,'$.telemetry.generations') g

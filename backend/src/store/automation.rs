@@ -7,7 +7,7 @@ pub(super) fn interval_ms(config:&Value)->i64 {
 impl Store {
     pub fn expire_automation(&self, at: i64) -> Result<(), String> {
         self.lock()?.execute("UPDATE automation_tasks SET enabled=0,state='paused' WHERE enabled=1 AND json_extract(value,'$.stop_at') IS NOT NULL AND json_extract(value,'$.stop_at')<=?",[at]).map_err(|e|e.to_string())?;
-        self.lock()?.execute("UPDATE jobs SET state='failed',error='视频计划已暂停或到期，本轮未继续',updated_at=?,input=json_set(input,'$.model_not_called',json('true')) WHERE action IN ('capture_tiktok','video_caption') AND state='queued' AND json_extract(input,'$.task_id') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1)",[at]).map_err(|e|e.to_string())?;
+        self.lock()?.execute("UPDATE jobs SET state='failed',error='视频计划已暂停或到期，本轮未继续',updated_at=?,input=json_set(input,'$.model_not_called',json('true')) WHERE action IN ('capture_tiktok','video_caption','video_screening') AND state='queued' AND json_extract(input,'$.task_id') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1)",[at]).map_err(|e|e.to_string())?;
         Ok(())
     }
 
@@ -25,7 +25,7 @@ impl Store {
         };
         let blocked = read(format!("automation_block:{account}"));
         let resumed = read(format!("automation_resumed:{account}"));
-        let mut statement=db.prepare("SELECT a.id,a.value,a.enabled,a.state,a.next_run,a.last_run,j.id,j.action,j.state,j.created_at,j.updated_at,j.error,j.input,j.result FROM automation_tasks a LEFT JOIN jobs j ON j.id=(SELECT id FROM jobs WHERE account=a.account AND json_extract(input,'$.task_id')=a.id AND (json_extract(a.value,'$.action') NOT IN ('auto_reply','reply_notifications') OR action IN ('capture_for_you','capture_notifications')) ORDER BY created_at DESC,id DESC LIMIT 1) WHERE a.account=? ORDER BY a.next_run,a.id").map_err(|e|e.to_string())?;
+        let mut statement=db.prepare("SELECT a.id,a.value,a.enabled,a.state,a.next_run,a.last_run,j.id,j.action,j.state,j.created_at,j.updated_at,j.error,j.input,j.result FROM automation_tasks a LEFT JOIN jobs j ON j.id=(SELECT id FROM jobs WHERE account=a.account AND json_extract(input,'$.task_id')=a.id AND (json_extract(a.value,'$.action') NOT IN ('auto_reply','reply_notifications') OR action IN ('capture_for_you','capture_notifications')) ORDER BY CASE WHEN state IN ('running','rewriting') THEN 0 WHEN state='queued' THEN 1 ELSE 2 END,updated_at DESC,created_at DESC,id DESC LIMIT 1) WHERE a.account=? ORDER BY a.next_run,a.id").map_err(|e|e.to_string())?;
         let mut tasks=statement.query_map([&account],|r|{
             let last_id:Option<String>=r.get(6)?;
             let last_job=if let Some(id)=last_id {json!({"id":id,"account":account,"action":r.get::<_,String>(7)?,"state":r.get::<_,String>(8)?,"created_at":r.get::<_,i64>(9)?,"updated_at":r.get::<_,i64>(10)?,"error":r.get::<_,Option<String>>(11)?,"input":serde_json::from_str::<Value>(&r.get::<_,String>(12)?).unwrap_or(Value::Null),"result":r.get::<_,Option<String>>(13)?.and_then(|value|serde_json::from_str::<Value>(&value).ok())})}else{Value::Null};
@@ -82,7 +82,7 @@ impl Store {
             .as_u64()
             .filter(|n| (1..=20).contains(n))
             .ok_or("每次执行1–20个目标")?;
-        if action=="auto_video"&&limit!=1{return Err("视频计划每轮处理1条，避免重复下载和模型用量突增".into());}
+        if action=="auto_video"&&limit>5{return Err("视频计划每批最多下载并审核5条".into());}
         let days = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
             7
         } else {

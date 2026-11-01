@@ -63,17 +63,46 @@ fn embed_video(html: &str, id: &str) -> Result<Value, String> {
     Ok(json!({"id":id,"author":author.unwrap_or(""),"title":video["itemInfos"]["text"].as_str().unwrap_or("").chars().take(4000).collect::<String>(),"urls":urls}))
 }
 
+static RESOLVER_REQUEST:tokio::sync::Mutex<Option<std::time::Instant>>=tokio::sync::Mutex::const_new(None);
+async fn page_bytes(mut response:reqwest::Response)->Result<Vec<u8>,String>{
+    let mut bytes=Vec::new();while let Some(chunk)=response.chunk().await.map_err(|_|"视频资料读取失败")?{if bytes.len()+chunk.len()>3_000_000{return Err("视频资料超过大小限制".into());}bytes.extend_from_slice(&chunk);}Ok(bytes)
+}
+fn resolver_video(value:&Value,id:&str)->Result<Value,String>{
+    let data=&value["data"];
+    if value["code"]!=0 {
+        let message=value["msg"].as_str().unwrap_or("下载接口未返回视频").chars().take(200).collect::<String>();
+        if ["limit","frequent","too many","频繁","限流"].iter().any(|s|message.to_lowercase().contains(s)){return Err("TikWM 下载接口 HTTP 429，请求限流".into());}
+        return Err(format!("TikWM：{message}"));
+    }
+    if data["id"].as_str()!=Some(id){return Err("TikWM 返回的视频与来源ID不匹配".into());}
+    let title=data["title"].as_str().unwrap_or("");
+    if let Some(reason)=exclusion_reason(title){return skipped_video(&format!("https://www.tiktok.com/embed/v2/{id}"),reason,false);}
+    let urls=["hdplay","play"].iter().filter_map(|key|data[*key].as_str()).filter(|raw|raw.len()<=16000&&reqwest::Url::parse(raw).is_ok_and(|u|permitted(&u))).collect::<Vec<_>>();
+    if urls.is_empty(){return Err("TikWM 未返回可信的MP4地址".into());}
+    Ok(json!({"id":id,"author":data["author"]["unique_id"].as_str().unwrap_or("").chars().take(64).collect::<String>(),"title":title.chars().take(4000).collect::<String>(),"urls":urls,"download_provider":"tikwm"}))
+}
+async fn metadata(client:&reqwest::Client,source:&str,id:&str)->Result<Value,String>{
+    let mut last=RESOLVER_REQUEST.lock().await;
+    if let Some(at)=*last{let gap=std::time::Duration::from_millis(1200).saturating_sub(at.elapsed());if !gap.is_zero(){tokio::time::sleep(gap).await;}}
+    *last=Some(std::time::Instant::now());
+    let resolved:Result<Value,String>=async {
+        let mut endpoint=reqwest::Url::parse("https://www.tikwm.com/api/").map_err(|_|"下载接口地址无效")?;
+        endpoint.query_pairs_mut().append_pair("url",source).append_pair("hd","1");
+        let response=client.get(endpoint).send().await.map_err(|_|"TikWM 连接失败")?;
+        if !response.status().is_success(){return Err(format!("TikWM 页面返回 HTTP {}",response.status().as_u16()));}
+        resolver_video(&serde_json::from_slice(&page_bytes(response).await?).map_err(|_|"TikWM 视频资料无效")?,id)
+    }.await;drop(last);
+    match resolved {Ok(value)=>return Ok(value),Err(error) if error.contains("HTTP 429")=>return Err(error),_=>{}}
+    let response=client.get(format!("https://www.tiktok.com/embed/v2/{id}")).send().await.map_err(|_|"TikTok 页面连接失败")?;
+    if !response.status().is_success(){return Err(format!("TikTok 页面返回 HTTP {}",response.status().as_u16()));}
+    let mut value=embed_video(&String::from_utf8(page_bytes(response).await?).map_err(|_|"TikTok 页面编码无效")?,id)?;value["download_provider"]=json!("tiktok_embed");Ok(value)
+}
+
 pub async fn download(home: &Path, raw: &str) -> Result<Value,String> {
     let (source,id)=video_page(raw)?;
     let redirects=reqwest::redirect::Policy::custom(|attempt|if attempt.previous().len()>=3||!permitted(attempt.url()){attempt.error("视频重定向地址无效")}else{attempt.follow()});
     let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).redirect(redirects).user_agent("Mozilla/5.0").build().map_err(|_|"视频下载客户端初始化失败")?;
-    let mut response=client.get(format!("https://www.tiktok.com/embed/v2/{id}")).send().await.map_err(|_|"TikTok 页面连接失败")?;
-    if !response.status().is_success(){return Err(format!("TikTok 页面返回 HTTP {}",response.status().as_u16()));}
-    let mut html=Vec::new();
-    while let Some(chunk)=response.chunk().await.map_err(|_|"TikTok 页面读取失败")? {
-        if html.len()+chunk.len()>3_000_000{return Err("TikTok 页面超过大小限制".into());}html.extend_from_slice(&chunk);
-    }
-    let mut metadata=embed_video(&String::from_utf8(html).map_err(|_|"TikTok 页面编码无效")?,&id)?;
+    let mut metadata=metadata(&client,&source,&id).await?;
     if metadata["skipped"]==true{return skipped_video(&source,metadata["caption_reason"].as_str().unwrap_or("已过滤"),false);}
     let mut media=None;
     let mut failures=Vec::new();let mut unavailable=true;
@@ -186,7 +215,7 @@ pub fn save_caption(home:&Path,id:&str,value:&Value)->Result<(),String>{
 }
 pub fn snapshot(home:&Path,store:&crate::store::Store,id:&str)->Result<Value,String>{
     let mut value=load(home,id)?;let job=store.video_caption_job(id)?;
-    value["caption_status"]=json!(match job["state"].as_str().unwrap_or(""){"queued"=>"queued","rewriting"=>"generating","failed"=>"failed",_=>job["result"]["status"].as_str().unwrap_or("needs_review")});
+    value["caption_status"]=json!(match job["state"].as_str().unwrap_or(""){"queued" if job["input"]["stage"]=="screening"=>"awaiting_screening","queued"=>"queued","rewriting"=>"generating","failed"=>"failed",_=>job["result"]["status"].as_str().unwrap_or("needs_review")});
     value["caption_text"]=job["result"]["text"].clone();value["caption_reason"]=job["result"]["reason"].clone();value["caption_error"]=job["error"].clone();
     if value["caption_status"]=="ready"{value["caption_file"]=json!(folder(home,id)?.join("caption.txt"));}
     value["processing"]=job["result"]["processing"].clone();
@@ -197,6 +226,14 @@ pub fn snapshot(home:&Path,store:&crate::store::Store,id:&str)->Result<Value,Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resolver_accepts_only_the_exact_id_and_trusted_unwatermarked_media_hosts(){
+        let good=json!({"code":0,"data":{"id":"123","title":"A kitten plays","hdplay":"https://v16.tiktokcdn-us.com/video.mp4","play":"https://evil.example/video.mp4","author":{"unique_id":"cats"}}});
+        let parsed=resolver_video(&good,"123").unwrap();assert_eq!(parsed["urls"],json!(["https://v16.tiktokcdn-us.com/video.mp4"]));assert_eq!(parsed["download_provider"],"tikwm");assert!(resolver_video(&good,"456").is_err());
+        let mut bad=good.clone();bad["data"]["title"]=json!("Chinese celebrity");assert_eq!(resolver_video(&bad,"123").unwrap()["skipped"],true);
+        bad=good.clone();bad["data"]["hdplay"]=json!("https://localhost/video.mp4");assert!(resolver_video(&bad,"123").is_err());assert!(resolver_video(&json!({"code":-1,"msg":"Free Api Limit"}),"123").unwrap_err().contains("HTTP 429"));
+    }
+
     #[test]
     fn china_policy_uses_explicit_content_without_guessing_identity_from_language(){
         for text in ["A Chinese actor","Made in China","#China #travel","中国人物","Shanghai trip","🇨🇳","中国相关话题"]{assert!(china_related(text),"{text}");}

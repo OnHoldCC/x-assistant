@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 import {requestKind} from './request-capture.js';
 
 export function parseRelationshipPage(value,kind,currentCursor=null){
@@ -34,7 +35,7 @@ export function parseRelationshipPage(value,kind,currentCursor=null){
 export async function collectRelationships(job,call,owner,verify){
  const {kind,owner_uid:uid,generation}=job.input||{};
  if(job.action!=='capture_relationships'||job.account!==owner||!['following','followers'].includes(kind)||!/^[1-9]\d{0,19}$/.test(uid||'')||!generation)throw Error('关系同步任务无效');
- const tab=await chrome.tabs.create({url:'about:blank',active:false});let attached=false,timer;
+ const tab=await createTaskTab({url:'about:blank',active:false});let attached=false,timer;
  const requests=new Map();let resolveInitial,rejectInitial;
  const initial=new Promise((resolve,reject)=>{resolveInitial=resolve;rejectInitial=reject;});
  // Register the rejection handler before navigation can fail.

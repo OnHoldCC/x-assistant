@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 import {runAutomation} from './automation.js';
 import {collectNotificationReplies} from './notifications.js';
 import {collectForYou} from './for-you.js';
@@ -107,7 +108,7 @@ export function createCdpBridge(){
     if(response.exceptionDetails||!response.result?.value)throw Error(response.exceptionDetails?.exception?.description||'X 页面尚未准备好');return response.result.value;
   }
   async function backgroundPage(account,analytics,onSnapshot,creatorPage=false,onlyPeriod=null,deadline=Date.now()+80000){
-    const tab=await chrome.tabs.create({url:'about:blank',active:false});let attached=false,lastNetwork=Date.now(),networkFailed=false;const pending=new Set();
+    const tab=await createTaskTab({url:'about:blank',active:false});let attached=false,lastNetwork=Date.now(),networkFailed=false;const pending=new Set();
     const network=(source,method,event)=>{
       if(source.tabId!==tab.id)return;
       if(method==='Network.requestWillBeSent'&&['Fetch','XHR'].includes(event.type)&&/^https:\/\/(x\.com|twitter\.com)\//.test(event.request?.url||'')&&event.request.url.includes('/graphql/')){pending.add(event.requestId);lastNetwork=Date.now();}
@@ -287,7 +288,7 @@ export function createCdpBridge(){
       await probe();await call('connections',{});
       let tabs=await chrome.tabs.query(pickX?{url:['https://x.com/*','https://twitter.com/*']}:{active:true,currentWindow:true});
       tabs=tabs.filter(usableTab).sort((a,b)=>Number(b.id===preferredTab)-Number(a.id===preferredTab)||(b.lastAccessed||0)-(a.lastAccessed||0)).slice(0,5);
-      if(!tabs.length){const tab=await chrome.tabs.create({url:automatic?'https://x.com/home#onhold-connection':'https://x.com/home',active:false});if(automatic){await chrome.storage.local.set({cdpBinding:{account:expectedAccount,tabId:tab.id}});tabs=[tab];}else throw Error('请先登录 X，再点击「连接 X 助手插件」');}
+      if(!tabs.length){const tab=await createTaskTab({url:automatic?'https://x.com/home#onhold-connection':'https://x.com/home',active:false});if(automatic){await chrome.storage.local.set({cdpBinding:{account:expectedAccount,tabId:tab.id}});tabs=[tab];}else throw Error('请先登录 X，再点击「连接 X 助手插件」');}
       closeSocket();const old=await session();await chrome.storage.session.remove('cdpTab');if(Number.isInteger(old.cdpTab))await chrome.debugger.detach({tabId:old.cdpTab}).catch(()=>{});
       let snapshot,lastError;
       for(const tab of tabs){

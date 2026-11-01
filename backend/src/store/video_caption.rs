@@ -20,7 +20,7 @@ impl Store {
     }
     pub fn prepare_existing_video(&self,id:&str,account:&str,at:i64)->Result<(),String>{
         let account=handle(account)?;
-        let changed=self.lock()?.execute("UPDATE jobs SET state='queued',error=NULL,result=NULL,updated_at=?,input=json_set(input,'$.stage','rewrite','$.prepare_video',json('true')) WHERE id=? AND account=? AND action='video_caption' AND state='completed' AND json_extract(result,'$.status')='ready' AND NOT EXISTS(SELECT 1 FROM jobs p WHERE p.id='video-'||jobs.id)",params![at,id,account]).map_err(|e|e.to_string())?;
+        let changed=self.lock()?.execute("UPDATE jobs SET state='queued',error=NULL,result=NULL,updated_at=?,input=json_set(input,'$.stage','rewrite','$.prepare_video',json('true')) WHERE id=? AND account=? AND action='video_caption' AND state='completed' AND json_extract(result,'$.status') IN ('ready','needs_review') AND (json_extract(input,'$.screening_job') IS NULL OR json_extract(input,'$.screening_passed')=1) AND NOT EXISTS(SELECT 1 FROM jobs p WHERE p.id='video-'||jobs.id)",params![at,id,account]).map_err(|e|e.to_string())?;
         if changed!=1{return Err("仅可处理尚未安排发布的合格视频；失败任务请重试配文".into());}
         Ok(())
     }
@@ -39,7 +39,13 @@ impl Store {
         let duplicate:Option<String>=tx.query_row("SELECT id FROM jobs WHERE account=? AND action='rewrite_publish' AND json_extract(input,'$.mode')='video' AND json_extract(input,'$.source.id')=?",params![account,input["source"]["id"].as_str()],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
         if let Some(existing)=duplicate {if existing!=publication_id{return Err("此来源视频已有发布记录或任务，未重复发布".into());}return Ok(json!({"id":existing,"queued":false}));}
         let mut payload=json!({"mode":"video","stage":"ready","publish_at":at,"text":result["text"],"source":input["source"],"download_id":id,"model_not_called":true});
-        if automatic{payload["task_id"]=input["task_id"].clone();}
+        if automatic{
+            payload["task_id"]=input["task_id"].clone();
+            let task=input["task_id"].as_str().ok_or("视频计划缺失")?;
+            let (next,interval):(i64,i64)=tx.query_row("SELECT next_run,automation_interval_ms(value) FROM automation_tasks WHERE id=? AND account=?",params![task,account],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
+            let last:Option<i64>=tx.query_row("SELECT max(json_extract(input,'$.publish_at')) FROM jobs WHERE account=? AND action='rewrite_publish' AND state IN ('queued','running') AND json_extract(input,'$.task_id')=?",params![account,task],|r|r.get(0)).map_err(|e|e.to_string())?;
+            payload["publish_at"]=json!(at.max(next).max(last.map_or(0,|at|at+interval)));
+        }
         tx.execute("INSERT INTO jobs(id,account,action,state,input,created_at,updated_at) VALUES(?,?,'rewrite_publish','queued',?,?,?)",params![publication_id,account,payload.to_string(),at,at]).map_err(|e|e.to_string())?;
         tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'created','处理后视频和英文文案已进入串行发布队列；等待X上传与发布回执')",params![publication_id,at]).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e|e.to_string())?;Ok(json!({"id":publication_id,"queued":true}))
@@ -52,6 +58,7 @@ impl Store {
     }
 
     pub fn run_video_automation(&self,account:&str,task:&str,at:i64)->Result<Value,String>{
+        self.tiktok_available(at)?;
         let account=handle(account)?;let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
         let raw:String=tx.query_row("SELECT value FROM automation_tasks WHERE id=? AND account=? AND enabled=1 AND json_extract(value,'$.action')='auto_video'",params![task,account],|r|r.get(0)).map_err(|_|"请先启用视频配文计划")?;
         let config:Value=serde_json::from_str(&raw).map_err(|_|"视频计划无效")?;
@@ -61,7 +68,7 @@ impl Store {
         if !online{return Err("视频自动化需要重载并连接1.5.26或更新的助手".into());}
         let mut statement=tx.prepare("SELECT video_id FROM (SELECT json_extract(input,'$.source.id') AS video_id,created_at AS seen FROM jobs WHERE account=?1 AND action='video_caption' AND json_extract(input,'$.source.id') IS NOT NULL UNION ALL SELECT json_extract(s.value,'$.id'),j.updated_at FROM jobs j,json_each(j.input,'$.skipped_videos') s WHERE j.account=?1 AND j.action='capture_tiktok' AND (json_extract(s.value,'$.until')=0 OR json_extract(s.value,'$.until')>?2)) GROUP BY video_id ORDER BY max(seen) DESC LIMIT 5000").map_err(|e|e.to_string())?;
         let known=statement.query_map(params![account,at],|r|r.get::<_,String>(0)).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(statement);
-        let id=Uuid::new_v4().to_string();let input=json!({"task_id":task,"source_urls":config["source_urls"],"known_ids":known,"limit":1});
+        let id=Uuid::new_v4().to_string();let input=json!({"task_id":task,"source_urls":config["source_urls"],"known_ids":known,"limit":config["limit"],"screen_first":true});
         tx.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,?,'capture_tiktok','queued',?,?,?)",params![id,account,at,at,input.to_string()]).map_err(|e|e.to_string())?;
         tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'created','视频计划已排队，等待读取TikTok来源')",params![id,at]).map_err(|e|e.to_string())?;
         tx.execute("UPDATE automation_tasks SET state='queued',last_run=?,next_run=? WHERE id=? AND account=?",params![at,at+super::automation::interval_ms(&config),task,account]).map_err(|e|e.to_string())?;
@@ -73,7 +80,11 @@ impl Store {
         let duplicate:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE account=? AND action='video_caption' AND json_extract(input,'$.source.id')=?)",params![account,video_id],|r|r.get(0)).map_err(|e|e.to_string())?;
         let skipped:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM jobs j,json_each(j.input,'$.skipped_videos') s WHERE j.account=? AND j.action='capture_tiktok' AND json_extract(s.value,'$.id')=? AND (json_extract(s.value,'$.until')=0 OR json_extract(s.value,'$.until')>?))",params![account,video_id,at],|r|r.get(0)).map_err(|e|e.to_string())?;
         if duplicate||skipped{return Err("此视频已有处理或过滤记录，跳过重复下载".into());}
-        Ok(json!({"account":account,"task_id":task}))
+        let raw:String=db.query_row("SELECT input FROM jobs WHERE id=?",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        let input:Value=serde_json::from_str(&raw).map_err(|_|"采集参数无效")?;
+        let count:i64=db.query_row("SELECT count(*) FROM jobs WHERE account=? AND action='video_caption' AND json_extract(input,'$.capture_job')=?",params![account,id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if count>=input["limit"].as_i64().unwrap_or(1).clamp(1,5){return Err("本批视频下载已达到数量上限".into());}
+        Ok(json!({"account":account,"task_id":task,"screen_first":input["screen_first"]}))
     }
     pub fn record_video_source(&self,id:&str,client:&str,url:&str,at:i64)->Result<Value,String>{
         let context=self.video_capture_context(id,client,url,at)?;let (url,video_id)=crate::video::video_page(url)?;
@@ -106,20 +117,30 @@ impl Store {
         let row:Option<(String,String,String)>=tx.query_row("SELECT account,json_extract(input,'$.task_id'),input FROM jobs WHERE id=? AND client=? AND state='running' AND action='capture_tiktok'",params![id,client],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())?;
         let Some((account,task,raw))=row else{return Ok(None)};
         let count:i64=tx.query_row("SELECT count(*) FROM jobs WHERE account=? AND action='video_caption' AND json_extract(input,'$.capture_job')=?",params![account,id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if limited{tx.execute("INSERT INTO settings(key,value) VALUES('tiktok_download_cooldown',?) ON CONFLICT(key) DO UPDATE SET value=CAST(MAX(CAST(settings.value AS INTEGER),CAST(excluded.value AS INTEGER)) AS TEXT)",[(at+15*60_000).to_string()]).map_err(|e|e.to_string())?;}
         let input:Value=serde_json::from_str(&raw).map_err(|_|"视频任务数据无效")?;
+        let mut pending=tx.prepare("SELECT id FROM jobs WHERE account=? AND action='video_caption' AND state='queued' AND json_extract(input,'$.stage')='screening' AND json_extract(input,'$.capture_job')=? ORDER BY created_at,id LIMIT 6").map_err(|e|e.to_string())?;
+        let downloads=pending.query_map(params![account,id],|r|r.get::<_,String>(0)).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(pending);
+        if downloads.len()>5{return Err("批量视频数量超过上限".into());}
+        if !downloads.is_empty(){
+            let screen=format!("screen-{id}");let payload=json!({"task_id":task,"capture_job":id,"download_ids":downloads,"stage":"rewrite"});
+            tx.execute("INSERT OR IGNORE INTO jobs(id,account,action,state,input,created_at,updated_at) VALUES(?,?,'video_screening','queued',?,?,?)",params![screen,account,payload.to_string(),at,at]).map_err(|e|e.to_string())?;
+            tx.execute("UPDATE jobs SET input=json_set(input,'$.screening_job',?) WHERE account=? AND action='video_caption' AND state='queued' AND json_extract(input,'$.stage')='screening' AND json_extract(input,'$.capture_job')=?",params![screen,account,id]).map_err(|e|e.to_string())?;
+            tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'created',?)",params![screen,at,format!("{}条本地视频已排队批量审核，审核前不生成文案",downloads.len())]).map_err(|e|e.to_string())?;
+        }
         let items=input["skipped_videos"].as_array();let filtered=items.map_or(0,|items|items.iter().filter(|v|v["until"]==0).count());let unavailable=items.map_or(0,|items|items.len()-filtered);
         let skipped=count==0&&error.is_none();let reason=if skipped&&filtered+unavailable>0{format!("已过滤 {filtered} 条 · 暂不可下载 {unavailable} 条 · 本轮未调用模型")}else if skipped{"当前来源没有未处理的新视频".into()}else{String::new()};
         let result=json!({"prepared":count,"filtered":filtered,"unavailable":unavailable,"sent":false,"skip_reason":reason});
         tx.execute("UPDATE jobs SET state=?,error=?,result=?,updated_at=?,input=json_set(input,'$.stage',?) WHERE id=?",params![if error.is_some(){"failed"}else{"completed"},error,result.to_string(),at,if skipped{"skipped"}else{"ready"},id]).map_err(|e|e.to_string())?;
         tx.execute("UPDATE automation_tasks SET state=CASE WHEN enabled=0 THEN 'paused' WHEN ? THEN 'error' ELSE 'waiting' END,next_run=CASE WHEN ? THEN MAX(next_run,?) ELSE next_run END WHERE id=? AND account=?",params![error.is_some(),limited,at+15*60_000,task,account]).map_err(|e|e.to_string())?;
-        tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,?,?)",params![id,at,if error.is_some(){"failed"}else{"completed"},error.unwrap_or(if skipped{"当前来源没有未处理的新视频，本轮未调用模型"}else{"视频已下载，配文已进入模型队列；未发布"})]).map_err(|e|e.to_string())?;
+        tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,?,?)",params![id,at,if error.is_some(){"failed"}else{"completed"},error.unwrap_or(if skipped{"当前来源没有未处理的新视频，本轮未调用模型"}else{"视频已下载，先批量审核，再为合格视频生成文案；未发布"})]).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e|e.to_string())?;Ok(Some(json!({"saved":true})))
     }
     pub fn enqueue_video_caption(&self, account:&str, video:&Value, retry:bool, at:i64)->Result<Value,String>{
         let account=handle(account)?;
         let id=video["download_id"].as_str().ok_or("下载标识缺失")?;
         uuid::Uuid::parse_str(id).map_err(|_|"下载标识无效")?;
-        let mut input=json!({"download_id":id,"stage":"rewrite","source":{"id":video["id"],"author":video["author"],"url":video["source"],"text":video["title"]},"language":"en"});
+        let mut input=json!({"download_id":id,"stage":if video["screen_first"]==true{"screening"}else{"rewrite"},"source":{"id":video["id"],"author":video["author"],"url":video["source"],"text":video["title"]},"language":"en"});
         if let Some(capture)=video["capture_job"].as_str().filter(|_|!retry){
             let context=self.video_capture_context(capture,video["capture_client"].as_str().ok_or("视频采集连接缺失")?,video["source"].as_str().ok_or("视频来源缺失")?,at)?;
             if context["account"]!=account{return Err("视频采集账号不匹配".into());}
@@ -133,6 +154,8 @@ impl Store {
                 let owned:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND account=? AND action='video_caption' AND coalesce(json_extract(input,'$.hidden'),0)=0)",params![id,account],|r|r.get(0)).map_err(|e|e.to_string())?;
                 if !owned{return Err("配文任务不属于当前账号或已删除".into());}
                 if retry {
+                let screening:bool=tx.query_row("SELECT json_extract(input,'$.stage')='screening' FROM jobs WHERE id=?",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+                if screening{return Err("请重试所属批量审核，不会跳过敏感内容审核".into());}
                 let changed=tx.execute("UPDATE jobs SET state='queued',error=NULL,result=NULL,updated_at=?,input=json_set(input,'$.stage','rewrite') WHERE id=? AND account=? AND action='video_caption' AND state='failed' AND coalesce(json_extract(input,'$.hidden'),0)=0",params![at,id,account]).map_err(|e|e.to_string())?;
                 if changed==1 {tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'queued','重试配文，保留原视频和历史模型用量')",params![id,at]).map_err(|e|e.to_string())?;}
                 }

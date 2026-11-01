@@ -20,10 +20,11 @@ printf '%s\n' "$@" > "$folder/args"
 while [ "$#" -gt 0 ]; do
  if [ "$1" = '--output-last-message' ]; then shift; output="$1"; fi
  if [ "$1" = '--image' ]; then shift; test -f "$1" || exit 2; fi
+ if [ "$1" = '--output-schema' ]; then shift; schema="$1"; fi
  shift
 done
 cat >/dev/null
-cat "$folder/response.json" > "$output"
+if grep -q download_id "$schema"; then cat "$folder/screening.json" > "$output"; else cat "$folder/response.json" > "$output"; fi
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":20}}'
 "#).unwrap();std::fs::set_permissions(&exe,std::fs::Permissions::from_mode(0o700)).unwrap();
  let config=ModelConfig{cli_path:exe.to_string_lossy().into_owned(),..Default::default()};
@@ -136,4 +137,30 @@ async fn new_model_results_cannot_stop_silently_at_a_legacy_caption_without_vide
  response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A playful kitten. #Cats","reason":""}));
  store.enqueue_video_caption("example",&data,false,now()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.run_rewrite_queue());
  let job=finished(&store,id).await;assert_eq!(job["state"],"failed");assert!(job["error"].as_str().unwrap().contains("未返回水印和片尾检查方案"));assert!(store.video_publication(id).unwrap().is_null());assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"x");worker.abort();
+}
+
+#[tokio::test]
+async fn batch_screening_retries_reuse_files_and_only_allowed_clips_generate_captions(){
+ let (dir,store,base)=setup("An ordinary scene");let client=uuid::Uuid::new_v4().to_string();let at=now();
+ store.session_status(&client,"example","logged_in","",at).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,"1.5.30").unwrap();
+ let task=store.save_automation("example",&json!({"action":"auto_video","interval_minutes":1,"limit":5,"source_urls":["https://www.tiktok.com/"]}),at).unwrap()["id"].as_str().unwrap().to_owned();store.control_automation("example",&task,true,at).unwrap();let capture=store.run_automation("example",&task,at).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at).unwrap();
+ let mut ids=Vec::new();
+ for number in 0..3 {
+  let mut data=base.clone();let id=if number==0{base["download_id"].as_str().unwrap().to_owned()}else{uuid::Uuid::new_v4().to_string()};let folder=dir.path().join("media/tiktok").join(&id);std::fs::create_dir_all(&folder).unwrap();
+  if number>0{std::fs::copy(base["filename"].as_str().unwrap(),folder.join("source.mp4")).unwrap();}
+  data["download_id"]=json!(id);data["id"]=json!(format!("12{number}"));data["source"]=json!(format!("https://www.tiktok.com/embed/v2/12{number}"));data["filename"]=json!(folder.join("source.mp4"));data["capture_job"]=json!(capture);data["capture_client"]=json!(client);data["screen_first"]=json!(true);video::persist(dir.path(),&id,&data).unwrap();
+  store.enqueue_video_caption("example",&data,false,now()).unwrap();ids.push(id);
+ }
+ assert!(store.claim_rewrite(now()).unwrap().is_null(),"caption generation waits for the completed batch");
+ store.finish_video_capture(&capture,&client,None,now()).unwrap();let screen=format!("screen-{capture}");assert!(store.claim(&client,"example",now()).unwrap().is_null(),"browser workers cannot claim model screening");
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A quiet blue scene. #Video","reason":"","editing":{"regions":[],"trim_end_seconds":0}}));
+ let verdict=json!({"schema_version":1,"items":[{"download_id":ids[0],"status":"allowed","reason":"普通生活"},{"download_id":ids[1],"status":"needs_review","reason":"敏感主题无法确定"},{"download_id":ids[2],"status":"excluded","reason":"血腥内容"}]});
+ std::fs::write(dir.path().join("screening.json"),json!({"schema_version":1,"items":[]}).to_string()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.clone().run_rewrite_queue());
+ assert_eq!(finished(&store,&ids[0]).await["state"],"failed");assert!(runtime.call("retry_video_caption",json!({"download_id":ids[0]})).await.is_err());assert!(store.retry_video_screening("other",&screen,now()).is_err());
+ std::fs::write(dir.path().join("screening.json"),verdict.to_string()).unwrap();store.retry_video_screening("example",&screen,now()).unwrap();
+ let ready=finished(&store,&ids[0]).await;assert_eq!(ready["state"],"completed","{ready}");assert_eq!(ready["result"]["processing"]["verified"],true);
+ for (index,status) in [(1,"needs_review"),(2,"rejected")]{let job=store.video_caption_job(&ids[index]).unwrap();assert_eq!(job["result"]["status"],status);assert_eq!(job["input"]["model_not_called"],true);assert!(job["input"]["telemetry"]["generations"].is_null());assert!(!video::folder(dir.path(),&ids[index]).unwrap().join("caption.txt").exists());assert!(store.prepare_existing_video(&ids[index],"example",now()).is_err());}
+ let records=store.job_records("example",&json!({"task_type":"video_screening"})).unwrap();assert_eq!(records["items"][0]["id"],screen);assert_eq!(records["items"][0]["result"]["allowed"],1);assert_eq!(records["items"][0]["result"]["excluded"],1);assert_eq!(records["items"][0]["result"]["needs_review"],1);
+ assert_eq!(store.automation_state("example").unwrap()["tasks"][0]["last_job"]["id"],ids[0],"plan progress follows the child that actually finished last, not the earlier batch container");
+ assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"xxx","one failed batch, one explicit retry and one allowed caption, without downloading again");worker.abort();
 }

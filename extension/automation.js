@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 export function inspectAutomationPage(target,phase,action){
  if(location.protocol!=='https:'||!['x.com','twitter.com'].includes(location.hostname)||!/^[a-z0-9_]{1,15}$/.test(target))throw Error('自动化来源无效');
  const owner=document.querySelector('[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase();
@@ -34,7 +35,7 @@ export function inspectAutomationPage(target,phase,action){
 export async function runAutomation(job,call,owner,verify){
  const input=job.input;if(!input?.task_id||!['follow_back','unfollow'].includes(job.action)||!Number.isInteger(input.limit)||input.limit<1||input.limit>20)throw Error('自动化任务参数无效');
  const result={completed:[],skipped:[],blocked:false,reason:''},deadline=Date.now()+90000;
- const tab=await chrome.tabs.create({url:'about:blank',active:false});let attached=false,blockedReason='',writes=0,successful=0;
+ const tab=await createTaskTab({url:'about:blank',active:false});let attached=false,blockedReason='',writes=0,successful=0;
  const pending=new Set();
  const network=async(source,method,event)=>{
   if(source.tabId!==tab.id)return;

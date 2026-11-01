@@ -3,8 +3,9 @@ use serde_json::json;
 #[test]
 fn model_edits_are_bounded_coordinates_never_commands_or_large_subject_masks(){
  assert!(editing(&json!({"regions":[],"trim_end_seconds":0})).is_ok());
+ assert!(editing(&json!({"regions":[{"x":550,"y":740,"width":200,"height":20}],"trim_end_seconds":0})).is_ok());
  assert!(editing(&json!({"regions":[{"x":20,"y":20,"width":100,"height":50}],"trim_end_seconds":1.5})).is_ok());
- for region in [json!({"x":-1,"y":20,"width":100,"height":50}),json!({"x":"20; shell","y":20,"width":100,"height":50}),json!({"x":0,"y":0,"width":1000,"height":1000}),json!({"x":400,"y":400,"width":100,"height":100}),json!({"x":950,"y":20,"width":100,"height":50})]{assert!(editing(&json!({"regions":[region],"trim_end_seconds":0})).is_err());}
+ for region in [json!({"x":-1,"y":20,"width":100,"height":50}),json!({"x":"20; shell","y":20,"width":100,"height":50}),json!({"x":0,"y":0,"width":1000,"height":1000}),json!({"x":950,"y":20,"width":100,"height":50})]{assert!(editing(&json!({"regions":[region],"trim_end_seconds":0})).is_err());}
  for trim in [-1.0,5.1,100.0]{assert!(editing(&json!({"regions":[],"trim_end_seconds":trim})).is_err());}
 }
 

@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 // Read a page snapshot once; consume its fixed post links before refreshing For You.
 export function inspectForYou(owner,scope='for_you',trendIndex=0,language='auto'){
  const waiting=(phase,details={})=>({ready:false,phase,document_state:document.readyState,visibility:document.visibilityState,...details});
@@ -56,7 +57,7 @@ export async function collectForYou(job,call,owner,verify){
  let captureSummary=null;
  let trendIndex=saved?.account===owner&&saved.scope===scope?saved.trend_index||0:0;
  if(!remaining.length){
-  const tab=await chrome.tabs.create({url:'about:blank',active:false});let attached=false;
+  const tab=await createTaskTab({url:'about:blank',active:false});let attached=false;
   const command=async(method,params={})=>{let timer;try{return await Promise.race([chrome.debugger.sendCommand({tabId:tab.id},method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('For You 页面响应超时，停止本轮采集')),20000);})]);}finally{clearTimeout(timer);}};
   let selected=false,trendClicked=false,snapshot=null,lastIds=null,lastPage=null;const statuses=[];
   const network=(source,method,event)=>{if(source.tabId===tab.id&&method==='Network.responseReceived'&&/^https:\/\/x\.com\/i\/api\//.test(event.response?.url||'')&&event.response.status>=400)statuses.push(event.response.status);};

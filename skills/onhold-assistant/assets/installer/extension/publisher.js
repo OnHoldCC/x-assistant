@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 import './editor-text.js';
 import {uploadVideo,isMediaUpload} from './video-upload.js';
 
@@ -92,7 +93,7 @@ export async function runPublication(job, call, owner, verify) {
  if(job.input?.mode==='reply'&&!target)throw Error('回复目标缺失，未发送');
  if(target&&(!/^[a-z0-9_]{1,15}$/.test(target.author||'')||!/^\d{1,30}$/.test(target.id||'')||target.url!=='https://x.com/'+target.author+'/status/'+target.id))throw Error('回复目标无效');
  await verify();
- const tab=await chrome.tabs.create({url:target?target.url+'#onhold-reply':'https://x.com/home#onhold-publisher',active:false});
+ const tab=await createTaskTab({url:target?target.url+'#onhold-reply':'https://x.com/home#onhold-publisher',active:false});
  let attached=false,published='',failure='',sending=false,typed=false,requestAllowed=false,replyOpened=false,closeReady=false;
  const pending=new Set(),uploads=new Set(),mediaIds=new Set();
  const command=(method,params={})=>chrome.debugger.sendCommand({tabId:tab.id},method,params);

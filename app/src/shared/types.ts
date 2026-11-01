@@ -117,7 +117,7 @@ export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<stri
 export type Job = {
   id: string;
   account: string;
-  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "capture_tiktok" | "follow_back" | "unfollow" | "rewrite_publish" | "video_caption";
+  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "capture_tiktok" | "follow_back" | "unfollow" | "rewrite_publish" | "video_caption" | "video_screening";
   state: "queued" | "rewriting" | "running" | "completed" | "failed";
   created_at: number;
   updated_at: number;
@@ -126,9 +126,11 @@ export type Job = {
     source_urls?: string[];
     download_id?: string;
     video_step?: string;
+    screening_job?: string;
+    screening_passed?: boolean;
     kind?: "followers" | "following";
     mode?: "rewrite" | "similar" | "replicate" | "reply" | "news" | "video";
-    stage?: "rewrite" | "ready" | "sending" | "skipped";
+    stage?: "rewrite" | "ready" | "sending" | "skipped" | "screening";
     publish_at?: number | null;
     source?: { text: string; url: string; author: string; id: string; title?:string;published_at?:number };
     text?: string;
@@ -149,5 +151,5 @@ export type Job = {
     capture_summary?:{scanned:number;eligible:number;filtered:Record<'ads'|'truncated'|'source'|'text'|'own'|'language'|'translated',number>};
     telemetry?:{send_started_at?:number;generations?:{started_at:number;finished_at:number;duration_ms:number;usage:{input_tokens:number;output_tokens:number;cached_input_tokens:number|null;total_tokens:number}|null}[]};
   };
-  result?: { status?:string;processing?:{filename?:string;verified?:boolean};media_id?:string; prepared?:number;filtered?:number;unavailable?:number;sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
+  result?: { items?:{download_id:string;status:string;reason:string}[];allowed?:number;excluded?:number;needs_review?:number; status?:string;processing?:{filename?:string;verified?:boolean};media_id?:string; prepared?:number;filtered?:number;unavailable?:number;sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
 };

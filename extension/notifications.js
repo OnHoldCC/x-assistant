@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 export function parseNotificationReplies(value,owner,uid){
  if(!/^[a-z0-9_]{1,15}$/.test(owner)||!/^\d{1,30}$/.test(uid))throw Error('当前账号标识无效');
  const objects=[],users=new Map(),posts=new Map(),visible=new Set();let count=0;
@@ -43,7 +44,7 @@ export async function collectNotificationReplies(job,call,owner,verify){
  const {limit,owner_uid:uid}=job.input||{};
  const followBack=job.input?.publication_mode==='follow_back';
  if(job.action!=='capture_notifications'||job.account!==owner||!Number.isInteger(limit)||limit<1||limit>20||!/^\d{1,30}$/.test(uid||''))throw Error('通知回复任务无效');
- const tab=await chrome.tabs.create({url:'about:blank',active:false});let attached=false,observed=false,failure='',lastResponse=Date.now();
+ const tab=await createTaskTab({url:'about:blank',active:false});let attached=false,observed=false,failure='',lastResponse=Date.now();
  const command=(method,params={})=>chrome.debugger.sendCommand({tabId:tab.id},method,params),requests=new Set(),posts=new Map(),followers=new Set(),known=new Set(job.input.known_ids||[]);
  const network=async(source,method,event)=>{
   if(source.tabId!==tab.id)return;

@@ -111,3 +111,11 @@ test('video captions attach only bounded images from shared video storage with t
  try{assert.equal((await request({image_paths:[]})).status,422);assert.equal((await request({image_paths:['/etc/passwd']})).status,422);assert.equal(calls,0);const valid=await request({image_paths:[image]});assert.equal(valid.status,200,await valid.text());assert.equal(calls,1);}
  finally{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('batch video screening accepts bounded generated review images with its own schema',async()=>{
+ const {createCodexServer}=await import('../docker/codex.mjs');const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'onhold-screen-images-'))),images=[];let calls=0;
+ for(let n=0;n<5;n++){const folder=path.join(root,String(n));fs.mkdirSync(folder);for(const name of ['caption-preview.jpg','source-last.jpg']){const file=path.join(folder,name);fs.writeFileSync(file,Buffer.from([255,216,0,0,255,217]));images.push(file);}}
+ const server=createCodexServer('screen-key',async(args)=>{calls++;assert.equal(args.filter(v=>v==='--image').length,10);assert.ok(args[args.indexOf('--output-schema')+1].endsWith('video-screening-schema.json'));assert.ok(args.includes('web_search="disabled"'));fs.writeFileSync(args[args.indexOf('--output-last-message')+1],'{"schema_version":1,"items":[]}');return 0;},root);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const request=paths=>fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer screen-key'},body:JSON.stringify({operation:'generate',instructions:'screen only',prompt:'batch',output_format:'video_screening_v1',image_paths:paths})});
+ try{assert.equal((await request([...images,images[0]])).status,422);const valid=await request(images);assert.equal(valid.status,200,await valid.text());assert.equal(calls,1);}finally{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
+});

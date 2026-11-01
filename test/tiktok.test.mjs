@@ -96,3 +96,9 @@ test('home recommendation response is read after attaching and before navigating
  }}};
  await collectTikTokVideos({id:'capture',client:'client',input:{source_urls:['https://www.tiktok.com/']}},async(_op,input)=>assert.equal(input.url,'https://www.tiktok.com/embed/v2/123'),'example',async()=>{});assert.equal(reads,1);
 });
+
+test('batch capture downloads up to the configured limit before returning, without generating captions in the browser',async t=>{
+ const old=globalThis.chrome;t.after(()=>globalThis.chrome=old);const {collectTikTokVideos}=await import('../extension/tiktok.js');const saved=[];
+ globalThis.chrome={tabs:{create:async()=>assert.fail('direct URLs need no reader tab')}};
+ await collectTikTokVideos({id:'batch',client:'client',input:{limit:3,source_urls:[1,2,3,4].map(id=>`https://www.tiktok.com/embed/v2/${id}`)}},async(operation,input)=>{assert.equal(operation,'download_tiktok_video');saved.push(input.url);return {caption_status:'awaiting_screening'};},'example',async()=>{});assert.equal(saved.length,3);
+});

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { LAYOUT_SCROLL_EL_ID } from '@sa/materials';
 import { useAppStore } from '@/store/modules/app';
 import { useRouteStore } from '@/store/modules/route';
 import { useTabStore } from '@/store/modules/tab';
-import { useThemeStore } from '@/store/modules/theme';
 
 defineOptions({
   name: 'GlobalContent'
@@ -20,28 +20,21 @@ withDefaults(defineProps<Props>(), {
 });
 
 const appStore = useAppStore();
-const themeStore = useThemeStore();
+const route = useRoute();
 const routeStore = useRouteStore();
 const tabStore = useTabStore();
 
-const transitionName = computed(() => (themeStore.page.animate ? themeStore.page.animateMode : ''));
 
 function resetScroll() {
   const el = document.querySelector(`#${LAYOUT_SCROLL_EL_ID}`);
 
   el?.scrollTo({ left: 0, top: 0 });
 }
+watch(() => route.fullPath, resetScroll, { flush: 'post' });
 </script>
 
 <template>
   <RouterView v-slot="{ Component, route }">
-    <Transition
-      :name="transitionName"
-      mode="out-in"
-      @before-leave="appStore.setContentXScrollable(true)"
-      @after-leave="resetScroll"
-      @after-enter="appStore.setContentXScrollable(false)"
-    >
       <KeepAlive :include="routeStore.cacheRoutes" :exclude="routeStore.excludeCacheRoutes">
         <component
           :is="Component"
@@ -51,7 +44,6 @@ function resetScroll() {
           class="workspace-page flex-grow bg-layout transition-300"
         />
       </KeepAlive>
-    </Transition>
   </RouterView>
 </template>
 

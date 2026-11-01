@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 const operations={Viewer:'viewer',UserByScreenName:'profile',UserByRestId:'profile',UserTweets:'posts',Followers:'followers',Following:'following'};
 
 export function requestKind(raw){
@@ -75,7 +76,7 @@ export async function learnRequests(boundTab,screenName,call){
     }
   };
   try{
-    tab=await chrome.tabs.create({url:'about:blank',active:false});
+    tab=await createTaskTab({url:'about:blank',active:false});
     await chrome.debugger.attach({tabId:tab.id},'1.3');attached=true;
     chrome.debugger.onEvent.addListener(network);
     await chrome.debugger.sendCommand({tabId:tab.id},'Network.enable');

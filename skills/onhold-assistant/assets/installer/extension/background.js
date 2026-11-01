@@ -1,3 +1,4 @@
+import {createTaskTab} from './task-tab.js';
 import {LANGUAGES} from './languages.mjs';
 import './analysis-core.js';
 import {createCdpBridge} from './cdp-bridge.js';
@@ -81,7 +82,7 @@ async function accountContext(){
 const accountRefreshes=new Map();
 async function readDashboard(account,kind){
  const path={analytics:'/i/account_analytics',creator:'/i/jf/creators/original_content_rewards',creator_status:'/i/jf/creators/studio'}[kind];
- const tab=await chrome.tabs.create({url:'https://x.com'+path+'#onhold-dashboard-reader',active:false});
+ const tab=await createTaskTab({url:'https://x.com'+path+'#onhold-dashboard-reader',active:false});
  try{
   for(let attempt=0;attempt<40;attempt++){
    try{const value=await chrome.tabs.sendMessage(tab.id,{type:'READ_X_DASHBOARD',account,kind});if(value?.ready&&value.data?.account===account&&value.data.kind===kind)return value.data;}catch{}

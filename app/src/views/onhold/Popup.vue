@@ -55,7 +55,7 @@ const status = ref<BridgeStatus>({}),
 const videoBusy = ref(false), videoMessage = ref(""), videoError = ref("");
 type VideoResult = {download_id?:string;filename?:string;caption_status:string;caption_text?:string;caption_reason?:string;caption_error?:string;caption_file?:string;caption_job?:Job;processing?:{filename?:string;verified?:boolean};publication?:Job;published?:boolean};
 const videoResult=ref<VideoResult|null>(null);
-const captionPending=computed(()=>!!videoResult.value&&["queued","generating"].includes(videoResult.value.caption_status)||!!videoResult.value?.publication&&["queued","running"].includes(videoResult.value.publication.state));
+const captionPending=computed(()=>!!videoResult.value&&["queued","generating","awaiting_screening"].includes(videoResult.value.caption_status)||!!videoResult.value?.publication&&["queued","running"].includes(videoResult.value.publication.state));
 let videoPolling=false;
 async function videoRequest(type:string,data?:object){
   const response=await chrome.runtime.sendMessage({type,data});
@@ -95,7 +95,7 @@ async function downloadVideo() {
   videoResult.value = null;
   try {
     const result=await videoRequest("TIKTOK_DOWNLOAD");
-    videoMessage.value = result?.caption_status==='rejected' ? '视频已自动过滤，未下载、未调用模型' : result?.caption_status==='unavailable' ? '视频暂不可下载，未调用模型' : '视频已保存，英文配文已排队';
+    videoMessage.value = result?.caption_status==='awaiting_screening' ? '视频已保存，等待批量敏感内容审核，尚未生成文案' : result?.caption_status==='rejected' ? '视频已自动过滤，未下载、未调用模型' : result?.caption_status==='unavailable' ? '视频暂不可下载，未调用模型' : '视频已保存，英文配文已排队';
   } catch (error) {
     videoError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -369,7 +369,7 @@ const theme = {
           <p v-if="videoMessage" role="status">{{ videoMessage }}</p>
           <template v-if="videoResult">
             <p v-if="videoResult.filename" class="break-all" role="status">后端已保存：{{ videoResult.filename }}</p>
-            <p v-if="['queued','generating'].includes(videoResult.caption_status)" role="status">{{videoResult.caption_status==='queued'?'视频配文已排队，等待模型':'Codex 正在检查画面并生成英文配文'}}</p>
+            <p v-if="['queued','generating','awaiting_screening'].includes(videoResult.caption_status)" role="status">{{videoResult.caption_status==='awaiting_screening'?'等待批量敏感内容审核，通过后才生成文案':videoResult.caption_status==='queued'?'视频配文已排队，等待模型':'Codex 正在检查画面并生成英文配文'}}</p>
             <template v-if="videoResult.caption_status==='ready'">
               <NInput type="textarea" readonly :value="videoResult.caption_text" :input-props="{'aria-label':'配套英文文案'}" :autosize="{minRows:3,maxRows:8}" />
               <NButton @click="copyCaption">复制英文文案</NButton>
@@ -387,7 +387,7 @@ const theme = {
             <NAlert v-else-if="videoResult.caption_status==='unavailable'" type="warning">下载未完成：{{videoResult.caption_reason}}</NAlert>
             <template v-else-if="videoResult.caption_status==='failed'">
               <NAlert type="error">{{videoResult.caption_error}}，原视频已保留。</NAlert>
-              <NButton :disabled="videoBusy" @click="retryCaption">重试配文（不重新下载）</NButton>
+              <NButton v-if="videoResult.caption_job?.input?.stage !== 'screening'" :disabled="videoBusy" @click="retryCaption">重试配文（不重新下载）</NButton><p v-else>请到任务记录重试所属批量审核，尚未生成文案。</p>
             </template>
             <JobMetrics v-if="videoResult.caption_job" :job="videoResult.caption_job" />
           </template>
