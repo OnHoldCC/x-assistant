@@ -15,7 +15,7 @@ export function createVideoTransfer(owner,total){
 }
 
 export function isMediaUpload(raw){
- try{const url=new URL(raw);return url.protocol==='https:'&&['upload.twitter.com','upload.x.com','x.com'].includes(url.hostname)&&/\/(?:i\/|1\.1\/)?media\/upload\.json$/.test(url.pathname);}catch{return false;}
+ try{const url=new URL(raw);return url.protocol==='https:'&&['upload.twitter.com','upload.x.com','x.com'].includes(url.hostname)&&/\/(?:i\/|1\.1\/)?media\/upload2?\.json$/.test(url.pathname);}catch{return false;}
 }
 
 export async function uploadVideo(job,command,call,owner,inspect,mediaIds,failure){

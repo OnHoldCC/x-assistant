@@ -7,12 +7,12 @@ let seq=0,posts=0,uploads=0,gate=0,confirmed=0,tamper=false,wrongReceipt=false,u
 const html=()=>`<a data-testid="AppTabBar_Profile_Link" href="/example">Profile</a><main data-testid="primaryColumn"><div contenteditable="true" data-testid="tweetTextarea_0" style="width:400px;height:80px;margin:50px"></div><input type="file" accept="video/mp4"><button data-testid="tweetButtonInline" style="width:100px;height:50px" disabled>Post</button></main><script>
 const input=document.querySelector('input'),editor=document.querySelector('[contenteditable]'),button=document.querySelector('button');let uploaded=false;
 const update=()=>button.disabled=!(uploaded&&editor.innerText.trim());editor.oninput=update;
-input.onchange=async()=>{const file=input.files[0];if(file.name!=='video.mp4'||file.type!=='video/mp4')throw Error('wrong file');const response=await fetch('/i/media/upload.json',{method:'POST',body:await file.arrayBuffer()});if(!response.ok)return;await response.json();uploaded=true;const root=document.createElement('div');root.dataset.testid='attachments';root.innerHTML='<video></video>';document.querySelector('main').append(root);update();};
+input.onchange=async()=>{const file=input.files[0];if(file.name!=='video.mp4'||file.type!=='video/mp4')throw Error('wrong file');const response=await fetch('/i/media/upload2.json',{method:'POST',body:await file.arrayBuffer()});if(!response.ok)return;await response.json();uploaded=true;const root=document.createElement('div');root.dataset.testid='attachments';root.innerHTML='<video></video>';document.querySelector('main').append(root);update();};
 button.onclick=async()=>{const response=await fetch('/i/api/graphql/fixture/CreateTweet',{method:'POST',body:JSON.stringify({variables:{tweet_text:editor.innerText,media:{media_entities:[{media_id:'${tamper?'999':'456'}'}]}}})});if(response.ok){editor.innerText='';document.querySelector('[data-testid="attachments"]').remove();}};
 </script>`;
 await context.route('**/*',async route=>{
  const req=route.request(),url=new URL(req.url());assert.equal(url.hostname,'x.com','intercept every request; never contact live X');
- if(url.pathname==='/i/media/upload.json'){uploads++;assert.deepEqual([...req.postDataBuffer()],bytes);return route.fulfill({json:{media_id_string:'456'}});}
+ if(url.pathname==='/i/media/upload2.json'){uploads++;assert.deepEqual([...req.postDataBuffer()],bytes);return route.fulfill({json:{media_id_string:'456'}});}
  if(url.pathname.includes('CreateTweet')){posts++;const payload=req.postDataJSON();assert.equal(payload.variables.tweet_text,text);assert.equal(payload.variables.media.media_entities[0].media_id,'456');return route.fulfill({json:{data:{create_tweet:{tweet_results:{result:{rest_id:'987',core:{user_results:{result:{core:{screen_name:'example'}}}},legacy:{extended_entities:{media:[{id_str:wrongReceipt?'999':'456',type:'video'}]}}}}}}}});}
  return route.fulfill({contentType:'text/html;charset=utf-8',body:html()});
 });

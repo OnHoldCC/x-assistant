@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {uploadVideo} from '../extension/video-upload.js';
+import {uploadVideo,isMediaUpload} from '../extension/video-upload.js';
+
+test('X upload2 and legacy upload receipts are recognized only on trusted hosts',()=>{
+ for(const url of ['https://upload.x.com/i/media/upload2.json?command=INIT','https://upload.twitter.com/i/media/upload.json?command=STATUS','https://upload.x.com/1.1/media/upload.json'])assert.equal(isMediaUpload(url),true);
+ for(const url of ['https://evil.test/i/media/upload2.json','https://upload.x.com.evil.test/i/media/upload2.json','http://upload.x.com/i/media/upload2.json','https://x.com/i/media/upload3.json'])assert.equal(isMediaUpload(url),false);
+});
 
 test('video upload waits beyond 90 seconds for Post and the matching media receipt',async t=>{
  let clock=0,checks=0,heartbeats=0;
