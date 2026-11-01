@@ -73,6 +73,14 @@ fn caption_validation_never_returns_copy_for_rejected_or_uncertain_content(){
 }
 
 #[tokio::test]
+async fn chinese_page_context_is_filtered_before_network_download_or_model_calls(){
+ let (dir,store,_)=setup("A kitten plays");let runtime=Runtime::new(dir.path().to_path_buf(),store.clone());
+ let before=std::fs::read_dir(dir.path().join("media/tiktok")).unwrap().count();
+ let result=tokio::time::timeout(std::time::Duration::from_millis(500),runtime.call("download_tiktok_video",json!({"account":"example","url":"https://www.tiktok.com/embed/v2/987654321","source_text":"A Chinese celebrity in Shanghai"}))).await.unwrap().unwrap();
+ assert_eq!(result["skipped"],true);assert_eq!(result["caption_status"],"rejected");assert!(result["caption_reason"].as_str().unwrap().contains("中国"));assert_eq!(std::fs::read_dir(dir.path().join("media/tiktok")).unwrap().count(),before);assert!(!dir.path().join("calls").exists());assert!(store.jobs().unwrap().as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 #[ignore = "requires an explicitly supplied public TikTok URL and network access; never invokes a model or publishes"]
 async fn live_video_download_without_model_or_publication(){
  let url=std::env::var("ONHOLD_TIKTOK_TEST_URL").expect("set ONHOLD_TIKTOK_TEST_URL explicitly");let dir=tempfile::tempdir().unwrap();

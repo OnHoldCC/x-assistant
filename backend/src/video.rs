@@ -2,6 +2,21 @@ use serde_json::{json, Value};
 use std::{io::Write, path::Path};
 
 const MAX_VIDEO: usize = 100_000_000;
+pub const UNAVAILABLE_PREFIX:&str="TikTok 视频暂不可下载：";
+
+pub fn china_related(text:&str)->bool{
+    if ["中国","中國","中华","中華","中国人","中國人","大陆","大陸","北京","上海","深圳","广州","廣州","成都","重庆","重慶","武汉","武漢","抖音","🇨🇳"].iter().any(|word|text.contains(word)){return true;}
+    text.to_ascii_lowercase().split(|c:char|!c.is_ascii_alphabetic()).any(|word|["china","chinese","prc","beijing","shanghai","shenzhen","guangzhou","chengdu","chongqing","wuhan","douyin","chinatown"].contains(&word))
+}
+pub fn exclusion_reason(text:&str)->Option<&'static str>{
+    if china_related(text){Some("涉及中国人物或中国相关话题，已自动过滤")}
+    else if excluded(text){Some("涉及广告、国家政治或血腥内容，已自动过滤")}
+    else{None}
+}
+pub fn skipped_video(raw:&str,reason:&str,temporary:bool)->Result<Value,String>{
+    let (source,id)=video_page(raw)?;
+    Ok(json!({"id":id,"source":source,"skipped":true,"excluded":!temporary,"unavailable":temporary,"caption_status":if temporary{"unavailable"}else{"rejected"},"caption_text":"","caption_reason":reason,"published":false,"requires_review":true}))
+}
 
 pub(crate) fn video_page(raw: &str) -> Result<(String, String), String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "TikTok 页面地址无效")?;
@@ -58,13 +73,22 @@ pub async fn download(home: &Path, raw: &str) -> Result<Value,String> {
         if html.len()+chunk.len()>3_000_000{return Err("TikTok 页面超过大小限制".into());}html.extend_from_slice(&chunk);
     }
     let mut metadata=embed_video(&String::from_utf8(html).map_err(|_|"TikTok 页面编码无效")?,&id)?;
+    if let Some(reason)=exclusion_reason(metadata["title"].as_str().unwrap_or("")){return skipped_video(&source,reason,false);}
     let mut media=None;
+    let mut failures=Vec::new();let mut unavailable=true;
     for url in metadata["urls"].as_array().unwrap() {
-        if let Ok(response)=client.get(url.as_str().unwrap()).header(reqwest::header::REFERER,"https://www.tiktok.com/").send().await {
-            if response.status().is_success(){media=Some(response);break;}
+        let url=reqwest::Url::parse(url.as_str().unwrap()).map_err(|_|"播放地址无效")?;
+        let host=url.host_str().unwrap_or("TikTok CDN").to_owned();
+        match client.get(url).header(reqwest::header::REFERER,"https://www.tiktok.com/").send().await {
+            Ok(response)=>{
+                let status=response.status().as_u16();if status==429{return Err(format!("TikTok 视频下载 HTTP 429（{host}），本轮未调用模型"));}
+                if response.status().is_success(){media=Some(response);break;}
+                unavailable&=[401,403,404,410].contains(&status);failures.push(format!("{host} HTTP {status}"));
+            },
+            Err(error)=>{unavailable=false;failures.push(format!("{host} {}",if error.is_timeout(){"请求超时"}else if error.is_redirect(){"重定向校验失败"}else if error.is_connect(){"连接失败"}else{"请求失败"}));}
         }
     }
-    let mut media=media.ok_or("TikTok 拒绝视频下载，可能需要登录或播放地址已失效；未生成文件")?;
+    let mut media=media.ok_or_else(||format!("{}{}；未保存视频，未调用模型",if unavailable{UNAVAILABLE_PREFIX}else{"TikTok 视频下载失败："},failures.join("；")))?;
     if media.content_length().is_some_and(|n|n>MAX_VIDEO as u64){return Err("视频超过 100 MB 下载限制".into());}
     let download_id=uuid::Uuid::new_v4().to_string();
     let folder=home.join("media").join("tiktok").join(&download_id);
@@ -130,6 +154,7 @@ pub async fn preview(home:&Path,id:&str)->Result<std::path::PathBuf,String>{
     std::fs::rename(temp,&image).map_err(|_|"视频预览保存失败")?;Ok(image)
 }
 pub fn excluded(text:&str)->bool{
+    if china_related(text){return true;}
     if ["广告","国家政治","政治","总统","政党","选举","习近平","特朗普","拜登","普京","中共","共产党","战争","血腥","断肢","斩首","肢解"].iter().any(|word|text.contains(word)){return true;}
     text.to_ascii_lowercase().split(|c:char|!c.is_ascii_alphabetic()).any(|word|["advertisement","sponsored","politics","political","president","presidential","trump","biden","putin","election","elections","parliament","senate","war","warfare","gore","beheading","dismemberment"].contains(&word))
 }
@@ -140,7 +165,7 @@ pub fn validate_caption(value:&Value)->Result<Value,String>{
     let text=value["text"].as_str().filter(|s|s.chars().count()<=280&&!s.chars().any(|c|c.is_control()&&c!='\n')).ok_or("英文配文无效")?.trim();
     let reason=value["reason"].as_str().filter(|s|s.chars().count()<=400&&!s.chars().any(char::is_control)).ok_or("审核理由无效")?;
     if status=="ready" {
-        if excluded(text){return validate_caption(&json!({"schema_version":1,"status":"rejected","text":"","reason":"配文涉及广告、国家政治或血腥主题，已排除"}));}
+        if excluded(text){return validate_caption(&json!({"schema_version":1,"status":"rejected","text":"","reason":"配文涉及中国相关、广告、国家政治或血腥主题，已排除"}));}
         if text.is_empty()||!text.bytes().any(|c|c.is_ascii_alphabetic())||text.contains(['@','#'])||(text.to_lowercase().contains("http://")||text.to_lowercase().contains("https://")||text.to_lowercase().contains("www."))||text.chars().any(|c|('\u{3400}'..='\u{9fff}').contains(&c)){return Err("配文必须是无链接、无提及或话题的英文短帖".into());}
     }else if !text.is_empty()||reason.trim().is_empty(){return Err("排除或待检查的视频不得生成发布文案".into());}
     Ok(json!({"schema_version":1,"status":status,"text":text,"reason":reason,"sent":false,"skip_reason":if status=="ready"{""}else{reason},"requires_review":true}))
@@ -161,6 +186,13 @@ pub fn snapshot(home:&Path,store:&crate::store::Store,id:&str)->Result<Value,Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn china_policy_uses_explicit_content_without_guessing_identity_from_language(){
+        for text in ["A Chinese actor","Made in China","#China #travel","中国人物","Shanghai trip","🇨🇳","中国相关话题"]{assert!(china_related(text),"{text}");}
+        for text in ["A kitten plays","Chicago dance","Machine learning","日本の猫の動画","Plain English caption"]{assert!(!china_related(text),"{text}");}
+        assert!(exclusion_reason("Chinese street food").is_some());let v=skipped_video("https://www.tiktok.com/embed/v2/123","中国相关",false).unwrap();assert_eq!(v["caption_status"],"rejected");assert!(v["filename"].is_null());assert!(v["download_id"].is_null());
+        assert_eq!(validate_caption(&json!({"schema_version":1,"status":"ready","text":"Chinese street food.","reason":""})).unwrap()["status"],"rejected");
+    }
     #[test]
     fn only_public_video_pages_and_owned_media_hosts_are_accepted(){
         assert_eq!(video_page("https://www.tiktok.com/@creator/video/123?tracking=1").unwrap(),("https://www.tiktok.com/@creator/video/123".into(),"123".into()));

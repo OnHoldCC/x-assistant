@@ -30,6 +30,13 @@ fn video_plans_schedule_owned_deduplicated_captions_and_pause_without_blocking_o
  store.finish_video_capture(&next,&client,None,at+7).unwrap().unwrap();let records=store.job_records("example",&json!({"task_type":"capture_tiktok","state":"skipped"})).unwrap();assert_eq!(records["total"],1);assert_eq!(records["items"][0]["result"]["sent"],false);
  let limited=store.run_automation("example",&task,at+8).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at+8).unwrap();store.finish_video_capture(&limited,&client,Some("TikTok 页面返回 HTTP 429"),at+9).unwrap().unwrap();
  let state=store.automation_state("example").unwrap();let plan=&state["tasks"][0];assert_eq!(plan["enabled"],true);assert!(plan["next_run"].as_i64().unwrap()>=at+9+15*60_000);assert!(plan["last_job"]["error"].as_str().unwrap().contains("未调用模型"));
+ let batch=store.run_automation("example",&task,at+10).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at+10).unwrap();
+ let china="https://www.tiktok.com/embed/v2/234";let denied="https://www.tiktok.com/embed/v2/345";
+ assert!(store.skip_video_source(&batch,"wrong",china,"中国相关",false,at+10).is_err());
+ store.skip_video_source(&batch,&client,china,"中国相关",false,at+10).unwrap();store.skip_video_source(&batch,&client,denied,"HTTP 403",true,at+10).unwrap();store.finish_video_capture(&batch,&client,None,at+11).unwrap();
+ let records=store.job_records("example",&json!({"task_type":"capture_tiktok","state":"skipped"})).unwrap();let result=&records["items"][0]["result"];assert_eq!(result["filtered"],1);assert_eq!(result["unavailable"],1);
+ let next=store.run_automation("example",&task,at+12).unwrap()["id"].as_str().unwrap().to_owned();let job=store.claim(&client,"example",at+12).unwrap();let known=job["input"]["known_ids"].as_array().unwrap();assert!(known.contains(&json!("234")));assert!(known.contains(&json!("345")));store.finish_video_capture(&next,&client,None,at+13).unwrap();
+ let later=at+3600_020;store.session_status(&client,"example","logged_in","",later).unwrap();store.run_automation("example",&task,later).unwrap();let job=store.claim(&client,"example",later).unwrap();let known=job["input"]["known_ids"].as_array().unwrap();assert!(known.contains(&json!("234")));assert!(!known.contains(&json!("345")),"unavailable clips may be retried after an hour");assert!(store.video_capture_context(job["id"].as_str().unwrap(),&client,denied,later).is_ok());assert!(store.video_capture_context(job["id"].as_str().unwrap(),&client,china,later).is_err());
 }
 #[test]
 fn video_source_validation_allows_only_supported_tiktok_pages(){

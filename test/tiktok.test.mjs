@@ -40,8 +40,8 @@ test('TikTok homepage reads embedded feed data when there are no video anchor li
  globalThis.location={protocol:'https:',hostname:'www.tiktok.com',pathname:'/'};
  const raw=JSON.stringify({__DEFAULT_SCOPE__:{'webapp.foryou.video':{statusCode:0,itemList:[{id:'12345678901234567890',author:{uniqueId:'kitten.creator'},video:{},desc:'A kitten plays'},{id:'456',author:{uniqueId:'advert'},video:{},isAd:true},{id:'789',author:{uniqueId:'../../bad'},video:{}}]},'webapp.a-b':Array.from({length:11000},()=>({noise:{}}))}});
  globalThis.document={readyState:'complete',body:{innerText:''},querySelectorAll:()=>[],getElementById:id=>id==='__UNIVERSAL_DATA_FOR_REHYDRATION__'?{textContent:raw}:null};
- assert.deepEqual(inspectTikTokVideos(),{urls:['https://www.tiktok.com/embed/v2/789','https://www.tiktok.com/@kitten.creator/video/12345678901234567890'],blocked:false,page:{path:'/',ready:'complete',videos:0}});
- globalThis.document.getElementById=()=>({textContent:'invalid JSON'});assert.deepEqual(inspectTikTokVideos(),{urls:[],blocked:false,page:{path:'/',ready:'complete',videos:0}});
+ const page=inspectTikTokVideos();assert.deepEqual(page.urls,['https://www.tiktok.com/embed/v2/12345678901234567890','https://www.tiktok.com/embed/v2/456','https://www.tiktok.com/embed/v2/789']);assert.equal(page.blocked,false);assert.ok(page.candidates[0].text.includes('A kitten plays'));assert.ok(page.candidates[1].text.includes('sponsored'));
+ globalThis.document.getElementById=()=>({textContent:'invalid JSON'});assert.deepEqual(inspectTikTokVideos(),{urls:[],candidates:[],blocked:false,page:{path:'/',ready:'complete',videos:0}});
 });
 
 test('video capture reuses a ready matching TikTok page without scrolling or closing it',async t=>{
@@ -64,4 +64,18 @@ test('empty source errors report actual page readiness instead of claiming a log
  const old=globalThis.chrome;t.after(()=>globalThis.chrome=old);const {collectTikTokVideos}=await import('../extension/tiktok.js');
  globalThis.chrome={tabs:{create:async()=>assert.fail('embed URLs already identify the video')}};
  await collectTikTokVideos({id:'capture',client:'client',input:{source_urls:['https://www.tiktok.com/embed/v2/123']}},async(operation,input)=>{assert.equal(operation,'download_tiktok_video');assert.equal(input.url,'https://www.tiktok.com/embed/v2/123');},'example',async()=>{});
+ });
+
+ test('homepage capture ignores profile/detail metadata and only returns the recommendation feed',async t=>{
+ const previous={document:globalThis.document,location:globalThis.location};t.after(()=>{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});const {inspectTikTokVideos}=await import('../extension/tiktok.js');
+ globalThis.location={protocol:'https:',hostname:'www.tiktok.com',pathname:'/'};
+ const item=id=>({id,video:{},desc:'A kitten plays'});const raw=JSON.stringify({__DEFAULT_SCOPE__:{'webapp.foryou.video':{itemList:[item('123')]},'webapp.video-detail':{itemInfo:{itemStruct:item('456')}},'webapp.user-post':{itemList:[item('789')]}}});
+ globalThis.document={body:{innerText:''},readyState:'complete',querySelectorAll:()=>[],querySelector:()=>null,getElementById:id=>id==='__UNIVERSAL_DATA_FOR_REHYDRATION__'?{textContent:raw}:null};
+ assert.deepEqual(inspectTikTokVideos().urls,['https://www.tiktok.com/embed/v2/123']);globalThis.location.pathname='/@someone';assert.throws(()=>inspectTikTokVideos(),/离开 TikTok 首页推荐流/);
+ });
+ test('video capture skips excluded and unavailable candidates then downloads a different home-feed clip',async t=>{
+ const old=globalThis.chrome;t.after(()=>globalThis.chrome=old);const {collectTikTokVideos}=await import('../extension/tiktok.js');const calls=[];
+ globalThis.chrome={tabs:{create:async()=>({id:7}),remove:async()=>{}},debugger:{getTargets:async()=>[],attach:async()=>{},detach:async()=>{},sendCommand:async()=>({result:{value:{candidates:[{url:'https://www.tiktok.com/embed/v2/123',text:'Chinese creator in Beijing'},{url:'https://www.tiktok.com/embed/v2/456',text:'Unavailable clip'},{url:'https://www.tiktok.com/embed/v2/789',text:'A kitten plays'}]}}})}};
+ await collectTikTokVideos({id:'capture',client:'client',input:{source_urls:['https://www.tiktok.com/']}},async(_op,input)=>{calls.push(input);return calls.length<3?{skipped:true,unavailable:calls.length===2}:{download_id:'saved'};},'example',async()=>{});
+ assert.equal(calls.length,3);assert.equal(calls[0].source_text,'Chinese creator in Beijing');assert.equal(calls[2].url,'https://www.tiktok.com/embed/v2/789');
  });

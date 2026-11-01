@@ -52,14 +52,14 @@ const status = ref<BridgeStatus>({}),
   refreshError = ref(""),
   message = ref("");
 const videoBusy = ref(false), videoMessage = ref(""), videoError = ref("");
-type VideoResult = {download_id:string;filename:string;caption_status:string;caption_text?:string;caption_reason?:string;caption_error?:string;caption_file?:string;caption_job?:Job};
+type VideoResult = {download_id?:string;filename?:string;caption_status:string;caption_text?:string;caption_reason?:string;caption_error?:string;caption_file?:string;caption_job?:Job};
 const videoResult=ref<VideoResult|null>(null);
 const captionPending=computed(()=>!!videoResult.value&&["queued","generating"].includes(videoResult.value.caption_status));
 let videoPolling=false;
 async function videoRequest(type:string,data?:object){
   const response=await chrome.runtime.sendMessage({type,data});
   if(!response.ok)throw Error(response.error||"视频配文操作失败");
-  videoResult.value=response.data as VideoResult|null;
+  const value=response.data as VideoResult|null;videoResult.value=value;return value;
 }
 async function pollVideo(){
   if(videoPolling||!captionPending.value||!videoResult.value)return;
@@ -86,8 +86,8 @@ async function downloadVideo() {
   videoError.value = "";
   videoResult.value = null;
   try {
-    await videoRequest("TIKTOK_DOWNLOAD");
-    videoMessage.value = "视频已保存，英文配文已排队";
+    const result=await videoRequest("TIKTOK_DOWNLOAD");
+    videoMessage.value = result?.caption_status==='rejected' ? '视频已自动过滤，未下载、未调用模型' : result?.caption_status==='unavailable' ? '视频暂不可下载，未调用模型' : '视频已保存，英文配文已排队';
   } catch (error) {
     videoError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -194,7 +194,7 @@ const openWorkspace = (path = "") =>
 onMounted(() => {
   void refresh();
   void videoRequest("TIKTOK_LAST").then(async()=>{
-    if(videoResult.value)await videoRequest("TIKTOK_STATUS",{download_id:videoResult.value.download_id});
+    if(videoResult.value?.download_id)await videoRequest("TIKTOK_STATUS",{download_id:videoResult.value.download_id});
   }).catch(()=>{});
   timer = setInterval(()=>{void refresh();void pollVideo();}, 5000);
 });
@@ -356,11 +356,11 @@ const theme = {
         <div class="business-stack">
           <p class="business-muted">打开具体视频页，后端下载后自动生成英文配文，保留视频和文案供检查。</p>
           <NButton block :loading="videoBusy" :disabled="videoBusy || captionPending" @click="downloadVideo">下载视频并生成英文配文</NButton>
-          <p class="business-muted">排除国家政治和血腥内容；无法确认时不生成文案。发布前仍需检查视频和片尾。</p>
+          <p class="business-muted">下载前按页面信息过滤中国人物或中国相关话题、广告、政治和血腥内容；配文前复核画面，存疑时不生成文案。人物国籍不按长相推断，发布前仍需检查视频和片尾。</p>
           <NAlert v-if="videoError" type="error" role="alert">{{ videoError }}</NAlert>
           <p v-if="videoMessage" role="status">{{ videoMessage }}</p>
           <template v-if="videoResult">
-            <p class="break-all" role="status">后端已保存：{{ videoResult.filename }}</p>
+            <p v-if="videoResult.filename" class="break-all" role="status">后端已保存：{{ videoResult.filename }}</p>
             <p v-if="captionPending" role="status">{{videoResult.caption_status==='queued'?'视频配文已排队，等待模型':'Codex 正在检查画面并生成英文配文'}}</p>
             <template v-if="videoResult.caption_status==='ready'">
               <NInput type="textarea" readonly :value="videoResult.caption_text" :input-props="{'aria-label':'配套英文文案'}" :autosize="{minRows:3,maxRows:8}" />
@@ -368,6 +368,7 @@ const theme = {
               <p class="break-all">文案文件：{{videoResult.caption_file}}</p>
             </template>
             <NAlert v-else-if="['rejected','needs_review'].includes(videoResult.caption_status)" type="warning">{{videoResult.caption_status==='rejected'?'内容已排除':'需要人工检查'}}：{{videoResult.caption_reason}}</NAlert>
+            <NAlert v-else-if="videoResult.caption_status==='unavailable'" type="warning">下载未完成：{{videoResult.caption_reason}}</NAlert>
             <template v-else-if="videoResult.caption_status==='failed'">
               <NAlert type="error">{{videoResult.caption_error}}，原视频已保留。</NAlert>
               <NButton :disabled="videoBusy" @click="retryCaption">重试配文（不重新下载）</NButton>

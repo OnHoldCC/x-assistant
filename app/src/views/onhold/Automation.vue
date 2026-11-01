@@ -504,7 +504,7 @@ async function save() {
                 ]"
                 @update:value="changeAction" /></NFormItem
             ><NAlert v-if="automatic"
-              ><template v-if="action === 'auto_video'">按间隔读取 TikTok 来源，每轮下载1条未处理的视频，检查抽样画面并生成英文配文。排除广告、国家政治和血腥内容，存疑时标为待检查。保留视频、来源、文案和 Token 记录；不会自动上传或发布到 X。需要连接1.5.26或更新的助手，并在后端安装 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
+              ><template v-if="action === 'auto_video'">直接读取配置的 TikTok 页面推荐流，每轮最多保存1条未处理的视频，下载前按页面文字和标签过滤中国人物及中国相关话题，检查抽样画面后生成英文配文。排除广告、国家政治和血腥内容，存疑时标为待检查。下载不可用的视频短时跳过1小时，继续选择其它候选；人物国籍不按外貌推断。保留视频、来源、文案和 Token 记录；不会自动上传或发布到 X。需要连接1.5.28或更新的助手，并在后端安装 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
                 与回执。新关注者回关请另建「自动回关」任务，目标范围选择「通知中的新关注者」。</template

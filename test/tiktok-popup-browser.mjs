@@ -16,7 +16,7 @@ await context.addInitScript(()=>{
  window.chrome={permissions:{request:async()=>{throw Error('backend downloads must not request browser download permission');}},tabs:{create:async()=>{}},runtime:{sendMessage:async message=>{
   if(message.type==='CDP_STATUS')return {ok:true,data:{configured:true,cdpWs:'disconnected'}};
   if(message.type==='TIKTOK_LAST')return {ok:true,data:JSON.parse(localStorage.getItem('caption-fixture')||'null')};
-  if(message.type==='TIKTOK_DOWNLOAD'){window.downloadCalls++;if(window.downloadError)return {ok:false,error:window.downloadError};return saved(result(window.videoMode||'queued'));}
+  if(message.type==='TIKTOK_DOWNLOAD'){window.downloadCalls++;if(window.downloadError)return {ok:false,error:window.downloadError};return saved(window.videoMode==='china'?{caption_status:'rejected',caption_reason:'涉及中国人物或中国相关话题，已自动过滤',caption_text:'',skipped:true}:window.videoMode==='unavailable'?{caption_status:'unavailable',caption_reason:'CDN HTTP 403',skipped:true}:result(window.videoMode||'queued'));}
   if(message.type==='TIKTOK_STATUS'){window.captionReads++;return saved(result('ready'));}
   if(message.type==='TIKTOK_RETRY'){window.captionRetries++;return saved(result('queued'));}
   throw Error('Unexpected fixture operation: '+message.type);
@@ -32,6 +32,8 @@ try{
  assert.equal(await page.evaluate(()=>window.downloadCalls),1);await page.reload();await caption.waitFor();assert.equal(await page.evaluate(()=>window.downloadCalls),0,'reopening reads saved progress without another download');
  await page.evaluate(()=>window.videoMode='failed');await button.click();await page.getByRole('button',{name:'重试配文（不重新下载）'}).click();await caption.waitFor();assert.equal(await page.evaluate(()=>window.downloadCalls),1);assert.equal(await page.evaluate(()=>window.captionRetries),1);
  await page.evaluate(()=>window.videoMode='rejected');await button.click();await page.getByText('内容已排除：涉及国家政治',{exact:true}).waitFor();assert.equal(await caption.count(),0);assert.equal(await page.getByRole('button',{name:'复制英文文案'}).count(),0);
+ await page.evaluate(()=>window.videoMode='china');await button.click();await page.getByText('内容已排除：涉及中国人物或中国相关话题，已自动过滤',{exact:true}).waitFor();assert.equal(await page.getByRole('status').filter({hasText:'后端已保存'}).count(),0);await page.reload();await page.getByText('内容已排除：涉及中国人物或中国相关话题，已自动过滤',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.captionReads),0,'filtered results without a download ID never poll a nonexistent caption job');
+ await page.evaluate(()=>window.videoMode='unavailable');await button.click();await page.getByText('下载未完成：CDN HTTP 403',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'重试配文（不重新下载）'}).count(),0);assert.equal(await page.getByRole('status').filter({hasText:'后端已保存'}).count(),0);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  console.log('Passed: automatic queued captions, copy, usage, reopen, retry without redownload and rejected content. Mock services only.');
 }finally{await browser.close();}
