@@ -462,6 +462,7 @@ const columns: DataTableColumns<Job> = [
           ><JobProgress :job="viewed" />
           <p>{{ jobMessage(viewed) }}</p>
           <JobMetrics :job="viewed" details />
+          <p v-if="['capture_tiktok','video_caption'].includes(viewed.action) && viewed.input?.source" class="business-pre">视频来源：{{ viewed.input.source.url }}</p>
           <template v-if="viewed.action === 'video_caption' && viewed.input?.text">
             <p>英文配文</p>
             <p class="business-pre">{{ viewed.input.text }}</p>

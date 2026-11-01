@@ -17,6 +17,8 @@ fn video_plans_schedule_owned_deduplicated_captions_and_pause_without_blocking_o
  let job=store.claim(&client,"example",at).unwrap();assert_eq!(job["id"],capture);assert_eq!(job["action"],"capture_tiktok");assert_eq!(job["input"]["source_urls"],config["source_urls"]);
  let url="https://www.tiktok.com/@creator/video/123";
  assert!(store.video_capture_context(&capture,"wrong",url,at).is_err());assert!(store.video_capture_context(&capture,&client,"https://evil.example/123",at).is_err());
+ assert!(store.record_video_source(&capture,"wrong",url,at).is_err());store.record_video_source(&capture,&client,url,at).unwrap();
+ let selected=store.job_records("example",&json!({"task_type":"capture_tiktok"})).unwrap();assert_eq!(selected["items"][0]["input"]["source"]["url"],url);assert_eq!(selected["items"][0]["input"]["source"]["id"],"123");
  let id=uuid::Uuid::new_v4().to_string();let data=json!({"download_id":id,"id":"123","source":url,"author":"creator","title":"A kitten plays","capture_job":capture,"capture_client":client});
  let caption=store.enqueue_video_caption("example",&data,false,at+1).unwrap();assert_eq!(caption["input"]["task_id"],task);assert_eq!(caption["input"]["capture_job"],capture);
  assert!(store.video_capture_context(&capture,&client,url,at+2).is_err(),"deduplicate even before model completion");

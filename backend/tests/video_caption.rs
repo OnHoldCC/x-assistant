@@ -71,3 +71,11 @@ fn caption_validation_never_returns_copy_for_rejected_or_uncertain_content(){
  assert_eq!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":"President gives a speech.","reason":""})).unwrap()["status"],"rejected");
  for text in ["访问这个视频","Hello https://evil.example","Follow @person","A kitten #cute",""]{assert!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).is_err());}
 }
+
+#[tokio::test]
+#[ignore = "requires an explicitly supplied public TikTok URL and network access; never invokes a model or publishes"]
+async fn live_video_download_without_model_or_publication(){
+ let url=std::env::var("ONHOLD_TIKTOK_TEST_URL").expect("set ONHOLD_TIKTOK_TEST_URL explicitly");let dir=tempfile::tempdir().unwrap();
+ let value=video::download(dir.path(),&url).await.unwrap();
+ let bytes=std::fs::read(value["filename"].as_str().unwrap()).unwrap();assert_eq!(&bytes[4..8],b"ftyp");assert!(bytes.len()>1000);assert_eq!(value["published"],false);assert_eq!(value["source"],url);
+}

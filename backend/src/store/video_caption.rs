@@ -24,6 +24,15 @@ impl Store {
         if duplicate{return Err("此视频已有处理记录，跳过重复下载".into());}
         Ok(json!({"account":account,"task_id":task}))
     }
+    pub fn record_video_source(&self,id:&str,client:&str,url:&str,at:i64)->Result<Value,String>{
+        let context=self.video_capture_context(id,client,url,at)?;let (url,video_id)=crate::video::video_page(url)?;
+        let source=json!({"id":video_id,"url":url,"text":"","author":""});
+        let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
+        let changed=tx.execute("UPDATE jobs SET input=json_set(input,'$.source',json(?)),updated_at=? WHERE id=? AND client=? AND action='capture_tiktok' AND state='running'",params![source.to_string(),at,id,client]).map_err(|e|e.to_string())?;
+        if changed!=1{return Err("视频采集任务已结束".into());}
+        tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'progress',?)",params![id,at,format!("已选中视频：{url}，开始读取下载资料（未调用模型）")]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;Ok(context)
+    }
     pub fn finish_video_capture(&self,id:&str,client:&str,error:Option<&str>,at:i64)->Result<Option<Value>,String>{
         if error.is_some_and(|e|e.chars().count()>2000){return Err("错误信息过长".into());}
         let limited=error.is_some_and(|e|e.contains("HTTP 429"));

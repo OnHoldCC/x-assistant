@@ -544,7 +544,7 @@ impl Runtime {
         match operation {
             "news_sources" => Err("新闻取材功能已移除".into()),
             "download_tiktok_video" => {
-                let context=if let Some(id)=input["capture_job"].as_str(){Some(self.store.video_capture_context(id,input["client"].as_str().ok_or("缺少采集连接")?,input["url"].as_str().ok_or("缺少视频URL")?,crate::store::now())?)}else{None};
+                let context=if let Some(id)=input["capture_job"].as_str(){Some(self.store.record_video_source(id,input["client"].as_str().ok_or("缺少采集连接")?,input["url"].as_str().ok_or("缺少视频URL")?,crate::store::now())?)}else{None};
                 let account=if let Some(context)=context{context["account"].as_str().ok_or("缺少采集账号")?.to_owned()}else{self.store.account_handle(input["account"].as_str().unwrap_or("local"))?};
                 let mut video=crate::video::download(&self.home,input["url"].as_str().ok_or("缺少 TikTok 视频页面 URL")?).await?;
                 if input["capture_job"].is_string(){video["capture_job"]=input["capture_job"].clone();video["capture_client"]=input["client"].clone();}

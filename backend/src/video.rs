@@ -9,10 +9,12 @@ pub(crate) fn video_page(raw: &str) -> Result<(String, String), String> {
         return Err("仅支持 HTTPS TikTok 公开视频页面".into());
     }
     let parts: Vec<_> = url.path().trim_end_matches('/').split('/').collect();
-    if parts.len()!=4 || !parts[1].starts_with('@') || !(2..=65).contains(&parts[1].len()) || !parts[1][1..].bytes().all(|c|c.is_ascii_alphanumeric()||b"_.-".contains(&c)) || parts[2]!="video" || parts[3].is_empty() || parts[3].len()>30 || !parts[3].bytes().all(|c|c.is_ascii_digit()) {
+    if parts.len()!=4 || parts[3].is_empty() || parts[3].len()>30 || !parts[3].bytes().all(|c|c.is_ascii_digit()) {
         return Err("请填写具体的 TikTok 视频页面 URL，不是首页或播放直链".into());
     }
-    Ok((format!("https://www.tiktok.com/{}/video/{}",parts[1],parts[3]),parts[3].to_owned()))
+    let named=parts[1].starts_with('@')&&(2..=65).contains(&parts[1].len())&&parts[1][1..].bytes().all(|c|c.is_ascii_alphanumeric()||b"_.-".contains(&c))&&parts[2]=="video";
+    if !named&&!(parts[1]=="embed"&&parts[2]=="v2"){return Err("请填写具体的 TikTok 视频页面 URL，不是首页或播放直链".into());}
+    Ok((format!("https://www.tiktok.com/{}/{}/{}",parts[1],parts[2],parts[3]),parts[3].to_owned()))
 }
 
 pub fn source_page(raw:&str)->Result<String,String>{
@@ -38,11 +40,11 @@ fn embed_video(html: &str, id: &str) -> Result<Value, String> {
     let value: Value=serde_json::from_str(script).map_err(|_|"TikTok 视频资料无法解析")?;
     let video=&value["source"]["data"][format!("/embed/v2/{id}")]["videoData"];
     if video["itemInfos"]["id"].as_str()!=Some(id) {return Err("TikTok 返回的视频与页面不匹配，未下载".into());}
-    let author=video["authorInfos"]["uniqueId"].as_str().filter(|s|!s.is_empty()&&s.len()<=64).ok_or("TikTok 作者资料缺失")?;
+    let author=["uniqueId","unique_id"].iter().find_map(|key|video["authorInfos"][key].as_str().filter(|s|!s.is_empty()&&s.len()<=64&&s.bytes().all(|c|c.is_ascii_alphanumeric()||b"_.-".contains(&c))));
     let urls=video["itemInfos"]["video"]["urls"].as_array().ok_or("TikTok 未返回视频下载地址")?;
     let urls=urls.iter().filter_map(Value::as_str).filter(|raw|raw.len()<=16000&&reqwest::Url::parse(raw).is_ok_and(|url|permitted(&url))).take(3).collect::<Vec<_>>();
     if urls.is_empty(){return Err("TikTok 未返回可信的视频下载地址".into());}
-    Ok(json!({"id":id,"author":author,"title":video["itemInfos"]["text"].as_str().unwrap_or("").chars().take(4000).collect::<String>(),"urls":urls}))
+    Ok(json!({"id":id,"author":author.unwrap_or(""),"title":video["itemInfos"]["text"].as_str().unwrap_or("").chars().take(4000).collect::<String>(),"urls":urls}))
 }
 
 pub async fn download(home: &Path, raw: &str) -> Result<Value,String> {
@@ -162,12 +164,23 @@ mod tests {
     #[test]
     fn only_public_video_pages_and_owned_media_hosts_are_accepted(){
         assert_eq!(video_page("https://www.tiktok.com/@creator/video/123?tracking=1").unwrap(),("https://www.tiktok.com/@creator/video/123".into(),"123".into()));
+        assert_eq!(video_page("https://www.tiktok.com/embed/v2/123").unwrap(),("https://www.tiktok.com/embed/v2/123".into(),"123".into()));
         for url in ["http://www.tiktok.com/@a/video/1","https://127.0.0.1/@a/video/1","https://www.tiktok.com/","https://www.tiktok.com/@a","https://user@www.tiktok.com/@a/video/1","https://www.tiktok.com:444/@a/video/1","https://www.tiktok.com/@a/video/../1","https://www.tiktok.com/@a/video/not-number"]{assert!(video_page(url).is_err(),"{url}");}
         for url in ["http://v45.tiktokcdn-us.com/a","https://tiktokcdn-us.com.evil.example/a","https://localhost/a","https://user:pass@v45.tiktokcdn-us.com/a"]{assert!(!permitted(&reqwest::Url::parse(url).unwrap()));}
+        for url in ["https://www.tiktok.com/embed/v1/123","https://www.tiktok.com/embed/v2/not-a-number","https://evil.example/embed/v2/123"]{assert!(video_page(url).is_err());}
     }
     #[test]
     fn embed_requires_the_exact_video_and_never_returns_cover_images(){
         let html=format!("<script id=\"__FRONTITY_CONNECT_STATE__\">{}</script>",json!({"source":{"data":{"/embed/v2/123":{"videoData":{"itemInfos":{"id":"123","text":"Kitten","covers":["https://p16.tiktokcdn-us.com/cover.jpg"],"video":{"urls":["https://v45.tiktokcdn-us.com/video.mp4","https://evil.example/a"]}},"authorInfos":{"uniqueId":"creator"}}}}}}));
         let video=embed_video(&html,"123").unwrap();assert_eq!(video["urls"],json!(["https://v45.tiktokcdn-us.com/video.mp4"]));assert!(embed_video(&html,"456").is_err());assert!(embed_video("captcha","123").is_err());
+    }
+    #[test]
+    fn author_is_optional_but_video_identity_and_media_hosts_remain_required(){
+        let data=json!({"source":{"data":{"/embed/v2/123":{"videoData":{"itemInfos":{"id":"123","text":"A kitten","video":{"urls":["https://v45.tiktokcdn-us.com/video.mp4"]}}}}}}});
+        let html=|value:&Value|format!("<script id=\"__FRONTITY_CONNECT_STATE__\">{value}</script>");
+        let value=embed_video(&html(&data),"123").unwrap();assert_eq!(value["author"],"");assert_eq!(value["id"],"123");assert_eq!(value["urls"],json!(["https://v45.tiktokcdn-us.com/video.mp4"]));
+        let mut alternate=data.clone();alternate["source"]["data"]["/embed/v2/123"]["videoData"]["authorInfos"]=json!({"unique_id":"actual.creator"});assert_eq!(embed_video(&html(&alternate),"123").unwrap()["author"],"actual.creator");
+        let mut bad=data.clone();bad["source"]["data"]["/embed/v2/123"]["videoData"]["itemInfos"]["id"]=json!("456");assert!(embed_video(&html(&bad),"123").is_err());
+        bad=data.clone();bad["source"]["data"]["/embed/v2/123"]["videoData"]["itemInfos"]["video"]["urls"]=json!(["https://evil.example/a"]);assert!(embed_video(&html(&bad),"123").is_err());
     }
 }

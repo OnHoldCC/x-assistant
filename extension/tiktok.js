@@ -1,11 +1,11 @@
 export async function downloadTikTokVideo(call){
  const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
- if(!Number.isInteger(tab?.id)||!/^https:\/\/(?:www\.)?tiktok\.com\/@[A-Za-z0-9_.-]+\/video\/\d{1,30}(?:[/?#]|$)/.test(tab.url||''))throw Error('请先打开一条具体的 TikTok 视频');
+ if(!Number.isInteger(tab?.id)||!videoUrl(tab.url))throw Error('请先打开一条具体的 TikTok 视频');
  return call(tab.url);
 }
 
 function videoUrl(raw){
- try{const url=new URL(raw);if(url.protocol!=='https:'||!['www.tiktok.com','tiktok.com'].includes(url.hostname)||url.port||url.username||url.password)return null;const match=url.pathname.match(/^\/@([A-Za-z0-9_.-]{1,64})\/video\/(\d{1,30})\/?$/);return match?{url:`https://www.tiktok.com/@${match[1]}/video/${match[2]}`,id:match[2]}:null;}catch{return null;}
+ try{const url=new URL(raw);if(url.protocol!=='https:'||!['www.tiktok.com','tiktok.com'].includes(url.hostname)||url.port||url.username||url.password)return null;const match=url.pathname.match(/^\/@([A-Za-z0-9_.-]{1,64})\/video\/(\d{1,30})\/?$/),embed=url.pathname.match(/^\/embed\/v2\/(\d{1,30})\/?$/);return match?{url:`https://www.tiktok.com/@${match[1]}/video/${match[2]}`,id:match[2]}:embed?{url:`https://www.tiktok.com/embed/v2/${embed[1]}`,id:embed[1]}:null;}catch{return null;}
 }
 export function inspectTikTokVideos(){
  if(location.protocol!=='https:'||!['www.tiktok.com','tiktok.com'].includes(location.hostname))throw Error('TikTok 来源尚未打开或已离开本站');
@@ -13,17 +13,19 @@ export function inspectTikTokVideos(){
  for(const id of ['__UNIVERSAL_DATA_FOR_REHYDRATION__','SIGI_STATE']){
   const raw=document.getElementById(id)?.textContent;if(!raw||raw.length>2000000)continue;
   try{
-   const stack=[{value:JSON.parse(raw),depth:0}];let visited=0;
+   const data=JSON.parse(raw),scope=data.__DEFAULT_SCOPE__;
+   const roots=scope?Object.entries(scope).filter(([key])=>/video|post|search/i.test(key)).map(([,value])=>value):[data.ItemModule||data];
+   const stack=roots.map(value=>({value,depth:0}));let visited=0;
    while(stack.length&&visited++<10000&&urls.length<300){
     const {value,depth}=stack.pop();if(!value||typeof value!=='object'||depth>12)continue;
     const author=typeof value.author==='string'?value.author:value.author?.uniqueId;
-    if(value.video&&typeof value.id==='string'&&/^\d{1,30}$/.test(value.id)&&typeof author==='string'&&/^[A-Za-z0-9_.-]{1,64}$/.test(author)&&value.isAd!==true&&value.is_ad!==true)urls.push(`https://www.tiktok.com/@${author}/video/${value.id}`);
+    if(value.video&&typeof value.id==='string'&&/^\d{1,30}$/.test(value.id)&&value.isAd!==true&&value.is_ad!==true)urls.push(typeof author==='string'&&/^[A-Za-z0-9_.-]{1,64}$/.test(author)?`https://www.tiktok.com/@${author}/video/${value.id}`:`https://www.tiktok.com/embed/v2/${value.id}`);
     for(const child of Object.values(value))if(child&&typeof child==='object')stack.push({value:child,depth:depth+1});
    }
   }catch{}
  }
  const text=(document.body?.innerText||'').slice(0,12000);
- return {urls,blocked:!urls.length&&/verify to continue|security verification|access denied|验证码|安全验证|访问被拒绝/i.test(text)};
+ return {urls,blocked:!urls.length&&/verify to continue|security verification|access denied|验证码|安全验证|访问被拒绝/i.test(text),page:{path:location.pathname,ready:document.readyState,videos:document.querySelectorAll('video').length}};
 }
 export async function collectTikTokVideos(job,call,account,verify){
  const sources=job.input?.source_urls;
@@ -34,19 +36,26 @@ export async function collectTikTokVideos(job,call,account,verify){
   if(sources.length!==1)throw Error('每个视频计划只支持一个列表来源');
   const source=new URL(sources[0]);
   if(source.protocol!=='https:'||!['www.tiktok.com','tiktok.com'].includes(source.hostname)||source.port||source.username||source.password||!/^\/(?:foryou\/?|explore\/?|search(?:\/video)?\/?|@[A-Za-z0-9_.-]{1,64}\/?|)$/.test(source.pathname))throw Error('TikTok 来源页面无效');
-  await verify();const tab=await chrome.tabs.create({url:source.href,active:false});let attached=false,read=false;
+  const sourceKey=raw=>{try{const url=new URL(raw);if(url.username||url.password)return '';url.searchParams.delete('lang');url.searchParams.sort();return url.origin+url.pathname.replace(/\/$/,'')+url.search;}catch{return '';}};
+  await verify();const existing=(await chrome.debugger.getTargets()).find(target=>target.type==='page'&&!target.attached&&Number.isInteger(target.tabId)&&sourceKey(target.url)===sourceKey(source.href));
+  for(const reused of existing?[existing,null]:[null]){
+  const tab=reused?{id:reused.tabId}:await chrome.tabs.create({url:source.href,active:false});let attached=false,read=false,lastPage,lastError='';
   try{
    await chrome.debugger.attach({tabId:tab.id},'1.3');attached=true;
-   for(let attempt=0;attempt<60;attempt++){
+   for(let attempt=0;attempt<(reused?1:60);attempt++){
     const response=await chrome.debugger.sendCommand({tabId:tab.id},'Runtime.evaluate',{expression:`(${inspectTikTokVideos.toString()})()`,returnByValue:true});
+    lastPage=response.result?.value?.page||lastPage;
+    if(response.exceptionDetails)lastError=(response.exceptionDetails.exception?.description||response.exceptionDetails.text||'页面脚本读取失败').slice(0,250);
     if(response.result?.value?.blocked)throw Error('TikTok 要求安全验证或拒绝访问，请先在浏览器检查来源页面');
     const urls=response.result?.value?.urls;
     if(Array.isArray(urls)&&urls.length){read=true;candidates.push(...urls);if(candidates.some(raw=>{const video=videoUrl(raw);return video&&!known.has(video.id);}))break;}
-    if(attempt===10||attempt===20)await chrome.debugger.sendCommand({tabId:tab.id},'Runtime.evaluate',{expression:'window.scrollBy(0,innerHeight)',returnByValue:true});
+    if(!reused&&(attempt===10||attempt===20))await chrome.debugger.sendCommand({tabId:tab.id},'Runtime.evaluate',{expression:'window.scrollBy(0,innerHeight)',returnByValue:true});
     await new Promise(resolve=>setTimeout(resolve,500));
    }
-   if(!read)throw Error('TikTok 页面未读取到视频，请检查登录、地区限制或更换来源页面');
-  }finally{if(attached)await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});await chrome.tabs.remove(tab.id).catch(()=>{});}
+   if(!read&&!reused)throw Error(lastPage?`TikTok 来源未返回可核实的视频ID（页面 ${lastPage.path}；加载状态 ${lastPage.ready}；播放器 ${lastPage.videos} 个），本轮未调用模型`:`TikTok 页面读取未完成：${lastError||'页面尚未准备好'}，本轮未调用模型`);
+  }finally{if(attached)await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});if(!reused)await chrome.tabs.remove(tab.id).catch(()=>{});}
+  if(candidates.some(raw=>{const video=videoUrl(raw);return video&&!known.has(video.id);}))break;
+  }
  }
  for(const raw of candidates){
   const video=videoUrl(raw);if(!video||known.has(video.id))continue;
