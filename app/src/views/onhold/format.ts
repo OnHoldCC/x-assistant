@@ -40,6 +40,7 @@ export const jobLabels: Record<Job["action"], string> = {
   follow_back: "定时回关",
   unfollow: "定时取消关注",
   rewrite_publish: "改写并定时发布",
+  capture_tiktok: "读取 TikTok 视频",
   video_caption: "视频配文",
 };
 export const jobTitle = (j: Pick<Job, "action" | "input">) =>
@@ -75,6 +76,7 @@ export function jobLabel(j: Job) {
       : "待设置时间";
 }
 export function jobMessage(j: Job) {
+  if(j.action==="capture_tiktok")return j.error||j.result?.skip_reason||(j.state==="completed"?`已下载 ${j.result?.prepared||0} 条视频，配文已排队，未发布`:j.state==="running"?"正在读取 TikTok 来源并下载新视频":"等待插件读取 TikTok 来源");
   if(j.action==="video_caption")return j.error||j.input?.text||j.result?.skip_reason||(j.state==="rewriting"?"Codex 正在检查视频画面并生成英文配文":j.state==="completed"?"视频配文处理完成，未发布":"等待 Codex 生成视频配文");
   if (j.error) return [j.error, j.result?.cleanup_warning].filter(Boolean).join(" · ");
   if (j.state === "completed" && j.input?.stage === "skipped" && j.result?.sent === false)

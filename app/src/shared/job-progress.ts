@@ -19,6 +19,7 @@ export function jobProgress(job:Job):{value:number|null;max:number;text:string}{
     const ended=job.state==='failed'?'已停止':job.state==='completed'?'本轮结束':job.state==='queued'?'等待执行':'执行中';
     return {value:total==null?(job.state==='running'?null:0):Math.min(count,total),max:total||1,text:total==null?`${ended} · ${summary}（目标总数未知）`:`${ended} · 已确认 ${count}/${total} · ${summary}${job.state==='completed'&&count<total?` · 剩余 ${total-count} 未处理`:''}`};
   }
+  if(job.action==='capture_tiktok')return {value:job.state==='completed'?1:job.state==='running'?null:0,max:1,text:job.error||job.result?.skip_reason||(job.state==='completed'?`已下载 ${job.result?.prepared||0} 条视频，配文已排队`:job.state==='running'?'正在读取 TikTok 来源并下载新视频':'等待读取 TikTok 来源')};
   if(job.action==='video_caption')return {value:job.state==='completed'?1:job.state==='rewriting'?null:0,max:1,text:job.state==='completed'?'配文处理完成，未发布':job.state==='rewriting'?'Codex 正在检查画面并生成英文配文':job.state==='failed'?job.error||'配文生成失败，视频已保留':'等待模型生成视频配文'};
   if(job.action==='rewrite_publish'){
     const replicate=job.input?.mode==='replicate',reply=job.input?.mode==='reply',news=job.input?.mode==='news';

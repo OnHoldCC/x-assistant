@@ -93,6 +93,10 @@ impl Store {
             let version: String = context.get(0)?;
             Ok(version_parts(&version).is_some_and(|parts| parts.as_slice() >= [1,5,14,0].as_slice()))
         }).map_err(|e| e.to_string())?;
+        db.create_scalar_function("extension_video_tasks", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, move |context| {
+            let version:String=context.get(0)?;
+            Ok(version_parts(&version).is_some_and(|parts|parts.as_slice()>=[1,5,26,0].as_slice()))
+        }).map_err(|e|e.to_string())?;
         db.create_scalar_function("automation_interval_ms", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, |context| {
             let raw:Option<String>=context.get(0)?;
             Ok(raw.map_or(0,|raw|automation::interval_ms(&serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null))))

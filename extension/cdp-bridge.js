@@ -1,6 +1,7 @@
 import {runAutomation} from './automation.js';
 import {collectNotificationReplies} from './notifications.js';
 import {collectForYou} from './for-you.js';
+import {collectTikTokVideos} from './tiktok.js';
 import {runPublication,cleanupPublicationTabs} from './publisher.js';
 import {collectRelationships} from './relationships.js';
 import {captureAnalyticsCsv,parseAnalyticsCsv} from './analytics-export.js';
@@ -195,6 +196,8 @@ export function createCdpBridge(){
         const value=await backgroundPage(cdpAccount,false,null,true,null,Date.now()+30000);
         if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变，未保存资格数据');
         await call('ingest',value);await call('finish',{id:job.id,client:id});
+       }else if(job.action==='capture_tiktok'){
+        job.client=id;await collectTikTokVideos(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});await call('finish',{id:job.id,client:id});
        }else if(job.action==='capture_notifications'){
         job.client=id;await collectNotificationReplies(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});await call('finish',{id:job.id,client:id});
        }else if(job.action==='capture_for_you'){

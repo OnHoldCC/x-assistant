@@ -3,7 +3,7 @@ use std::{io::Write, path::Path};
 
 const MAX_VIDEO: usize = 100_000_000;
 
-fn video_page(raw: &str) -> Result<(String, String), String> {
+pub(crate) fn video_page(raw: &str) -> Result<(String, String), String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "TikTok 页面地址无效")?;
     if url.scheme() != "https" || ![Some("www.tiktok.com"), Some("tiktok.com")].contains(&url.host_str()) || !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
         return Err("仅支持 HTTPS TikTok 公开视频页面".into());
@@ -13,6 +13,17 @@ fn video_page(raw: &str) -> Result<(String, String), String> {
         return Err("请填写具体的 TikTok 视频页面 URL，不是首页或播放直链".into());
     }
     Ok((format!("https://www.tiktok.com/{}/video/{}",parts[1],parts[3]),parts[3].to_owned()))
+}
+
+pub fn source_page(raw:&str)->Result<String,String>{
+    if raw.len()>2000{return Err("TikTok 来源地址过长".into());}
+    if let Ok((url,_))=video_page(raw){return Ok(url);}
+    let mut url=reqwest::Url::parse(raw).map_err(|_|"TikTok 来源地址无效")?;
+    if url.scheme()!="https"||![Some("www.tiktok.com"),Some("tiktok.com")].contains(&url.host_str())||!url.username().is_empty()||url.password().is_some()||url.port().is_some(){return Err("仅支持 HTTPS TikTok 来源页面".into());}
+    let path=url.path().trim_end_matches('/');
+    let author=path.strip_prefix("/@").is_some_and(|name|!name.is_empty()&&name.len()<=64&&name.bytes().all(|c|c.is_ascii_alphanumeric()||b"_.-".contains(&c)));
+    if !author&&!["","/foryou","/explore","/search","/search/video"].contains(&path){return Err("请填写 TikTok 推荐页、搜索页、作者主页或具体视频地址".into());}
+    url.set_host(Some("www.tiktok.com")).map_err(|_|"TikTok 来源无效")?;url.set_fragment(None);Ok(url.to_string())
 }
 
 fn permitted(url: &reqwest::Url) -> bool {
@@ -117,8 +128,8 @@ pub async fn preview(home:&Path,id:&str)->Result<std::path::PathBuf,String>{
     std::fs::rename(temp,&image).map_err(|_|"视频预览保存失败")?;Ok(image)
 }
 pub fn excluded(text:&str)->bool{
-    if ["国家政治","政治","总统","政党","选举","习近平","特朗普","拜登","普京","中共","共产党","战争","血腥","断肢","斩首","肢解"].iter().any(|word|text.contains(word)){return true;}
-    text.to_ascii_lowercase().split(|c:char|!c.is_ascii_alphabetic()).any(|word|["politics","political","president","presidential","trump","biden","putin","election","elections","parliament","senate","war","warfare","gore","beheading","dismemberment"].contains(&word))
+    if ["广告","国家政治","政治","总统","政党","选举","习近平","特朗普","拜登","普京","中共","共产党","战争","血腥","断肢","斩首","肢解"].iter().any(|word|text.contains(word)){return true;}
+    text.to_ascii_lowercase().split(|c:char|!c.is_ascii_alphabetic()).any(|word|["advertisement","sponsored","politics","political","president","presidential","trump","biden","putin","election","elections","parliament","senate","war","warfare","gore","beheading","dismemberment"].contains(&word))
 }
 pub fn validate_caption(value:&Value)->Result<Value,String>{
     let root=value.as_object().filter(|o|o.len()==4).ok_or("配文格式无效")?;
@@ -127,7 +138,7 @@ pub fn validate_caption(value:&Value)->Result<Value,String>{
     let text=value["text"].as_str().filter(|s|s.chars().count()<=280&&!s.chars().any(|c|c.is_control()&&c!='\n')).ok_or("英文配文无效")?.trim();
     let reason=value["reason"].as_str().filter(|s|s.chars().count()<=400&&!s.chars().any(char::is_control)).ok_or("审核理由无效")?;
     if status=="ready" {
-        if excluded(text){return validate_caption(&json!({"schema_version":1,"status":"rejected","text":"","reason":"配文涉及国家政治或血腥主题，已排除"}));}
+        if excluded(text){return validate_caption(&json!({"schema_version":1,"status":"rejected","text":"","reason":"配文涉及广告、国家政治或血腥主题，已排除"}));}
         if text.is_empty()||!text.bytes().any(|c|c.is_ascii_alphabetic())||text.contains(['@','#'])||(text.to_lowercase().contains("http://")||text.to_lowercase().contains("https://")||text.to_lowercase().contains("www."))||text.chars().any(|c|('\u{3400}'..='\u{9fff}').contains(&c)){return Err("配文必须是无链接、无提及或话题的英文短帖".into());}
     }else if !text.is_empty()||reason.trim().is_empty(){return Err("排除或待检查的视频不得生成发布文案".into());}
     Ok(json!({"schema_version":1,"status":status,"text":text,"reason":reason,"sent":false,"skip_reason":if status=="ready"{""}else{reason},"requires_review":true}))

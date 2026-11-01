@@ -175,6 +175,7 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
         "automation_block" => store.block_automation(text("account")?, text("reason")?, now()),
         "resume_automation" => store.resume_automation(text("account")?, now()),
         "finish" => {
+            if let Some(value)=store.finish_video_capture(text("id")?,text("client")?,input.get("error").and_then(Value::as_str),now())?{return Ok(value);}
             if let Some(value) = store.finish_publication(
                 text("id")?,
                 text("client")?,

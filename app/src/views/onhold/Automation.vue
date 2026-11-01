@@ -25,6 +25,7 @@ type Plan = {
     language?: "auto" | "en";
     scope: string;
     targets: string[];
+    source_urls?: string[];
   };
 };
 type State = {
@@ -42,6 +43,7 @@ const w = useWorkspace(),
   stopAt = ref(""),
   language = ref("auto"),
   targets = ref(""),
+  sourceUrls = ref("https://www.tiktok.com/"),
   error = ref(""),
   busy = ref(false),
   search = ref(""),
@@ -115,6 +117,7 @@ function open(plan: Plan | null, view = false) {
   limit.value = plan?.config.limit || 5;
   days.value = plan?.config.after_days || 7;
   targets.value = plan?.config.targets.join(", ") || "";
+  sourceUrls.value = plan?.config.source_urls?.join("\n") || "https://www.tiktok.com/";
   stopAt.value = localDate(plan?.config.stop_at);
   language.value = plan?.config.language || "auto";
   editorOpen.value = true;
@@ -137,19 +140,20 @@ watch([()=>route.query,()=>w.selected],()=>{
 },{immediate:true});
 function changeAction(value: string) {
   action.value = value;
+  if(value==='auto_video'){interval.value='1';limit.value=1;language.value='en';}
   if(!["reply_notifications","auto_reply"].includes(value) && interval.value==="25s")interval.value="1";
   scope.value =
-    value === "reply_notifications"
+    value === "auto_video" ? "tiktok" : value === "reply_notifications"
         ? "notifications"
         : value === "auto_reply"
           ? "for_you"
           : value === "follow_back" ? "notifications" : "automation_owned";
 }
 const automatic = computed(() =>
-  ["auto_reply", "reply_notifications"].includes(action.value),
+  ["auto_reply", "reply_notifications", "auto_video"].includes(action.value),
 );
 const name = (p: Plan) =>
-  p.config.action === "reply_notifications"
+  p.config.action === "auto_video" ? "自动视频配文（TikTok）" : p.config.action === "reply_notifications"
       ? "自动回复（通知）"
       : p.config.action === "auto_reply"
         ? "自动评论（For You）"
@@ -214,7 +218,7 @@ const columns: DataTableColumns<Plan> = [
     width: 260,
     ellipsis: { tooltip: true },
     render: (p) =>
-      p.config.action === "reply_notifications"
+      p.config.action === "auto_video" ? (p.config.source_urls || []).join(" · ") : p.config.action === "reply_notifications"
           ? "小铃铛 · 对我的帖子的回复"
           : p.config.action === "auto_reply"
             ? "For You 新帖子 · 每帖一个任务"
@@ -241,7 +245,7 @@ const columns: DataTableColumns<Plan> = [
     width: 100,
     render: (p) =>
       p.config.limit +
-      (["auto_reply", "reply_notifications"].includes(
+      (p.config.action === "auto_video" ? " 条视频" : ["auto_reply", "reply_notifications"].includes(
         p.config.action,
       )
         ? " 条帖子"
@@ -345,7 +349,8 @@ async function save() {
       limit: limit.value,
       after_days: days.value,
       stop_at: stop,
-      language: automatic.value ? language.value : "auto",
+      language: action.value==='auto_video' ? 'en' : automatic.value ? language.value : "auto",
+      ...(action.value==='auto_video' ? {source_urls:sourceUrls.value.split(/\s+/).filter(Boolean)} : {}),
       targets: (automatic.value ? "" : targets.value)
         .split(/[,，\s]+/)
         .map((v) => v.replace(/^@/, "").trim().toLowerCase())
@@ -495,10 +500,11 @@ async function save() {
                   { value: 'unfollow', label: '一键取消关注' },
                   { value: 'auto_reply', label: '自动评论（For You）' },
                   { value: 'reply_notifications', label: '自动回复（通知）' },
+                  { value: 'auto_video', label: '自动视频配文（TikTok）' },
                 ]"
                 @update:value="changeAction" /></NFormItem
             ><NAlert v-if="automatic"
-              ><template v-if="action === 'reply_notifications'"
+              ><template v-if="action === 'auto_video'">按间隔读取 TikTok 来源，每轮下载1条未处理的视频，检查抽样画面并生成英文配文。排除广告、国家政治和血腥内容，存疑时标为待检查。保留视频、来源、文案和 Token 记录；不会自动上传或发布到 X。需要连接1.5.26或更新的助手，并在后端安装 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
                 与回执。新关注者回关请另建「自动回关」任务，目标范围选择「通知中的新关注者」。</template
@@ -531,7 +537,9 @@ async function save() {
                   },
                   { value: 'manual', label: '手动指定名单' },
                 ]" /></NFormItem
-            ><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">按执行间隔读取小铃铛中的新关注通知，打开对方主页确认仍关注你、且尚未回关后执行，跳过已关注或已处理账号。无需 Codex，不消耗 Token。需要 1.5.14 或更新的助手；点赞、转发和回复通知不会触发回关。</p><NFormItem v-if="automatic" label="内容语言">
+            ><NFormItem v-if="action === 'auto_video'" label="TikTok 来源页面">
+              <NInput v-model:value="sourceUrls" type="textarea" :autosize="{minRows:3,maxRows:8}" :input-props="{'aria-label':'TikTok 来源页面',required:true}" placeholder="填写推荐页、搜索页或作者主页；也可每行填写一条具体视频 URL" />
+            </NFormItem><p v-if="action === 'auto_video'" class="business-muted">列表、搜索或作者主页只填一个页面；批量取材可填写最多20条具体视频 URL。根据已有记录去重，失败不会自动重新生成配文。</p><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">按执行间隔读取小铃铛中的新关注通知，打开对方主页确认仍关注你、且尚未回关后执行，跳过已关注或已处理账号。无需 Codex，不消耗 Token。需要 1.5.14 或更新的助手；点赞、转发和回复通知不会触发回关。</p><NFormItem v-if="automatic && action !== 'auto_video'" label="内容语言">
               <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖' }, { value: 'en', label: '英文（不限制原帖语言）' }]" />
             </NFormItem><NFormItem v-if="!automatic && scope === 'manual'" label="目标账号"
               ><NInput
@@ -568,7 +576,7 @@ async function save() {
               ><NInputNumber
                 v-model:value="limit"
                 :min="1"
-                :max="20"
+                :max="action === 'auto_video' ? 1 : 20"
                 :precision="0"
                 :input-props="{ 'aria-label': '每次最多' }" /></NFormItem
             ><NFormItem

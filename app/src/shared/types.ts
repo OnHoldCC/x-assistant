@@ -117,12 +117,13 @@ export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<stri
 export type Job = {
   id: string;
   account: string;
-  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "follow_back" | "unfollow" | "rewrite_publish" | "video_caption";
+  action: "capture" | "capture_analytics" | "capture_creator" | "capture_relationships" | "capture_for_you" | "capture_notifications" | "capture_tiktok" | "follow_back" | "unfollow" | "rewrite_publish" | "video_caption";
   state: "queued" | "rewriting" | "running" | "completed" | "failed";
   created_at: number;
   updated_at: number;
   error: string | null;
   input?: {
+    source_urls?: string[];
     kind?: "followers" | "following";
     mode?: "rewrite" | "similar" | "replicate" | "reply" | "news";
     stage?: "rewrite" | "ready" | "sending" | "skipped";
@@ -146,5 +147,5 @@ export type Job = {
     capture_summary?:{scanned:number;eligible:number;filtered:Record<'ads'|'truncated'|'source'|'text'|'own'|'language'|'translated',number>};
     telemetry?:{send_started_at?:number;generations?:{started_at:number;finished_at:number;duration_ms:number;usage:{input_tokens:number;output_tokens:number;cached_input_tokens:number|null;total_tokens:number}|null}[]};
   };
-  result?: { sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
+  result?: { prepared?:number;sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
 };

@@ -7,6 +7,7 @@ pub(super) fn interval_ms(config:&Value)->i64 {
 impl Store {
     pub fn expire_automation(&self, at: i64) -> Result<(), String> {
         self.lock()?.execute("UPDATE automation_tasks SET enabled=0,state='paused' WHERE enabled=1 AND json_extract(value,'$.stop_at') IS NOT NULL AND json_extract(value,'$.stop_at')<=?",[at]).map_err(|e|e.to_string())?;
+        self.lock()?.execute("UPDATE jobs SET state='failed',error='视频计划已暂停或到期，本轮未继续',updated_at=?,input=json_set(input,'$.model_not_called',json('true')) WHERE action IN ('capture_tiktok','video_caption') AND state='queued' AND json_extract(input,'$.task_id') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1)",[at]).map_err(|e|e.to_string())?;
         Ok(())
     }
 
@@ -31,7 +32,7 @@ impl Store {
             Ok(json!({"id":r.get::<_,String>(0)?,"config":serde_json::from_str::<Value>(&r.get::<_,String>(1)?).unwrap_or(Value::Null),"enabled":r.get::<_,bool>(2)?,"state":r.get::<_,String>(3)?,"next_run":r.get::<_,i64>(4)?,"last_run":r.get::<_,Option<i64>>(5)?,"last_job":last_job}))
         }).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
         for task in &mut tasks {
-            if task["config"]["action"]=="auto_post" && !task["last_job"].is_null() {
+            if ["auto_post","auto_video"].iter().any(|action|task["config"]["action"]==*action) && !task["last_job"].is_null() {
                 task["state"]=json!(match task["last_job"]["state"].as_str().unwrap_or("") {"completed"=>"waiting","failed"=>"error","rewriting"|"running"=>"running",_=>"queued"});
             }
             if ["auto_reply", "reply_notifications"]
@@ -65,6 +66,7 @@ impl Store {
             "auto_reply",
             "reply_notifications",
             "auto_post",
+            "auto_video",
         ]
         .contains(&action)
         {
@@ -80,7 +82,8 @@ impl Store {
             .as_u64()
             .filter(|n| (1..=20).contains(n))
             .ok_or("每次执行1–20个目标")?;
-        let days = if ["auto_reply", "reply_notifications", "auto_post"].contains(&action) {
+        if action=="auto_video"&&limit!=1{return Err("视频计划每轮处理1条，避免重复下载和模型用量突增".into());}
+        let days = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
             7
         } else {
             input["after_days"]
@@ -88,8 +91,8 @@ impl Store {
                 .filter(|n| (1..=365).contains(n))
                 .ok_or("到期天数应为1–365天")?
         };
-        let scope = if ["auto_reply", "reply_notifications", "auto_post"].contains(&action) {
-            if action == "reply_notifications" {
+        let scope = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
+            if action=="auto_video" {"tiktok"} else if action == "reply_notifications" {
                 "notifications"
             } else if action == "auto_post" {
                 "news"
@@ -103,7 +106,7 @@ impl Store {
                 .ok_or("自动化范围无效")?
         };
         let empty = Vec::new();
-        let targets = if ["auto_reply", "reply_notifications", "auto_post"].contains(&action) {
+        let targets = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
             &empty
         } else {
             input["targets"].as_array().ok_or("目标名单无效")?
@@ -142,6 +145,13 @@ impl Store {
         let language = match input.get("language") { None => "auto", Some(value) => value.as_str().ok_or("内容语言无效")? };
         if !["auto", "en"].contains(&language) { return Err("内容语言无效".into()); }
         config["language"] = json!(language);
+        if action=="auto_video" {
+            let sources=input["source_urls"].as_array().filter(|urls|!urls.is_empty()&&urls.len()<=20).ok_or("填写1个TikTok来源页面，或最多20条具体视频URL")?;
+            let mut urls=Vec::new();
+            for source in sources {let url=crate::video::source_page(source.as_str().ok_or("视频来源必须是页面URL")?)?;if !urls.contains(&url){urls.push(url);}}
+            if urls.len()>1&&urls.iter().any(|url|crate::video::video_page(url).is_err()){return Err("列表、搜索或作者主页每个计划只填一个；批量来源请填写具体视频URL".into());}
+            config["source_urls"]=json!(urls);config["language"]=json!("en");
+        }
         if action == "auto_post" {
             let source = match input.get("news_source") { None => "international", Some(value) => value.as_str().ok_or("新闻来源无效")? };
             if !["web", "weibo", "rednote", "hot_topics", "international", "mixed"].contains(&source) { return Err("新闻来源无效".into()); }
@@ -245,6 +255,7 @@ impl Store {
                 "自动化已暂停"
             },
         );
+        self.expire_automation(at)?;
         self.automation_state(&account)
     }
     pub fn block_automation(&self, account: &str, reason: &str, at: i64) -> Result<Value, String> {
@@ -312,6 +323,7 @@ impl Store {
             .find(|t| t["id"].as_str() == Some(id) && t["enabled"] == true)
             .ok_or("请先启用当前账号的任务")?;
         let config = &task["config"];
+        if config["action"]=="auto_video" {return self.run_video_automation(&account,id,at);}
         if ["auto_reply", "reply_notifications", "auto_post"]
             .iter()
             .any(|action| config["action"] == *action) || config["action"] == "follow_back" && config["scope"] == "notifications"
