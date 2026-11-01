@@ -354,7 +354,7 @@ const theme = {
       >
       <NCard size="small" title="TikTok 视频">
         <div class="business-stack">
-          <p class="business-muted">打开具体视频页，后端下载后自动生成英文配文，保留视频和文案供检查。</p>
+          <p class="business-muted">打开具体视频页，后端下载后自动生成带1–2个相关英文#标签的配文，保留视频和文案供检查。</p>
           <NButton block :loading="videoBusy" :disabled="videoBusy || captionPending" @click="downloadVideo">下载视频并生成英文配文</NButton>
           <p class="business-muted">下载前按页面信息过滤中国人物或中国相关话题、广告、政治和血腥内容；配文前复核画面，存疑时不生成文案。人物国籍不按长相推断，发布前仍需检查视频和片尾。</p>
           <NAlert v-if="videoError" type="error" role="alert">{{ videoError }}</NAlert>

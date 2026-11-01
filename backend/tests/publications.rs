@@ -354,3 +354,12 @@ fn failed_publications_keep_cleanup_metadata_without_becoming_successful(){
     let jobs=store.jobs().unwrap();let job=jobs.as_array().unwrap().iter().find(|job|job["id"]==id).unwrap();
     assert_eq!(job["state"],"failed");assert!(job["result"]["url"].is_null());assert_eq!(job["result"]["tab_closed"],false);assert_eq!(job["result"]["cleanup_warning"],"草稿已保留，自动化已暂停");
 }
+
+#[test]
+fn new_post_hashtags_are_allowed_without_relaxing_original_facts(){
+ let original="A clear idea for 12 people. @writer https://example.com";
+ assert!(validate_rewrite(original,"For 12 people: a clear idea. @writer https://example.com #Writing #Ideas").is_ok());
+ for text in ["For 12 people: a clear idea. @writer https://example.com","For 99 people: a clear idea. @writer https://example.com #Writing","For 12 people: a clear idea. @another https://example.com #Writing","For 12 people: a clear idea. @writer https://evil.example #Writing","For 12 people: a clear idea. @writer https://example.com #Writing #Ideas #More","For 12 people: a clear idea. @writer https://example.com #Writing #writing"]{assert!(validate_rewrite(original,text).is_err(),"{text}");}
+ assert!(validate_rewrite("A clear idea. #Original","A clear idea. #Original").is_ok());assert!(validate_rewrite("A clear idea. #Original","A clear idea. #New").is_err());
+ assert!(validate_rewrite("C# makes tooling clearer.","Tooling becomes clearer with C#. #Programming").is_ok());
+}

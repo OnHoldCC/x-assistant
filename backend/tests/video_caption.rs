@@ -37,7 +37,7 @@ async fn finished(store:&Store,id:&str)->Value{
 #[tokio::test]
 async fn captions_use_visual_input_never_publish_and_count_usage(){
  let (dir,store,data)=setup("A kitten and a confetti balloon");let id=data["download_id"].as_str().unwrap();
- response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"One piece of confetti decided gravity was optional.","reason":""}));
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"One piece of confetti decided gravity was optional. #Cats #FunnyPets","reason":""}));
  store.enqueue_video_caption("example",&data,false,now()).unwrap();store.enqueue_video_caption("example",&data,true,now()).unwrap();
  assert!(store.enqueue_video_caption("other",&data,false,now()).is_err());
  let client=uuid::Uuid::new_v4().to_string();store.session_status(&client,"example","logged_in","",now()).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,serde_json::from_str::<Value>(include_str!("../../extension/manifest.json")).unwrap()["version"].as_str().unwrap()).unwrap();
@@ -60,7 +60,7 @@ async fn forbidden_titles_skip_the_model_and_failed_attempts_retry_without_redow
  let (dir,store,data)=setup("A kitten playing");let id=data["download_id"].as_str().unwrap();response(dir.path(),&json!({"invalid":"response"}));
  store.enqueue_video_caption("example",&data,false,now()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.clone().run_rewrite_queue());
  assert_eq!(finished(&store,id).await["state"],"failed");
- response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A tiny moment of kitten chaos.","reason":""}));
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A tiny moment of kitten chaos. #Cats","reason":""}));
  runtime.call("retry_video_caption",json!({"download_id":id})).await.unwrap();runtime.call("retry_video_caption",json!({"download_id":id})).await.unwrap();
  let job=finished(&store,id).await;assert_eq!(job["state"],"completed");assert_eq!(job["input"]["telemetry"]["generations"].as_array().unwrap().len(),2);assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"xx");
  assert!(runtime.call("video_caption_status",json!({"download_id":"../../secrets"})).await.is_err());worker.abort();
@@ -69,7 +69,7 @@ async fn forbidden_titles_skip_the_model_and_failed_attempts_retry_without_redow
 fn caption_validation_never_returns_copy_for_rejected_or_uncertain_content(){
  for status in ["rejected","needs_review"]{assert!(video::validate_caption(&json!({"schema_version":1,"status":status,"text":"Share this.","reason":"不允许"})).is_err());assert!(video::validate_caption(&json!({"schema_version":1,"status":status,"text":"","reason":"不允许"})).is_ok());}
  assert_eq!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":"President gives a speech.","reason":""})).unwrap()["status"],"rejected");
- for text in ["访问这个视频","Hello https://evil.example","Follow @person","A kitten #cute",""]{assert!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).is_err());}
+ for text in ["访问这个视频","Hello https://evil.example","Follow @person","A kitten #Cats #Pets #Funny",""]{assert!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).is_err());}
 }
 
 #[tokio::test]
@@ -86,4 +86,11 @@ async fn live_video_download_without_model_or_publication(){
  let url=std::env::var("ONHOLD_TIKTOK_TEST_URL").expect("set ONHOLD_TIKTOK_TEST_URL explicitly");let dir=tempfile::tempdir().unwrap();
  let value=video::download(dir.path(),&url).await.unwrap();
  let bytes=std::fs::read(value["filename"].as_str().unwrap()).unwrap();assert_eq!(&bytes[4..8],b"ftyp");assert!(bytes.len()>1000);assert_eq!(value["published"],false);assert_eq!(value["source"],url);
+}
+
+#[test]
+fn video_captions_require_related_tag_slots_without_allowing_mentions_or_tag_spam(){
+ for text in ["A playful kitten. #Cats","A playful kitten. #Cats #Pets"]{assert_eq!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).unwrap()["status"],"ready");}
+ for text in ["A playful kitten.","A playful kitten. #Cats #cats","A playful kitten. #Cats #Pets #Funny","A playful kitten. #Pets123","#Cats #Pets"]{assert!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).is_err(),"{text}");}
+ assert_eq!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":"A walking tour. #ChinaTravel","reason":""})).unwrap()["status"],"rejected");
 }

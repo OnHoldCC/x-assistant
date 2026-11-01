@@ -65,9 +65,20 @@ pub fn validate_rewrite(source: &str, text: &str) -> Result<(), String> {
     {
         return Err("改写正文无效，未提交发布".into());
     }
-    if protected_facts(source) != protected_facts(text) {
+    let original=protected_facts(source);let mut rewritten=protected_facts(text);
+    if !original.iter().any(|fact|fact.starts_with('#')&&fact.len()>1){
+        validate_post_hashtags(text)?;
+        rewritten.retain(|fact|!fact.starts_with('#')||fact.len()==1);
+    }
+    if original != rewritten {
         return Err("改写改变了数字、链接、账号或话题，未提交发布".into());
     }
+    Ok(())
+}
+
+pub(crate) fn validate_post_hashtags(text:&str)->Result<(),String>{
+    let tags=protected_facts(text).into_iter().filter(|fact|fact.starts_with('#')&&fact.len()>1).collect::<Vec<_>>();
+    if !(1..=2).contains(&tags.len())||tags.len()==2&&tags[0].eq_ignore_ascii_case(&tags[1])||tags.iter().any(|tag|tag.len()>41||!tag[1..].bytes().any(|c|c.is_ascii_alphabetic())||!tag[1..].bytes().all(|c|c.is_ascii_alphabetic()||c==b'_')){return Err("发帖文案需包含1–2个不重复的相关英文#标签（英文字母或下划线），未提交发布".into());}
     Ok(())
 }
 

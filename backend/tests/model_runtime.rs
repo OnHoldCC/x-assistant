@@ -28,7 +28,7 @@ async fn web_model_auth_settings_review_and_api_rewrite_work_without_desktop() {
         let app=axum::Router::new().route("/v1/responses",axum::routing::post(|headers:axum::http::HeaderMap,axum::Json(body):axum::Json<Value>|async move {
             assert_eq!(headers["authorization"],"Bearer fixture-secret");
             assert_eq!(body["store"],false);assert_eq!(body["tools"],json!([]));
-            let text=if body["instructions"].as_str().unwrap().contains("账号运营复盘助手") {"本次已验证复盘。"} else {"{\"text\":\"For 12 people: start with a clear idea, then explain it.\"}"};
+            let text=if body["instructions"].as_str().unwrap().contains("账号运营复盘助手") {"本次已验证复盘。"} else {"{\"text\":\"For 12 people: start with a clear idea, then explain it. #Writing\"}"};
             axum::Json(json!({"output":[{"type":"message","content":[{"type":"output_text","text":text}]}]}))
         }));
         axum::serve(listener, app).await.unwrap();
@@ -118,7 +118,7 @@ while [ "$#" -gt 0 ]; do
  shift
 done
 cat >/dev/null
-printf '%s' '{"text":"For 12 people: a clear idea."}' > "$output"
+printf '%s' '{"text":"For 12 people: a clear idea. #Writing"}' > "$output"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":20}}'
 "#).unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();

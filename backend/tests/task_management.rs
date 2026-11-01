@@ -118,7 +118,7 @@ fn article_edits_preserve_facts_and_deleted_drafts_cannot_resume() {
     store.claim_rewrite(at).unwrap();
     assert!(store.delete_job("example", id, at).is_err());
     store
-        .save_rewrite(id, Ok("For 12 people, an idea."), at)
+        .save_rewrite(id, Ok("For 12 people, an idea. #Writing"), at)
         .unwrap();
     assert!(store
         .update_job("example", id, &json!({"text":"For 99 people."}), at)
@@ -127,13 +127,13 @@ fn article_edits_preserve_facts_and_deleted_drafts_cannot_resume() {
         .update_job(
             "example",
             id,
-            &json!({"text":"A clear idea for 12 people."}),
+            &json!({"text":"A clear idea for 12 people. #Writing"}),
             at,
         )
         .unwrap();
     assert_eq!(
         store.jobs().unwrap()[0]["input"]["text"],
-        "A clear idea for 12 people."
+        "A clear idea for 12 people. #Writing"
     );
     store
         .schedule_publication("example", id, at + 1000, at)
@@ -159,7 +159,7 @@ fn removed_published_records_still_block_duplicate_sends() {
     let id = created["id"].as_str().unwrap();
     store.claim_rewrite(at).unwrap();
     store
-        .save_rewrite(id, Ok("For 12 people, an idea."), at)
+        .save_rewrite(id, Ok("For 12 people, an idea. #Writing"), at)
         .unwrap();
     store
         .schedule_publication("example", id, at + 1000, at)

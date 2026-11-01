@@ -159,6 +159,7 @@ mod video_caption;
 mod news_queue;
 mod relationships;
 pub use publications::validate_rewrite;
+pub(crate) use publications::validate_post_hashtags;
 mod journal;
 mod operations;
 mod sessions;

@@ -6,7 +6,7 @@ pub const UNAVAILABLE_PREFIX:&str="TikTok 视频暂不可下载：";
 
 pub fn china_related(text:&str)->bool{
     if ["中国","中國","中华","中華","中国人","中國人","大陆","大陸","北京","上海","深圳","广州","廣州","成都","重庆","重慶","武汉","武漢","抖音","🇨🇳"].iter().any(|word|text.contains(word)){return true;}
-    text.to_ascii_lowercase().split(|c:char|!c.is_ascii_alphabetic()).any(|word|["china","chinese","prc","beijing","shanghai","shenzhen","guangzhou","chengdu","chongqing","wuhan","douyin","chinatown"].contains(&word))
+    text.to_ascii_lowercase().split(|c:char|!c.is_ascii_alphabetic()).any(|word|word.starts_with("china")||word.starts_with("chinese")||["prc","beijing","shanghai","shenzhen","guangzhou","chengdu","chongqing","wuhan","douyin"].contains(&word))
 }
 pub fn exclusion_reason(text:&str)->Option<&'static str>{
     if china_related(text){Some("涉及中国人物或中国相关话题，已自动过滤")}
@@ -55,10 +55,11 @@ fn embed_video(html: &str, id: &str) -> Result<Value, String> {
     let value: Value=serde_json::from_str(script).map_err(|_|"TikTok 视频资料无法解析")?;
     let video=&value["source"]["data"][format!("/embed/v2/{id}")]["videoData"];
     if video["itemInfos"]["id"].as_str()!=Some(id) {return Err("TikTok 返回的视频与页面不匹配，未下载".into());}
+    if let Some(reason)=exclusion_reason(video["itemInfos"]["text"].as_str().unwrap_or("")){return skipped_video(&format!("https://www.tiktok.com/embed/v2/{id}"),reason,false);}
     let author=["uniqueId","unique_id"].iter().find_map(|key|video["authorInfos"][key].as_str().filter(|s|!s.is_empty()&&s.len()<=64&&s.bytes().all(|c|c.is_ascii_alphanumeric()||b"_.-".contains(&c))));
-    let urls=video["itemInfos"]["video"]["urls"].as_array().ok_or("TikTok 未返回视频下载地址")?;
+    let urls=video["itemInfos"]["video"]["urls"].as_array().ok_or_else(||format!("{UNAVAILABLE_PREFIX}未返回公开视频下载地址"))?;
     let urls=urls.iter().filter_map(Value::as_str).filter(|raw|raw.len()<=16000&&reqwest::Url::parse(raw).is_ok_and(|url|permitted(&url))).take(3).collect::<Vec<_>>();
-    if urls.is_empty(){return Err("TikTok 未返回可信的视频下载地址".into());}
+    if urls.is_empty(){return Err(format!("{UNAVAILABLE_PREFIX}未返回可信的视频下载地址"));}
     Ok(json!({"id":id,"author":author.unwrap_or(""),"title":video["itemInfos"]["text"].as_str().unwrap_or("").chars().take(4000).collect::<String>(),"urls":urls}))
 }
 
@@ -73,7 +74,7 @@ pub async fn download(home: &Path, raw: &str) -> Result<Value,String> {
         if html.len()+chunk.len()>3_000_000{return Err("TikTok 页面超过大小限制".into());}html.extend_from_slice(&chunk);
     }
     let mut metadata=embed_video(&String::from_utf8(html).map_err(|_|"TikTok 页面编码无效")?,&id)?;
-    if let Some(reason)=exclusion_reason(metadata["title"].as_str().unwrap_or("")){return skipped_video(&source,reason,false);}
+    if metadata["skipped"]==true{return skipped_video(&source,metadata["caption_reason"].as_str().unwrap_or("已过滤"),false);}
     let mut media=None;
     let mut failures=Vec::new();let mut unavailable=true;
     for url in metadata["urls"].as_array().unwrap() {
@@ -166,7 +167,8 @@ pub fn validate_caption(value:&Value)->Result<Value,String>{
     let reason=value["reason"].as_str().filter(|s|s.chars().count()<=400&&!s.chars().any(char::is_control)).ok_or("审核理由无效")?;
     if status=="ready" {
         if excluded(text){return validate_caption(&json!({"schema_version":1,"status":"rejected","text":"","reason":"配文涉及中国相关、广告、国家政治或血腥主题，已排除"}));}
-        if text.is_empty()||!text.bytes().any(|c|c.is_ascii_alphabetic())||text.contains(['@','#'])||(text.to_lowercase().contains("http://")||text.to_lowercase().contains("https://")||text.to_lowercase().contains("www."))||text.chars().any(|c|('\u{3400}'..='\u{9fff}').contains(&c)){return Err("配文必须是无链接、无提及或话题的英文短帖".into());}
+        if text.is_empty()||!text.split_whitespace().filter(|word|!word.starts_with('#')).any(|word|word.bytes().any(|c|c.is_ascii_alphabetic()))||text.contains('@')||(text.to_lowercase().contains("http://")||text.to_lowercase().contains("https://")||text.to_lowercase().contains("www."))||text.chars().any(|c|('\u{3400}'..='\u{9fff}').contains(&c)){return Err("配文必须是无链接、无提及的英文短帖".into());}
+        crate::store::validate_post_hashtags(text)?;
     }else if !text.is_empty()||reason.trim().is_empty(){return Err("排除或待检查的视频不得生成发布文案".into());}
     Ok(json!({"schema_version":1,"status":status,"text":text,"reason":reason,"sent":false,"skip_reason":if status=="ready"{""}else{reason},"requires_review":true}))
 }
@@ -214,5 +216,7 @@ mod tests {
         let mut alternate=data.clone();alternate["source"]["data"]["/embed/v2/123"]["videoData"]["authorInfos"]=json!({"unique_id":"actual.creator"});assert_eq!(embed_video(&html(&alternate),"123").unwrap()["author"],"actual.creator");
         let mut bad=data.clone();bad["source"]["data"]["/embed/v2/123"]["videoData"]["itemInfos"]["id"]=json!("456");assert!(embed_video(&html(&bad),"123").is_err());
         bad=data.clone();bad["source"]["data"]["/embed/v2/123"]["videoData"]["itemInfos"]["video"]["urls"]=json!(["https://evil.example/a"]);assert!(embed_video(&html(&bad),"123").is_err());
+        assert!(embed_video(&html(&bad),"123").unwrap_err().starts_with(UNAVAILABLE_PREFIX));
+        bad["source"]["data"]["/embed/v2/123"]["videoData"]["itemInfos"]["text"]=json!("Chinese creator in Beijing");assert_eq!(embed_video(&html(&bad),"123").unwrap()["skipped"],true);
     }
 }
