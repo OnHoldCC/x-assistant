@@ -2,6 +2,7 @@ pub mod http;
 pub mod models;
 pub mod news;
 pub mod store;
+pub mod video;
 mod ws;
 
 use serde_json::{json, Value};

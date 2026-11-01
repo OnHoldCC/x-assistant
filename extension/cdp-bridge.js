@@ -89,9 +89,9 @@ export function createCdpBridge(){
     const health=await response.json().catch(()=>null);
     if(!response.ok||health?.service!=='onhold-admin')throw Error('此地址运行的不是 OnHold 运营后台，请从桌面端「连接与设置」复制新版地址（默认端口 18431）。');
   }
-  async function call(operation,input){
+  async function call(operation,input,timeout=15000){
     const saved=await chrome.storage.local.get('cdpConfig'),config=bridgeConfig(saved.cdpConfig);
-    let response;try{response=await fetch(config.endpoint+'/api/admin',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.token},body:JSON.stringify({operation,input}),signal:AbortSignal.timeout(15000)});}catch{throw Error('无法连接 OnHold，请打开桌面端后重试');}
+    let response;try{response=await fetch(config.endpoint+'/api/admin',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.token},body:JSON.stringify({operation,input}),signal:AbortSignal.timeout(timeout)});}catch{throw Error('无法连接 OnHold，请打开桌面端后重试');}
     const value=await response.json();if(!response.ok){if([401,403].includes(response.status)){authBlocked=true;await chrome.storage.session.set({cdpReconnectBlocked:true});}throw Error(value.error||'后台连接失败');}return value;
   }
   async function client(){const saved=await chrome.storage.local.get('cdpClient');if(saved.cdpClient)return saved.cdpClient;const id=crypto.randomUUID();await chrome.storage.local.set({cdpClient:id});return id;}
@@ -309,7 +309,7 @@ export function createCdpBridge(){
       await openSocket();let cleanup;try{cleanup=await cleanupPublicationTabs(snapshot.handle,call,attachedTab);await chrome.storage.session.set({cdpCleanup:cleanup});}catch(error){cleanup={error:error.message};}return {account:snapshot.handle,posts:0,cleanup};
     }catch(error){retry(error);throw error;}finally{if(!keep&&Number.isInteger(attachedTab))await chrome.debugger.detach({tabId:attachedTab}).catch(()=>{});busy=false;}
   }
-  return {resume,async account(){const {cdpTab}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接 X 助手');return (await capture(cdpTab)).handle;},async status(){const saved=await chrome.storage.local.get('cdpConfig');return {busy,...await chrome.storage.session.get(['cdpTab','cdpAccount','cdpError','cdpWs','cdpLoginState','cdpCleanup']),endpoint:saved.cdpConfig?.endpoint||'http://127.0.0.1:18431',configured:!!saved.cdpConfig?.token};},async overview(){
+  return {resume,downloadVideo:url=>call('download_tiktok_video',{url},90000),async account(){const {cdpTab}=await session();if(!Number.isInteger(cdpTab))throw Error('请先连接 X 助手');return (await capture(cdpTab)).handle;},async status(){const saved=await chrome.storage.local.get('cdpConfig');return {busy,...await chrome.storage.session.get(['cdpTab','cdpAccount','cdpError','cdpWs','cdpLoginState','cdpCleanup']),endpoint:saved.cdpConfig?.endpoint||'http://127.0.0.1:18431',configured:!!saved.cdpConfig?.token};},async overview(){
     const {cdpAccount}=await session();if(!cdpAccount)return null;
     const saved=(await chrome.storage.local.get('cdpOverviewCache')).cdpOverviewCache||{};
     try{

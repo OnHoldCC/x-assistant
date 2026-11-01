@@ -174,7 +174,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const {ownPage,xPage,allowedWeb}=await translationContext(sender);
     if(message.type==='TIKTOK_DOWNLOAD'){
       if(!ownPage)throw Error('只允许插件页面下载视频');
-      return downloadTikTokVideo();
+      return downloadTikTokVideo(url=>cdpBridge.downloadVideo(url));
     }
     if(message.type==='QUEUE_REWRITE'&&xPage)return cdpBridge.rewrite(message.data);
     if(['BOOKMARK_SAVE','BOOKMARK_GET'].includes(message.type)&&xPage)return cdpBridge.bookmark(message.data);

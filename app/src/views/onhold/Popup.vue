@@ -12,7 +12,6 @@ import { loginLabels, time } from "./format";
 import NumberValue from "./NumberValue.vue";
 import CreatorStatus from "./CreatorStatus.vue";
 declare const chrome: {
-  permissions: { request: (input: { permissions: string[] }) => Promise<boolean> };
   tabs: { create: (input: { url: string }) => Promise<unknown> };
   runtime: {
     sendMessage: (
@@ -58,11 +57,10 @@ async function downloadVideo() {
   videoMessage.value = "";
   videoError.value = "";
   try {
-    if (!await chrome.permissions.request({ permissions: ["downloads"] })) throw Error("未允许文件下载");
     const response = await chrome.runtime.sendMessage({ type: "TIKTOK_DOWNLOAD" });
     if (!response.ok) throw Error(response.error || "视频下载失败");
     const data = response.data as { filename: string };
-    videoMessage.value = "已下载：" + data.filename;
+    videoMessage.value = "后端已保存：" + data.filename;
   } catch (error) {
     videoError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -326,8 +324,8 @@ const theme = {
       >
       <NCard size="small" title="TikTok 视频">
         <div class="business-stack">
-          <p class="business-muted">打开具体视频页，下载播放版本供检查。此操作不会发布到 X。</p>
-          <NButton block :loading="videoBusy" :disabled="videoBusy" @click="downloadVideo">下载当前 TikTok 视频</NButton>
+          <p class="business-muted">打开具体视频页，插件将页面 URL 交给后端下载，不会发布到 X。</p>
+          <NButton block :loading="videoBusy" :disabled="videoBusy" @click="downloadVideo">交给后端下载当前视频</NButton>
           <p class="business-muted">选题排除国家政治和血腥内容。下载后还需检查画面及片尾。</p>
           <NAlert v-if="videoError" type="error" role="alert">{{ videoError }}</NAlert>
           <p v-if="videoMessage" role="status">{{ videoMessage }}</p>
