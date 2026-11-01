@@ -58,12 +58,15 @@ fn video_publishing_is_opt_in_and_stops_when_its_plan_is_paused(){
  let ready=json!({"status":"ready","text":"A playful kitten. #Cats","processing":{"verified":true},"content_policy":onhold_backend::video_screening::CONTENT_POLICY});store.finish_video_caption(&id,Ok(&ready),true,at).unwrap();
  let db=rusqlite::Connection::open(dir.path().join("db")).unwrap();
  db.execute("UPDATE jobs SET result=json_remove(result,'$.content_policy') WHERE id=?",[&id]).unwrap();
- assert!(store.enqueue_video_publication(&id,"example",true,at).unwrap_err().contains("仅宠物"),"previously accepted people videos cannot be published under the new policy");
+ assert!(store.enqueue_video_publication(&id,"example",true,at).unwrap_err().contains("宠物或搞笑"),"older review results cannot bypass the current pets-or-funny policy");
  db.execute("UPDATE jobs SET result=json_set(result,'$.content_policy',?) WHERE id=?",rusqlite::params![onhold_backend::video_screening::CONTENT_POLICY,id]).unwrap();
  let pub_id=store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"].as_str().unwrap().to_owned();assert!(store.claim(&client,"example",at).unwrap().is_null(),"batch output must respect the plan interval");
  let at=at+60_000;store.session_status(&client,"example","logged_in","",at).unwrap();assert_eq!(store.claim(&client,"example",at).unwrap()["id"],pub_id);
+ db.execute("UPDATE jobs SET result=json_set(result,'$.content_policy','pets_only_no_people_v1') WHERE id=?",[&id]).unwrap();
+ assert!(store.video_upload_context(&pub_id,&client,at).is_ok(),"already approved pets remain eligible when the policy is broadened");
+ assert_eq!(store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"],pub_id,"reuse the pet review without generating another publication");
  db.execute("UPDATE jobs SET result=json_remove(result,'$.content_policy') WHERE id=?",[&id]).unwrap();
- assert!(store.video_upload_context(&pub_id,&client,at).is_err(),"already queued publications must also pass the current pet policy");
+ assert!(store.video_upload_context(&pub_id,&client,at).is_err(),"already queued publications must also pass the current pets-or-funny policy");
  db.execute("UPDATE jobs SET result=json_set(result,'$.content_policy',?) WHERE id=?",rusqlite::params![onhold_backend::video_screening::CONTENT_POLICY,id]).unwrap();
  store.control_automation("example",&task,false,at).unwrap();assert!(store.video_upload_context(&pub_id,&client,at).is_err());assert!(store.begin_publish(&pub_id,&client,at).is_err());
 }
