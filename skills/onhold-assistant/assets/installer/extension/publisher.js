@@ -171,14 +171,18 @@ export async function runPublication(job, call, owner, verify) {
   if(video){
    mediaId=await uploadVideo(job,command,call,owner,inspect,mediaIds,()=>failure);
    await call('video_upload_ready',{id:job.id,client:job.client,media_id:mediaId});
-   page=await inspect();
-   if(page?.text!==text)throw Error('视频上传后正文已改变，未发送');
+   for(let attempt=0;attempt<40;attempt++){
+    page=await inspect();
+    if(page?.text!==text)throw Error('视频上传后正文已改变，未发送');
+    if(page.ready&&page.enabled&&page.button)break;
+    await pause();
+   }
   }
   if(!page.enabled)throw Error('正文已填入，但 X 发送按钮仍禁用；草稿已保留，未发送');
   if(!page.button)throw Error('正文已填入，但 X 发送按钮被遮挡或不在视口内；草稿已保留，未发送');
   await verify();
+  page=await inspect();if(page?.text!==text||!page.enabled||!page.button)throw Error('发送前页面已变化，未再次尝试');
   await call('begin_publish',{id:job.id,client:job.client});
-  page=await inspect();if(page?.text!==text||!page.enabled)throw Error('发送前页面已变化，未再次尝试');
   sending=true;await click(page.button);
   for(let attempt=0;attempt<80&&!published&&!failure;attempt++)await pause();
   if(!published)throw Error(failure||'未收到明确发布结果，请到 X 核对；不会自动重发');
