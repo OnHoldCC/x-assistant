@@ -271,6 +271,8 @@ For notification follow-back, choose **自动回关** (Automatic follow-back), s
 
 News plans default to RSS-based drafting. Searching to verify headlines without summaries requires explicitly enabling the news search option. Rejected candidates are not checked again until their title, summary, or configured topic changes; rounds without usable summaries skip generation without model tokens. News collection supports one-minute intervals. Actual timing also depends on execution duration, queueing, and daily limits. Browser actions for the same account run serially. Empty candidate pools, source failures, or unsuccessful verification produce a recorded skip reason; a post is not guaranteed every round.
 
+From companion version 1.5.21, a confirmed send remains successful even if its page cannot be cleaned up. An uncertain send fails only that job, retains its page for inspection, and is never retried automatically. Neither case pauses the whole plan; later jobs continue. Review and clean up drafts in retained pages manually.
+
 ## Updates and maintenance
 
 ### Docker operations

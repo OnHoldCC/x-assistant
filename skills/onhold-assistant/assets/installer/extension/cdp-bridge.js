@@ -203,7 +203,6 @@ export function createCdpBridge(){
         job.client=id;await collectRelationships(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});await call('finish',{id:job.id,client:id});
        }else if(job.action==='rewrite_publish'){
         job.client=id;const outcome=await runPublication(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});
-        if(outcome.tab_closed===false&&job.input?.task_id){await call('control_automation',{account:cdpAccount,id:job.input.task_id,enabled:false});outcome.cleanup_warning+=' 当前自动化已暂停，避免继续积累页面。';}
         await call('finish',{id:job.id,client:id,result:outcome});
        }else if(['follow_back','unfollow'].includes(job.action)){
         job.client=id;const outcome=await runAutomation(job,call,cdpAccount,async()=>{if((await capture(cdpTab)).handle!==cdpAccount)throw Error('X 账号已改变');});
@@ -211,7 +210,7 @@ export function createCdpBridge(){
        }else{if(!['capture','capture_analytics'].includes(job.action))throw Error('不支持此采集任务类型');await collect(true,job.action==='capture_analytics');await call('finish',{id:job.id,client:id});}
       }
       await chrome.storage.session.set({cdpError:''});
-    }catch(error){if(job?.input?.task_id&&error.publicationResult?.tab_closed===false){try{await call('control_automation',{account:cdpAccount,id:job.input.task_id,enabled:false});error.publicationResult.cleanup_warning+=' 当前自动化已暂停，避免继续积累页面。';}catch{}}if(job&&id)await call('finish',{id:job.id,client:id,error:error.message.slice(0,2000),result:error.publicationResult||error.automationResult}).catch(()=>{});await chrome.storage.session.set({cdpError:error.message});}finally{busy=false;}
+    }catch(error){if(job&&id)await call('finish',{id:job.id,client:id,error:error.message.slice(0,2000),result:error.publicationResult||error.automationResult}).catch(()=>{});await chrome.storage.session.set({cdpError:error.message});}finally{busy=false;}
   }
   function closeSocket(){clearInterval(heartbeatTimer);const old=socket;socket=null;old?.close();}
   async function bounded(promise){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('X 连接检查超时，等待自动恢复')),12000);})]);}finally{clearTimeout(timer);}}

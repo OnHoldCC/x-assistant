@@ -82,3 +82,23 @@ test('simultaneous task notifications reserve the worker before reading session 
  release();await flush();assert.equal((await s.bridge.status()).busy,false);
  notify();await flush();assert.equal(claims,2,'the next task can run after the previous one finishes');
 });
+
+test('a retained publication tab does not pause replies or news, and the next task can run',async t=>{
+ for(const mode of ['reply','news'])for(const uncertain of [false,true])await t.test(`${mode}: ${uncertain?'uncertain receipt':'confirmed receipt, stale editor'}`,async()=>{
+  const s=fixture();await s.bridge.resume();await flush();
+  const jobs=[1,2].map(n=>({id:'job-'+n,account:'owner',action:'rewrite_publish',input:{mode,task_id:'plan',stage:'ready'}})),calls=[],ran=[];
+  const result=uncertain?{tab_closed:false,cleanup_warning:'任务未完成，页面保留供核对；不会自动关闭草稿或重发。'}:{url:'https://x.com/owner/status/123',tab_closed:false,cleanup_warning:'发送已确认，但 X 页面尚未清空输入框；标签页已保留，不会重发。'};
+  s.context.runPublication=async job=>{ran.push(job.id);if(uncertain)throw Object.assign(Error('未收到明确发布结果，请到 X 核对；不会自动重发'),{publicationResult:result});return result;};
+  const originalFetch=s.context.fetch;
+  s.context.fetch=async(url,options)=>{
+   const request=JSON.parse(options.body);calls.push(request);
+   if(request.operation==='claim')return Response.json(jobs.shift()||null);
+   return originalFetch(url,options);
+  };
+  for(let i=0;i<2;i++){s.sockets[0].onmessage({data:'{"type":"capture"}'});await flush();assert.equal((await s.bridge.status()).busy,false);}
+  assert.deepEqual(ran,['job-1','job-2'],'retained tabs never cause a retry of the previous send');
+  assert.equal(calls.some(call=>call.operation==='control_automation'),false,'cleanup is scoped to the job, not the plan');
+  const finished=calls.filter(call=>call.operation==='finish');assert.equal(finished.length,2);
+  for(const call of finished){assert.deepEqual(call.input.result,result);assert.equal(!!call.input.error,uncertain);}
+ });
+});
