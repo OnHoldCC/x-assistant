@@ -26,13 +26,15 @@ impl Store {
     }
     pub fn finish_video_capture(&self,id:&str,client:&str,error:Option<&str>,at:i64)->Result<Option<Value>,String>{
         if error.is_some_and(|e|e.chars().count()>2000){return Err("错误信息过长".into());}
+        let limited=error.is_some_and(|e|e.contains("HTTP 429"));
+        let message=error.map(|e|if limited{format!("{e}；TikTok 请求限流，已延后15分钟重试，本轮未调用模型")}else{e.to_owned()});let error=message.as_deref();
         let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
         let row:Option<(String,String)>=tx.query_row("SELECT account,json_extract(input,'$.task_id') FROM jobs WHERE id=? AND client=? AND state='running' AND action='capture_tiktok'",params![id,client],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
         let Some((account,task))=row else{return Ok(None)};
         let count:i64=tx.query_row("SELECT count(*) FROM jobs WHERE account=? AND action='video_caption' AND json_extract(input,'$.capture_job')=?",params![account,id],|r|r.get(0)).map_err(|e|e.to_string())?;
         let skipped=count==0&&error.is_none();let result=json!({"prepared":count,"sent":false,"skip_reason":if skipped{"当前来源没有未处理的新视频"}else{""}});
         tx.execute("UPDATE jobs SET state=?,error=?,result=?,updated_at=?,input=json_set(input,'$.stage',?) WHERE id=?",params![if error.is_some(){"failed"}else{"completed"},error,result.to_string(),at,if skipped{"skipped"}else{"ready"},id]).map_err(|e|e.to_string())?;
-        tx.execute("UPDATE automation_tasks SET state=CASE WHEN enabled=0 THEN 'paused' WHEN ? THEN 'error' ELSE 'waiting' END WHERE id=? AND account=?",params![error.is_some(),task,account]).map_err(|e|e.to_string())?;
+        tx.execute("UPDATE automation_tasks SET state=CASE WHEN enabled=0 THEN 'paused' WHEN ? THEN 'error' ELSE 'waiting' END,next_run=CASE WHEN ? THEN MAX(next_run,?) ELSE next_run END WHERE id=? AND account=?",params![error.is_some(),limited,at+15*60_000,task,account]).map_err(|e|e.to_string())?;
         tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,?,?)",params![id,at,if error.is_some(){"failed"}else{"completed"},error.unwrap_or(if skipped{"当前来源没有未处理的新视频，本轮未调用模型"}else{"视频已下载，配文已进入模型队列；未发布"})]).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e|e.to_string())?;Ok(Some(json!({"saved":true})))
     }

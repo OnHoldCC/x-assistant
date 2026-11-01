@@ -26,6 +26,8 @@ fn video_plans_schedule_owned_deduplicated_captions_and_pause_without_blocking_o
  store.control_automation("example",&task,true,at+5).unwrap();let next=store.run_automation("example",&task,at+5).unwrap()["id"].as_str().unwrap().to_owned();
  let claimed=store.claim(&client,"example",at+6).unwrap();assert_eq!(claimed["input"]["known_ids"],json!(["123"]));
  store.finish_video_capture(&next,&client,None,at+7).unwrap().unwrap();let records=store.job_records("example",&json!({"task_type":"capture_tiktok","state":"skipped"})).unwrap();assert_eq!(records["total"],1);assert_eq!(records["items"][0]["result"]["sent"],false);
+ let limited=store.run_automation("example",&task,at+8).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at+8).unwrap();store.finish_video_capture(&limited,&client,Some("TikTok 页面返回 HTTP 429"),at+9).unwrap().unwrap();
+ let state=store.automation_state("example").unwrap();let plan=&state["tasks"][0];assert_eq!(plan["enabled"],true);assert!(plan["next_run"].as_i64().unwrap()>=at+9+15*60_000);assert!(plan["last_job"]["error"].as_str().unwrap().contains("未调用模型"));
 }
 #[test]
 fn video_source_validation_allows_only_supported_tiktok_pages(){
