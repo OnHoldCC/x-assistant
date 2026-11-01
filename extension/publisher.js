@@ -1,10 +1,11 @@
 import './editor-text.js';
+import {uploadVideo,isMediaUpload} from './video-upload.js';
 
 export function inspectEmptyTaskPage(readText,owner){
  if(location.href==='about:blank')return document.readyState==='complete';
  if(location.protocol!=='https:'||location.hostname!=='x.com'||document.readyState!=='complete'||!document.querySelector('main,[data-testid="primaryColumn"]'))return false;
  if(owner&&document.querySelector('[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.match(/^\/([a-zA-Z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase()!==owner)return false;
- return ![...document.querySelectorAll('[contenteditable="true"],textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="password"],input[type="url"]')].some(node=>(node.matches('input,textarea')?node.value:readText(node)).trim());
+ return !document.querySelector('[data-testid="attachments"]')&&![...document.querySelectorAll('[contenteditable="true"],textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="password"],input[type="url"]')].some(node=>(node.matches('input,textarea')?node.value:readText(node)).trim());
 }
 
 async function closeEmptyTaskTab(tabId,owner){
@@ -48,6 +49,7 @@ export function inspectPublicationCleanup(owner,readText,target=null){
  if(account!==owner||!document.querySelector('main,[data-testid="primaryColumn"]'))return {clear:false};
  const selector='[data-testid^="tweetTextarea_"][contenteditable="true"]',editors=[...document.querySelectorAll(selector)];
  if(editors.some(editor=>readText(editor).trim()))return {clear:false};
+ if(document.querySelector('[data-testid="attachments"]'))return {clear:false};
  if([...document.querySelectorAll('[role="dialog"]')].some(dialog=>dialog.getBoundingClientRect().width>0&&!dialog.querySelector(selector)))return {clear:false};
  return {clear:editors.length>0||!!target};
 }
@@ -77,19 +79,22 @@ export function inspectPublishPage(owner,readText,target=null,replyOpened=false,
  if(returnEditor){if(readText(editor).trim())throw Error('输入框已有草稿，未改变焦点或输入');return editor;}
  (readText(editor).trim()?button:editor).scrollIntoView({block:'center',behavior:'instant'});
  const point=node=>{const rect=node.getBoundingClientRect(),x=rect.x+rect.width/2,y=rect.y+rect.height/2;return rect.width>0&&rect.height>0&&x>=0&&y>=0&&x<innerWidth&&y<innerHeight&&node.contains(document.elementFromPoint(x,y))?{x,y}:null;};
- return {ready:true,focused:editor===document.activeElement||editor.contains(document.activeElement),documentFocused:document.hasFocus(),text:readText(editor).replace(/\r\n/g,'\n').trim(),editor:point(editor),button:point(button),enabled:!button.disabled&&button.getAttribute('aria-disabled')!=='true'};
+ const attachments=scope.querySelector('[data-testid="attachments"]');
+ return {ready:true,hasAttachments:!!attachments,mediaReady:!!attachments?.querySelector('video,[data-testid="videoComponent"]')&&!attachments.querySelector('[role="progressbar"]'),focused:editor===document.activeElement||editor.contains(document.activeElement),documentFocused:document.hasFocus(),text:readText(editor).replace(/\r\n/g,'\n').trim(),editor:point(editor),button:point(button),enabled:!button.disabled&&button.getAttribute('aria-disabled')!=='true'};
 }
 
 export async function runPublication(job, call, owner, verify) {
  const text=job.input?.text;
  if(job.action!=='rewrite_publish'||job.account!==owner||job.input?.stage!=='ready'||typeof text!=='string'||!text.trim()||text.length>48000)throw Error('发布任务无效');
  const target=job.input?.mode==='reply'?job.input.source:null;
+ const video=job.input?.mode==='video';let mediaId='';
+ if(video&&!/^[a-f0-9-]{36}$/.test(job.input.download_id||''))throw Error('视频下载标识无效');
  if(job.input?.mode==='reply'&&!target)throw Error('回复目标缺失，未发送');
  if(target&&(!/^[a-z0-9_]{1,15}$/.test(target.author||'')||!/^\d{1,30}$/.test(target.id||'')||target.url!=='https://x.com/'+target.author+'/status/'+target.id))throw Error('回复目标无效');
  await verify();
  const tab=await chrome.tabs.create({url:target?target.url+'#onhold-reply':'https://x.com/home#onhold-publisher',active:false});
  let attached=false,published='',failure='',sending=false,typed=false,requestAllowed=false,replyOpened=false,closeReady=false;
- const pending=new Set();
+ const pending=new Set(),uploads=new Set(),mediaIds=new Set();
  const command=(method,params={})=>chrome.debugger.sendCommand({tabId:tab.id},method,params);
  const pause=()=>new Promise(resolve=>setTimeout(resolve,250));
  const inspect=async()=>{const value=await command('Runtime.evaluate',{expression:'('+inspectPublishPage.toString()+')('+JSON.stringify(owner)+','+globalThis.OnHoldEditorText.toString()+','+JSON.stringify(target)+','+JSON.stringify(replyOpened)+')',returnByValue:true});if(value.exceptionDetails)throw Error(value.exceptionDetails.exception?.description||'X 发布页面未就绪');return value.result?.value;};
@@ -100,10 +105,19 @@ export async function runPublication(job, call, owner, verify) {
  };
  const network=async(source,method,event)=>{
   if(source.tabId!==tab.id)return;
+  if(video&&method==='Network.requestWillBeSent'&&isMediaUpload(event.request?.url))uploads.add(event.requestId);
+  if(video&&uploads.has(event.requestId)){
+   if(method==='Network.responseReceived'&&event.response.status>=400)failure='X 视频上传返回 HTTP '+event.response.status+'，未发送推文';
+   if(method==='Network.loadingFailed')failure='视频上传连接中断，未发送推文';
+   if(method==='Network.loadingFinished'){
+    uploads.delete(event.requestId);
+    try{const response=await command('Network.getResponseBody',{requestId:event.requestId});if(response.body.length>1000000)throw Error('上传回执过大');if(!response.body.trim())return;const body=JSON.parse(response.base64Encoded?atob(response.body):response.body);if(body.errors?.length||body.error||body.processing_info?.state==='failed')throw Error('X 视频处理失败');if(/^\d{1,30}$/.test(body.media_id_string||''))mediaIds.add(body.media_id_string);}catch(error){failure=error.message;}
+   }
+  }
   if(method==='Fetch.requestPaused'){
    let valid=false;
-   try{const variables=JSON.parse(event.request.postData).variables;valid=sending&&!requestAllowed&&variables.tweet_text===text&&variables.reply?.in_reply_to_tweet_id===target.id;}catch{}
-   if(!valid){failure='回复正文或原帖目标不匹配，已拦截发送';await command('Fetch.failRequest',{requestId:event.requestId,errorReason:'Aborted'}).catch(()=>{});}
+   try{const variables=JSON.parse(event.request.postData).variables;valid=sending&&!requestAllowed&&variables.tweet_text===text&&(target?variables.reply?.in_reply_to_tweet_id===target.id:video&&variables.reply===undefined&&variables.media?.media_entities?.length===1&&variables.media.media_entities[0].media_id===mediaId);}catch{}
+   if(!valid){failure=video?'视频、正文或上传媒体不匹配，已拦截发送':'回复正文或原帖目标不匹配，已拦截发送';await command('Fetch.failRequest',{requestId:event.requestId,errorReason:'Aborted'}).catch(()=>{});}
    else {requestAllowed=true;await command('Fetch.continueRequest',{requestId:event.requestId}).catch(()=>{failure='回复发送请求无法继续，请核对结果';});}
    return;
   }
@@ -112,7 +126,7 @@ export async function runPublication(job, call, owner, verify) {
   }
   if(!pending.has(event.requestId))return;
   if(method==='Network.responseReceived'&&event.response.status>=400)failure='X 发布返回 HTTP '+event.response.status+'，请核对结果';
-  if(method==='Network.loadingFailed')failure='发布连接中断，请到 X 核对结果；不会自动重发';
+  if(method==='Network.loadingFailed'&&!failure)failure='发布连接中断，请到 X 核对结果；不会自动重发';
   if(method==='Network.loadingFinished'){
    try{
     const response=await command('Network.getResponseBody',{requestId:event.requestId});
@@ -123,6 +137,7 @@ export async function runPublication(job, call, owner, verify) {
     const author=post?.core?.user_results?.result?.core?.screen_name||post?.core?.user_results?.result?.legacy?.screen_name;
     if(!/^\d{1,30}$/.test(post?.rest_id||'')||author?.toLowerCase()!==owner)throw Error('发布结果账号或帖子标识不匹配');
     if(target&&post?.legacy?.in_reply_to_status_id_str!==target.id)throw Error('X 回复回执的原帖不匹配，请核对结果');
+    if(video&&!post?.legacy?.extended_entities?.media?.some(media=>media.id_str===mediaId&&media.type==='video'))throw Error('X 发布回执未确认对应视频，请核对结果');
     published='https://x.com/'+owner+'/status/'+post.rest_id;
    }catch(error){failure=error.message;}finally{pending.delete(event.requestId);}
   }
@@ -137,19 +152,26 @@ export async function runPublication(job, call, owner, verify) {
   await chrome.debugger.attach({tabId:tab.id},'1.3');attached=true;
   await command('Emulation.setFocusEmulationEnabled',{enabled:true});
   chrome.debugger.onEvent.addListener(network);await command('Network.enable');
-  if(target)await command('Fetch.enable',{patterns:[{urlPattern:'https://x.com/i/api/graphql/*/CreateTweet*',requestStage:'Request'}]});
+  if(target||video)await command('Fetch.enable',{patterns:[{urlPattern:'https://x.com/i/api/graphql/*/CreateTweet*',requestStage:'Request'}]});
   let page;
   for(let attempt=0;attempt<60;attempt++){page=await inspect();if(page?.ready)break;if(page?.openReply){await click(page.openReply);replyOpened=true;}await pause();}
   if(!page?.ready)throw Error(target?'X 回复输入框未就绪':'X 首页输入框未就绪');
   if(page.text)throw Error((target?'回复框':'首页')+'存在未发送草稿，已保留，未覆盖或发布');
+  if(video&&page.hasAttachments)throw Error('输入框已有媒体草稿，未覆盖或发布');
   await click(page.editor);
   await focusEditor();
   for(let attempt=0;attempt<10;attempt++){page=await inspect();if(page?.focused)break;await pause();}
   if(!page?.focused||page.text)throw Error('输入框未取得焦点或草稿已改变，未输入或发布');
   typed=true;await command('Input.insertText',{text});
-  for(let attempt=0;attempt<40;attempt++){page=await inspect();if(page?.ready&&page.text===text&&page.enabled&&page.button)break;await pause();}
+  for(let attempt=0;attempt<40;attempt++){page=await inspect();if(page?.ready&&page.text===text&&(video||page.enabled)&&page.button)break;await pause();}
   if(!page?.ready)throw Error('输入后发布页面未就绪；草稿已保留，未发送');
   if(page.text!==text)throw Error('输入后正文校验失败（预期'+[...text].length+'字符，实际'+[...(page.text||'')].length+'字符，输入框焦点'+!!page.focused+'，页面焦点'+!!page.documentFocused+'）；草稿已保留，未发送');
+  if(video){
+   mediaId=await uploadVideo(job,command,call,owner,inspect,mediaIds,()=>failure);
+   await call('video_upload_ready',{id:job.id,client:job.client,media_id:mediaId});
+   page=await inspect();
+   if(page?.text!==text)throw Error('视频上传后正文已改变，未发送');
+  }
   if(!page.enabled)throw Error('正文已填入，但 X 发送按钮仍禁用；草稿已保留，未发送');
   if(!page.button)throw Error('正文已填入，但 X 发送按钮被遮挡或不在视口内；草稿已保留，未发送');
   await verify();
@@ -158,7 +180,7 @@ export async function runPublication(job, call, owner, verify) {
   sending=true;await click(page.button);
   for(let attempt=0;attempt<80&&!published&&!failure;attempt++)await pause();
   if(!published)throw Error(failure||'未收到明确发布结果，请到 X 核对；不会自动重发');
-  const receipt=target?{url:published,reply_to:target.id}:{url:published};
+  const receipt=target?{url:published,reply_to:target.id}:{url:published,...(video?{media_id:mediaId}:{})};
   await call('finish',{id:job.id,client:job.client,result:{...receipt,tab_closed:false,cleanup_warning:'发送已确认，正在等待 X 页面清空后关闭。'}});
   // The network receipt can arrive before X clears its draft and leave-page guard.
   try{let stable=0;const until=Date.now()+8000;for(let attempt=0;attempt<32&&Date.now()<until;attempt++){
@@ -173,11 +195,11 @@ export async function runPublication(job, call, owner, verify) {
   throw error;
  }finally{
   chrome.debugger.onEvent.removeListener(network);
-  if(attached&&target)await command('Fetch.disable').catch(()=>{});
+  if(attached&&(target||video))await command('Fetch.disable').catch(()=>{});
   if(attached)await command('Emulation.setFocusEmulationEnabled',{enabled:false}).catch(()=>{});
   if(attached)await chrome.debugger.detach({tabId:tab.id}).catch(()=>{});
  }
- const result=target?{url:published,reply_to:target.id,tab_closed:false}:{url:published,tab_closed:false};
+ const result=target?{url:published,reply_to:target.id,tab_closed:false}:{url:published,tab_closed:false,...(video?{media_id:mediaId}:{})};
  if(closeReady){let timer;try{
   await Promise.race([chrome.tabs.remove(tab.id),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('close timeout')),2000);})]);result.tab_closed=true;
  }catch{result.cleanup_warning='发送已确认，但关闭标签页未完成；请核对保留的页面，不会重发。';}finally{clearTimeout(timer);}}

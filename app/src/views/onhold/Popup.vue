@@ -8,10 +8,11 @@ import type {
   Metric,
   Job,
 } from "@/shared/types";
-import { loginLabels, time } from "./format";
+import { loginLabels, time, safeResultUrl } from "./format";
 import NumberValue from "./NumberValue.vue";
 import CreatorStatus from "./CreatorStatus.vue";
 import JobMetrics from "./JobMetrics.vue";
+import JobProgress from "./JobProgress.vue";
 declare const chrome: {
   tabs: { create: (input: { url: string }) => Promise<unknown> };
   runtime: {
@@ -52,9 +53,9 @@ const status = ref<BridgeStatus>({}),
   refreshError = ref(""),
   message = ref("");
 const videoBusy = ref(false), videoMessage = ref(""), videoError = ref("");
-type VideoResult = {download_id?:string;filename?:string;caption_status:string;caption_text?:string;caption_reason?:string;caption_error?:string;caption_file?:string;caption_job?:Job};
+type VideoResult = {download_id?:string;filename?:string;caption_status:string;caption_text?:string;caption_reason?:string;caption_error?:string;caption_file?:string;caption_job?:Job;processing?:{filename?:string;verified?:boolean};publication?:Job;published?:boolean};
 const videoResult=ref<VideoResult|null>(null);
-const captionPending=computed(()=>!!videoResult.value&&["queued","generating"].includes(videoResult.value.caption_status));
+const captionPending=computed(()=>!!videoResult.value&&["queued","generating"].includes(videoResult.value.caption_status)||!!videoResult.value?.publication&&["queued","running"].includes(videoResult.value.publication.state));
 let videoPolling=false;
 async function videoRequest(type:string,data?:object){
   const response=await chrome.runtime.sendMessage({type,data});
@@ -72,6 +73,13 @@ async function retryCaption(){
   if(videoBusy.value||!videoResult.value)return;
   videoBusy.value=true;videoError.value="";
   try{await videoRequest("TIKTOK_RETRY",{download_id:videoResult.value.download_id});}
+  catch(error){videoError.value=error instanceof Error?error.message:String(error);}
+  finally{videoBusy.value=false;}
+}
+async function videoAction(type:string){
+  if(videoBusy.value||!videoResult.value?.download_id)return;
+  videoBusy.value=true;videoError.value="";
+  try{await videoRequest(type,{download_id:videoResult.value.download_id});}
   catch(error){videoError.value=error instanceof Error?error.message:String(error);}
   finally{videoBusy.value=false;}
 }
@@ -354,18 +362,26 @@ const theme = {
       >
       <NCard size="small" title="TikTok 视频">
         <div class="business-stack">
-          <p class="business-muted">打开具体视频页，后端下载后自动生成带1–2个相关英文#标签的配文，保留视频和文案供检查。</p>
+          <p class="business-muted">打开具体视频页，后端下载、检查水印和片尾、生成带1–2个相关英文#标签的配文，并保留原片。</p>
           <NButton block :loading="videoBusy" :disabled="videoBusy || captionPending" @click="downloadVideo">下载视频并生成英文配文</NButton>
-          <p class="business-muted">下载前按页面信息过滤中国人物或中国相关话题、广告、政治和血腥内容；配文前复核画面，存疑时不生成文案。人物国籍不按长相推断，发布前仍需检查视频和片尾。</p>
+          <p class="business-muted">下载前按页面信息过滤中国人物或中国相关话题、广告、政治和血腥内容；配文前复核画面，存疑时不生成文案。人物国籍不按长相推断。无法安全处理的水印停在待检查；审核后可上传到X。</p>
           <NAlert v-if="videoError" type="error" role="alert">{{ videoError }}</NAlert>
           <p v-if="videoMessage" role="status">{{ videoMessage }}</p>
           <template v-if="videoResult">
             <p v-if="videoResult.filename" class="break-all" role="status">后端已保存：{{ videoResult.filename }}</p>
-            <p v-if="captionPending" role="status">{{videoResult.caption_status==='queued'?'视频配文已排队，等待模型':'Codex 正在检查画面并生成英文配文'}}</p>
+            <p v-if="['queued','generating'].includes(videoResult.caption_status)" role="status">{{videoResult.caption_status==='queued'?'视频配文已排队，等待模型':'Codex 正在检查画面并生成英文配文'}}</p>
             <template v-if="videoResult.caption_status==='ready'">
               <NInput type="textarea" readonly :value="videoResult.caption_text" :input-props="{'aria-label':'配套英文文案'}" :autosize="{minRows:3,maxRows:8}" />
               <NButton @click="copyCaption">复制英文文案</NButton>
               <p class="break-all">文案文件：{{videoResult.caption_file}}</p>
+              <p v-if="videoResult.processing?.filename" class="break-all">处理后视频：{{videoResult.processing.filename}}</p>
+              <NButton v-if="!videoResult.processing?.verified && !videoResult.publication" :disabled="videoBusy" @click="videoAction('TIKTOK_PREPARE')">检查水印并处理视频</NButton>
+              <NButton v-if="videoResult.processing?.verified && !videoResult.publication" type="primary" :disabled="videoBusy" @click="videoAction('TIKTOK_PUBLISH')">已检查视频和文案，发布到 X</NButton>
+              <template v-if="videoResult.publication">
+                <JobProgress :job="videoResult.publication" />
+                <NAlert v-if="videoResult.publication.error" type="error">{{videoResult.publication.error}}</NAlert>
+                <a v-if="safeResultUrl(videoResult.publication.result?.url)" :href="videoResult.publication.result?.url || ''" target="_blank" rel="noreferrer">查看已发布视频</a>
+              </template>
             </template>
             <NAlert v-else-if="['rejected','needs_review'].includes(videoResult.caption_status)" type="warning">{{videoResult.caption_status==='rejected'?'内容已排除':'需要人工检查'}}：{{videoResult.caption_reason}}</NAlert>
             <NAlert v-else-if="videoResult.caption_status==='unavailable'" type="warning">下载未完成：{{videoResult.caption_reason}}</NAlert>

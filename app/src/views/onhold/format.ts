@@ -46,7 +46,7 @@ export const jobLabels: Record<Job["action"], string> = {
 export const jobTitle = (j: Pick<Job, "action" | "input">) =>
   j.action === "capture_notifications" && j.input?.publication_mode === "follow_back"
     ? "识别新关注通知"
-    : j.input?.mode === "news"
+    : j.input?.mode === "video" ? "视频发布" : j.input?.mode === "news"
     ? "新闻发文"
     : j.input?.mode === "reply"
       ? j.input.scope === "notifications"
@@ -77,7 +77,7 @@ export function jobLabel(j: Job) {
 }
 export function jobMessage(j: Job) {
   if(j.action==="capture_tiktok")return j.error||j.result?.skip_reason||(j.state==="completed"?`已下载 ${j.result?.prepared||0} 条视频，配文已排队，未发布`:j.state==="running"?"正在读取 TikTok 来源并下载新视频":"等待插件读取 TikTok 来源");
-  if(j.action==="video_caption")return j.error||j.input?.text||j.result?.skip_reason||(j.state==="rewriting"?"Codex 正在检查视频画面并生成英文配文":j.state==="completed"?"视频配文处理完成，未发布":"等待 Codex 生成视频配文");
+  if(j.action==="video_caption")return (j.state==="rewriting"&&j.input?.video_step==="processing"?"FFmpeg 正在处理水印和片尾":j.state==="rewriting"&&j.input?.video_step==="verifying"?"正在复核处理后视频":null)||j.error||j.input?.text||j.result?.skip_reason||(j.state==="rewriting"?"Codex 正在检查视频画面并生成英文配文":j.state==="completed"?"视频配文处理完成，未发布":"等待 Codex 生成视频配文");
   if (j.error) return [j.error, j.result?.cleanup_warning].filter(Boolean).join(" · ");
   if (j.state === "completed" && j.input?.stage === "skipped" && j.result?.sent === false)
     return j.result.skip_reason || "本轮未发布";

@@ -176,6 +176,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if(!ownPage)throw Error('只允许插件页面读取视频配文');
       return message.type==='TIKTOK_LAST'?cdpBridge.lastVideo():cdpBridge.captionVideo(message.data?.download_id,message.type==='TIKTOK_RETRY');
     }
+    if(['TIKTOK_PREPARE','TIKTOK_PUBLISH'].includes(message.type)){
+      if(!ownPage)throw Error('只允许插件页面操作视频流程');
+      return cdpBridge.videoAction(message.data?.download_id,message.type==='TIKTOK_PREPARE'?'prepare_video':'enqueue_video_publication');
+    }
     if(message.type==='TIKTOK_DOWNLOAD'){
       if(!ownPage)throw Error('只允许插件页面下载视频');
       return downloadTikTokVideo(url=>cdpBridge.downloadVideo(url));

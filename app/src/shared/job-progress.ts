@@ -20,7 +20,7 @@ export function jobProgress(job:Job):{value:number|null;max:number;text:string}{
     return {value:total==null?(job.state==='running'?null:0):Math.min(count,total),max:total||1,text:total==null?`${ended} · ${summary}（目标总数未知）`:`${ended} · 已确认 ${count}/${total} · ${summary}${job.state==='completed'&&count<total?` · 剩余 ${total-count} 未处理`:''}`};
   }
   if(job.action==='capture_tiktok')return {value:job.state==='completed'?1:job.state==='running'?null:0,max:1,text:job.error||job.result?.skip_reason||(job.state==='completed'?`已下载 ${job.result?.prepared||0} 条视频，配文已排队`:job.state==='running'?'正在读取 TikTok 来源并下载新视频':'等待读取 TikTok 来源')};
-  if(job.action==='video_caption')return {value:job.state==='completed'?1:job.state==='rewriting'?null:0,max:1,text:job.state==='completed'?'配文处理完成，未发布':job.state==='rewriting'?'Codex 正在检查画面并生成英文配文':job.state==='failed'?job.error||'配文生成失败，视频已保留':'等待模型生成视频配文'};
+  if(job.action==='video_caption')return {value:job.state==='completed'?1:job.state==='rewriting'?null:0,max:1,text:job.state==='completed'?job.result?.processing?.verified?'视频与文案已就绪，查看视频发布任务或审核后发布':'配文处理完成，视频尚未通过发布检查':job.state==='rewriting'?(job.input?.video_step==='processing'?'FFmpeg 正在处理水印和片尾':job.input?.video_step==='verifying'?'Codex 正在复核处理后视频':'Codex 正在检查画面、片尾并生成英文配文'):job.state==='failed'?job.error||'配文生成失败，视频已保留':'等待模型生成视频配文'};
   if(job.action==='rewrite_publish'){
     const replicate=job.input?.mode==='replicate',reply=job.input?.mode==='reply',news=job.input?.mode==='news';
     if(job.state==='completed'){
@@ -31,7 +31,7 @@ export function jobProgress(job:Job):{value:number|null;max:number;text:string}{
     const ready=job.input?.stage==='ready',sending=job.input?.stage==='sending';
     if(job.state==='failed')return {value:sending?3:ready?2:0,max:4,text:sending?'发送结果待核对，不会自动重发':job.error|| (ready?'发布前已停止':'分析生成或格式校验失败，未发送')};
     if(job.state==='rewriting')return {value:null,max:4,text:news?'1/4 · Codex 联网查证新闻并生成短帖（进度未知）':reply?'1/4 · Codex 正在生成回复（进度未知）':replicate?'1/4 · Codex 分析原帖并生成正文（进度未知）':'1/4 · 正文生成中（进度未知）'};
-    if(job.state==='running')return {value:3,max:4,text:sending?'3/4 · 等待 X 发布确认':'3/4 · 正在打开输入框并准备发送'};
+    if(job.state==='running')return {value:3,max:4,text:sending?'3/4 · 等待 X 发布确认':job.input?.mode==='video'?'3/4 · 正在上传视频并等待 X 处理':'3/4 · 正在打开输入框并准备发送'};
     if(ready)return {value:2,max:4,text:reply?'2/4 · 回复已校验，等待自动发送':replicate?'2/4 · 固定格式已校验，等待自动发送':job.input?.publish_at?'2/4 · 正文已校验，等待计划时间':'2/4 · 正文已校验，待安排发布时间'};
     return {value:0,max:4,text:news?'等待 Codex 搜索新闻':reply?'等待 Codex 根据原帖生成回复':replicate?'等待 Codex 分析原帖':'等待生成正文'};
   }

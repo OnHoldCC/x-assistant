@@ -17,5 +17,11 @@ jobs:
       - run: npm --prefix app ci --no-audit --no-fund
       - run: npm run app:build
       - run: npm test
+      - name: Install FFmpeg for video workflow tests (macOS)
+        if: runner.os == 'macOS'
+        run: brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+      - name: Install FFmpeg for video workflow tests (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --yes --no-progress
       - run: cargo test --manifest-path backend/Cargo.toml --locked
       - run: cargo check --manifest-path app/src-tauri/Cargo.toml --locked

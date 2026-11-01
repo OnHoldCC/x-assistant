@@ -124,8 +124,10 @@ export type Job = {
   error: string | null;
   input?: {
     source_urls?: string[];
+    download_id?: string;
+    video_step?: string;
     kind?: "followers" | "following";
-    mode?: "rewrite" | "similar" | "replicate" | "reply" | "news";
+    mode?: "rewrite" | "similar" | "replicate" | "reply" | "news" | "video";
     stage?: "rewrite" | "ready" | "sending" | "skipped";
     publish_at?: number | null;
     source?: { text: string; url: string; author: string; id: string; title?:string;published_at?:number };
@@ -147,5 +149,5 @@ export type Job = {
     capture_summary?:{scanned:number;eligible:number;filtered:Record<'ads'|'truncated'|'source'|'text'|'own'|'language'|'translated',number>};
     telemetry?:{send_started_at?:number;generations?:{started_at:number;finished_at:number;duration_ms:number;usage:{input_tokens:number;output_tokens:number;cached_input_tokens:number|null;total_tokens:number}|null}[]};
   };
-  result?: { prepared?:number;filtered?:number;unavailable?:number;sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
+  result?: { status?:string;processing?:{filename?:string;verified?:boolean};media_id?:string; prepared?:number;filtered?:number;unavailable?:number;sent?:boolean;skip_reason?:string;tab_closed?:boolean;cleanup_warning?:string;reply_to?:string|null; reply_progress?:{total:number;completed:number;failed:number}; url?: string | null; completed?: string[]; skipped?: string[] } | null;
 };

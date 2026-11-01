@@ -1,6 +1,56 @@
 use super::*;
 
 impl Store {
+    pub fn video_step(&self,id:&str,step:&str,at:i64)->Result<(),String>{
+        let changed=self.lock()?.execute("UPDATE jobs SET input=json_set(input,'$.video_step',?),updated_at=? WHERE id=? AND action='video_caption' AND state='rewriting'",params![step,at,id]).map_err(|e|e.to_string())?;
+        if changed!=1{return Err("视频处理任务已结束".into());}Ok(())
+    }
+
+    pub fn bind_video_media(&self,id:&str,client:&str,media:&str,at:i64)->Result<Value,String>{
+        if media.is_empty()||media.len()>30||!media.bytes().all(|c|c.is_ascii_digit()){return Err("上传媒体标识无效".into());}
+        self.video_upload_context(id,client,at)?;
+        let changed=self.lock()?.execute("UPDATE jobs SET input=json_set(input,'$.media_id',?),updated_at=? WHERE id=? AND client=? AND state='running' AND json_extract(input,'$.stage')='ready' AND (json_extract(input,'$.media_id') IS NULL OR json_extract(input,'$.media_id')=?)",params![media,at,id,client,media]).map_err(|e|e.to_string())?;
+        if changed!=1{return Err("上传媒体已改变，未继续发送".into());}Ok(json!({"saved":true}))
+    }
+
+    pub fn video_publication(&self,id:&str)->Result<Value,String>{
+        let db=self.lock()?;
+        let mut statement=db.prepare("SELECT id,account,action,state,created_at,updated_at,error,input,result FROM jobs WHERE id=? AND action='rewrite_publish' AND json_extract(input,'$.mode')='video'").map_err(|e|e.to_string())?;
+        Ok(jobs::read_jobs(&db,&mut statement,[format!("video-{id}")])?.into_iter().next().unwrap_or(Value::Null))
+    }
+    pub fn prepare_existing_video(&self,id:&str,account:&str,at:i64)->Result<(),String>{
+        let account=handle(account)?;
+        let changed=self.lock()?.execute("UPDATE jobs SET state='queued',error=NULL,result=NULL,updated_at=?,input=json_set(input,'$.stage','rewrite','$.prepare_video',json('true')) WHERE id=? AND account=? AND action='video_caption' AND state='completed' AND json_extract(result,'$.status')='ready' AND NOT EXISTS(SELECT 1 FROM jobs p WHERE p.id='video-'||jobs.id)",params![at,id,account]).map_err(|e|e.to_string())?;
+        if changed!=1{return Err("仅可处理尚未安排发布的合格视频；失败任务请重试配文".into());}
+        Ok(())
+    }
+    pub fn enqueue_video_publication(&self,id:&str,account:&str,automatic:bool,at:i64)->Result<Value,String>{
+        let account=handle(account)?;let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
+        let (raw,result):(String,String)=tx.query_row("SELECT input,result FROM jobs WHERE id=? AND account=? AND action='video_caption' AND state='completed' AND coalesce(json_extract(input,'$.hidden'),0)=0",params![id,account],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|"当前账号没有已完成的视频配文")?;
+        let input:Value=serde_json::from_str(&raw).map_err(|_|"视频任务数据无效")?;
+        let result:Value=serde_json::from_str(&result).map_err(|_|"视频审核记录无效")?;
+        if result["status"]!="ready"||result["processing"]["verified"]!=true{return Err("视频尚未通过处理和复核，未安排发布".into());}
+        super::publications::validate_post_hashtags(result["text"].as_str().ok_or("视频文案缺失")?)?;
+        if automatic {
+            let allowed=input["task_id"].as_str().is_some_and(|task|tx.query_row("SELECT EXISTS(SELECT 1 FROM automation_tasks WHERE id=? AND account=? AND enabled=1 AND json_extract(value,'$.action')='auto_video' AND json_extract(value,'$.publish_mode')='automatic' AND (json_extract(value,'$.stop_at') IS NULL OR json_extract(value,'$.stop_at')>?))",params![task,account,at],|r|r.get::<_,bool>(0)).unwrap_or(false));
+            if !allowed{return Ok(Value::Null);}
+        }
+        let publication_id=format!("video-{id}");
+        let duplicate:Option<String>=tx.query_row("SELECT id FROM jobs WHERE account=? AND action='rewrite_publish' AND json_extract(input,'$.mode')='video' AND json_extract(input,'$.source.id')=?",params![account,input["source"]["id"].as_str()],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+        if let Some(existing)=duplicate {if existing!=publication_id{return Err("此来源视频已有发布记录或任务，未重复发布".into());}return Ok(json!({"id":existing,"queued":false}));}
+        let mut payload=json!({"mode":"video","stage":"ready","publish_at":at,"text":result["text"],"source":input["source"],"download_id":id,"model_not_called":true});
+        if automatic{payload["task_id"]=input["task_id"].clone();}
+        tx.execute("INSERT INTO jobs(id,account,action,state,input,created_at,updated_at) VALUES(?,?,'rewrite_publish','queued',?,?,?)",params![publication_id,account,payload.to_string(),at,at]).map_err(|e|e.to_string())?;
+        tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'created','处理后视频和英文文案已进入串行发布队列；等待X上传与发布回执')",params![publication_id,at]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;Ok(json!({"id":publication_id,"queued":true}))
+    }
+    pub fn video_upload_context(&self,id:&str,client:&str,at:i64)->Result<Value,String>{
+        let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
+        let (download,account):(String,String)=tx.query_row("SELECT json_extract(j.input,'$.download_id'),j.account FROM jobs j JOIN clients c ON c.id=j.client AND c.account=j.account JOIN browser_sessions s ON s.client=c.id JOIN jobs v ON v.id=json_extract(j.input,'$.download_id') AND v.account=j.account WHERE j.id=? AND j.client=? AND j.action='rewrite_publish' AND j.state='running' AND json_extract(j.input,'$.mode')='video' AND json_extract(j.input,'$.stage')='ready' AND v.state='completed' AND v.action='video_caption' AND json_extract(v.result,'$.status')='ready' AND json_extract(v.result,'$.processing.verified')=1 AND json_extract(v.result,'$.text')=json_extract(j.input,'$.text') AND c.last_seen>? AND s.connected=1 AND s.state='logged_in' AND extension_video_publish(s.extension_version) AND NOT EXISTS(SELECT 1 FROM settings WHERE key='automation_block:'||j.account) AND (json_extract(j.input,'$.task_id') IS NULL OR EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(j.input,'$.task_id') AND t.account=j.account AND t.enabled=1))",params![id,client,at-60_000],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|"视频发布任务已暂停、账号不匹配或审核尚未通过")?;
+        tx.execute("UPDATE jobs SET updated_at=? WHERE id=?",params![at,id]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;Ok(json!({"download_id":download,"account":account}))
+    }
+
     pub fn run_video_automation(&self,account:&str,task:&str,at:i64)->Result<Value,String>{
         let account=handle(account)?;let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
         let raw:String=tx.query_row("SELECT value FROM automation_tasks WHERE id=? AND account=? AND enabled=1 AND json_extract(value,'$.action')='auto_video'",params![task,account],|r|r.get(0)).map_err(|_|"请先启用视频配文计划")?;

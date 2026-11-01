@@ -43,3 +43,17 @@ fn video_source_validation_allows_only_supported_tiktok_pages(){
  for url in ["https://www.tiktok.com/","https://tiktok.com/foryou","https://www.tiktok.com/search/video?q=cats","https://www.tiktok.com/@cats","https://www.tiktok.com/@cats/video/123"]{assert!(video::source_page(url).is_ok(),"{url}");}
  for url in ["https://www.tiktok.com.evil.example/","https://a@www.tiktok.com/","http://www.tiktok.com/","https://www.tiktok.com:123/","https://www.tiktok.com/login","file:///tmp/video"]{assert!(video::source_page(url).is_err(),"{url}");}
 }
+
+#[test]
+fn video_publishing_is_opt_in_and_stops_when_its_plan_is_paused(){
+ let dir=tempfile::tempdir().unwrap();let store=Store::open(dir.path().join("db")).unwrap();let at=now();
+ store.ingest(serde_json::from_value::<Snapshot>(json!({"handle":"example","source":"https://x.com/example","profile":{},"posts":[]})).unwrap(),at).unwrap();
+ let client=uuid::Uuid::new_v4().to_string();store.session_status(&client,"example","logged_in","",at).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,"1.5.29").unwrap();
+ let config=json!({"action":"auto_video","interval_minutes":1,"limit":1,"source_urls":["https://www.tiktok.com/"],"publish_mode":"automatic"});
+ let mut invalid=config.clone();invalid["publish_mode"]=json!("anything");assert!(store.save_automation("example",&invalid,at).is_err());
+ let task=store.save_automation("example",&config,at).unwrap()["id"].as_str().unwrap().to_owned();store.control_automation("example",&task,true,at).unwrap();let capture=store.run_automation("example",&task,at).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at).unwrap();
+ let id=uuid::Uuid::new_v4().to_string();let data=json!({"download_id":id,"id":"123","source":"https://www.tiktok.com/embed/v2/123","title":"Kitten","capture_job":capture,"capture_client":client});store.enqueue_video_caption("example",&data,false,at).unwrap();store.finish_video_capture(&capture,&client,None,at).unwrap();store.claim_rewrite(at).unwrap();
+ let ready=json!({"status":"ready","text":"A playful kitten. #Cats","processing":{"verified":true}});store.finish_video_caption(&id,Ok(&ready),true,at).unwrap();
+ let pub_id=store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"].as_str().unwrap().to_owned();assert_eq!(store.claim(&client,"example",at).unwrap()["id"],pub_id);
+ store.control_automation("example",&task,false,at).unwrap();assert!(store.video_upload_context(&pub_id,&client,at).is_err());assert!(store.begin_publish(&pub_id,&client,at).is_err());
+}

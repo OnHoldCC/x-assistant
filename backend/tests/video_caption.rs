@@ -7,8 +7,8 @@ fn setup(title:&str)->(tempfile::TempDir,Arc<Store>,Value){
  let dir=tempfile::tempdir().unwrap();let store=Arc::new(Store::open(dir.path().join("db")).unwrap());
  store.ingest(serde_json::from_value(json!({"handle":"example","source":"https://x.com/example","profile":{},"posts":[]})).unwrap(),now()).unwrap();
  let id=uuid::Uuid::new_v4().to_string();let folder=dir.path().join("media/tiktok").join(&id);std::fs::create_dir_all(&folder).unwrap();
- std::fs::write(folder.join("source.mp4"),b"fixture video remains unchanged").unwrap();
- // The fake CLI only checks attachment arguments; live decoding is verified separately.
+ assert!(std::process::Command::new("ffmpeg").args(["-hide_banner","-loglevel","error","-y","-f","lavfi","-i","color=c=blue:s=64x64:d=3","-c:v","libx264","-pix_fmt","yuv420p"]).arg(folder.join("source.mp4")).status().unwrap().success());
+ // The fake CLI checks attachment arguments; FFmpeg processes an actual synthetic clip.
  std::fs::write(folder.join("caption-preview.jpg"),[255,216,0,0,255,217]).unwrap();
  let value=json!({"download_id":id,"id":"123","author":"creator","title":title,"source":"https://www.tiktok.com/@creator/video/123","filename":folder.join("source.mp4"),"caption_account":"example","requires_review":true,"published":false});
  video::persist(dir.path(),&id,&value).unwrap();
@@ -50,7 +50,7 @@ async fn captions_use_visual_input_never_publish_and_count_usage(){
  let args=std::fs::read_to_string(dir.path().join("args")).unwrap();for required in ["--image","--output-schema","shell_tool","unified_exec","web_search=\"disabled\""]{assert!(args.contains(required),"{required}");}
  let stats=store.dashboard(Some("example"),7,now()).unwrap();let row=stats["task_stats"].as_array().unwrap().iter().find(|r|r["action"]=="video_caption").unwrap();assert_eq!(row["tokens"],120);assert_eq!(row["completed"],1);
  runtime.call("retry_video_caption",json!({"download_id":id})).await.unwrap();assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"x","completed captions never spend tokens again");
- assert_eq!(std::fs::read(data["filename"].as_str().unwrap()).unwrap(),b"fixture video remains unchanged");worker.abort();
+ assert!(std::fs::read(data["filename"].as_str().unwrap()).unwrap().len()>1000);worker.abort();
 }
 #[tokio::test]
 async fn forbidden_titles_skip_the_model_and_failed_attempts_retry_without_redownloading(){
@@ -93,4 +93,39 @@ fn video_captions_require_related_tag_slots_without_allowing_mentions_or_tag_spa
  for text in ["A playful kitten. #Cats","A playful kitten. #Cats #Pets"]{assert_eq!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).unwrap()["status"],"ready");}
  for text in ["A playful kitten.","A playful kitten. #Cats #cats","A playful kitten. #Cats #Pets #Funny","A playful kitten. #Pets123","#Cats #Pets"]{assert!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":text,"reason":""})).is_err(),"{text}");}
  assert_eq!(video::validate_caption(&json!({"schema_version":1,"status":"ready","text":"A walking tour. #ChinaTravel","reason":""})).unwrap()["status"],"rejected");
+}
+
+#[tokio::test]
+async fn processed_videos_require_owned_upload_media_and_confirmed_receipts(){
+ let (dir,store,data)=setup("A calm blue scene");let id=data["download_id"].as_str().unwrap();let original=std::fs::read(data["filename"].as_str().unwrap()).unwrap();
+ assert!(onhold_backend::video_processing::prepare(dir.path(),id,&json!({"regions":[{"x":990,"y":20,"width":5,"height":100}],"trim_end_seconds":0})).await.is_err(),"near-edge boxes on tiny clips must reject instead of underflowing");
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A quiet blue moment. #Video","reason":"","editing":{"regions":[],"trim_end_seconds":0}}));
+ store.enqueue_video_caption("example",&data,false,now()).unwrap();
+ let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.clone().run_rewrite_queue());
+ let job=finished(&store,id).await;assert_eq!(job["state"],"completed","{job}");assert_eq!(job["result"]["processing"]["verified"],true);
+ assert_eq!(std::fs::read(data["filename"].as_str().unwrap()).unwrap(),original);assert!(video::folder(dir.path(),id).unwrap().join("processed.mp4").is_file());
+ assert!(store.video_publication(id).unwrap().is_null(),"review is the default and must not create a publishing job");
+ assert!(store.enqueue_video_publication(id,"other",false,now()).is_err());
+ let publication=store.enqueue_video_publication(id,"example",false,now()).unwrap();let pid=publication["id"].as_str().unwrap();assert_eq!(store.enqueue_video_publication(id,"example",false,now()).unwrap()["queued"],false);
+ let client=uuid::Uuid::new_v4().to_string();store.session_status(&client,"example","logged_in","",now()).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,"1.5.28").unwrap();assert!(store.claim(&client,"example",now()).unwrap().is_null(),"old plugins must never post a text-only substitute");
+ store.set_extension_version(&client,"1.5.29").unwrap();assert_eq!(store.claim(&client,"example",now()).unwrap()["id"],pid);
+ assert!(runtime.call("video_upload_chunk",json!({"id":pid,"client":"wrong","offset":0})).await.is_err());
+ assert!(runtime.call("video_upload_chunk",json!({"id":pid,"client":client,"offset":999999999})).await.is_err());
+ let chunk=runtime.call("video_upload_chunk",json!({"id":pid,"client":client,"offset":0})).await.unwrap();assert_eq!(chunk["offset"],0);assert!(chunk["bytes"].as_array().unwrap().len()>1000);
+ assert!(store.begin_publish(pid,&client,now()).is_err());assert!(store.bind_video_media(pid,&client,"bad-media",now()).is_err());store.bind_video_media(pid,&client,"456",now()).unwrap();assert!(store.bind_video_media(pid,&client,"789",now()).is_err());
+ store.begin_publish(pid,&client,now()).unwrap();assert!(runtime.call("video_upload_chunk",json!({"id":pid,"client":client,"offset":0})).await.is_err());
+ let receipt=json!({"url":"https://x.com/example/status/987","media_id":"456"});assert!(store.finish_publication(pid,&client,&json!({"url":"https://x.com/example/status/987"}),None,now()).is_err());store.finish_publication(pid,&client,&receipt,None,now()).unwrap();
+ assert_eq!(runtime.call("video_caption_status",json!({"download_id":id})).await.unwrap()["published"],true);
+ assert!(store.prepare_existing_video(id,"example",now()).is_err(),"never change a file after queuing publication");
+ let stats=store.dashboard(Some("example"),7,now()).unwrap();assert!(stats["task_stats"].as_array().unwrap().iter().any(|r|r["input"]["mode"]=="video"&&r["completed"]==1&&r["missing_usage"]==0));worker.abort();
+}
+
+#[tokio::test]
+async fn unsafe_or_unresolved_watermarks_stop_after_one_verification_and_keep_both_call_costs(){
+ let (dir,store,data)=setup("A calm blue scene");let id=data["download_id"].as_str().unwrap();
+ std::fs::write(video::folder(dir.path(),id).unwrap().join("processed-preview.jpg"),[255,216,0,0,255,217]).unwrap();
+ response(dir.path(),&json!({"schema_version":1,"status":"ready","text":"A quiet blue moment. #Video","reason":"","editing":{"regions":[{"x":40,"y":40,"width":100,"height":100}],"trim_end_seconds":0}}));
+ store.enqueue_video_caption("example",&data,false,now()).unwrap();let runtime=Arc::new(Runtime::new(dir.path().to_path_buf(),store.clone()));let worker=tokio::spawn(runtime.run_rewrite_queue());
+ let job=finished(&store,id).await;assert_eq!(job["state"],"completed","{job}");assert_eq!(job["result"]["status"],"needs_review");assert_eq!(job["result"]["text"],"");assert_eq!(job["result"]["processing"]["verified"],false);assert!(std::fs::metadata(video::folder(dir.path(),id).unwrap().join("processed-preview.jpg")).unwrap().len()>100,"reprocessing must replace a stale cached preview before model review");
+ assert_eq!(job["input"]["telemetry"]["generations"].as_array().unwrap().len(),2);assert_eq!(std::fs::read_to_string(dir.path().join("calls")).unwrap(),"xx");assert!(store.enqueue_video_publication(id,"example",false,now()).is_err());worker.abort();
 }

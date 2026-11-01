@@ -100,7 +100,7 @@ const editable = (j: Job) =>
   j.state === "queued" &&
   (["capture", "capture_analytics"].includes(j.action) ||
     (j.action === "rewrite_publish" &&
-      !["reply", "news"].includes(j.input?.mode || "") &&
+      !["reply", "news", "video"].includes(j.input?.mode || "") &&
       j.input?.stage === "ready"));
 function open(j: Job, edit = false) {
   error.value = "";
@@ -207,6 +207,7 @@ const recordTypeOptions = [
   ...Object.entries(jobLabels).map(([value, label]) => ({ value, label })),
   { value: "capture_notification_follows", label: "识别新关注通知" },
   { value: "news", label: "新闻发文" },
+  { value: "video", label: "视频发布" },
   { value: "reply_for_you", label: "自动评论（For You）" },
   { value: "reply_notifications", label: "自动回复（通知）" },
   { value: "replicate", label: "发同款" },
@@ -294,6 +295,9 @@ const columns: DataTableColumns<Job> = [
       h(NSpace, { size: 2 }, () => [
         button("查看", () => open(j)),
         button("编辑", () => open(j, true), !editable(j) || !!working.value),
+        j.action === "video_caption" && j.state === "completed" && j.result?.status === "ready"
+          ? button(j.result.processing?.verified ? "审核后发布视频" : "检查水印并处理", () => update(j.result?.processing?.verified ? "enqueue_video_publication" : "prepare_video", j, { download_id: j.id }), !!working.value)
+          : null,
         j.state === "failed" && j.action === "video_caption"
           ? button("重试配文", () => update("retry_video_caption", j, { download_id: j.id }), !!working.value)
           : null,
@@ -467,6 +471,7 @@ const columns: DataTableColumns<Job> = [
             <p>英文配文</p>
             <p class="business-pre">{{ viewed.input.text }}</p>
             <NButton @click="copy">复制正文</NButton>
+            <p v-if="viewed.result?.processing?.filename" class="business-pre">处理后视频：{{viewed.result.processing.filename}}</p>
           </template>
           <template v-if="viewed.action === 'rewrite_publish'"
             ><p v-if="viewed.input?.query">

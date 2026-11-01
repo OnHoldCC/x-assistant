@@ -388,6 +388,12 @@ impl Store {
     }
     pub fn begin_publish(&self, id: &str, client: &str, at: i64) -> Result<Value, String> {
         self.expire_automation(at)?;
+        let video:bool=self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='video')",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if video {
+            self.video_upload_context(id,client,at)?;
+            let uploaded:bool=self.lock()?.query_row("SELECT json_extract(input,'$.media_id') IS NOT NULL FROM jobs WHERE id=?",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+            if !uploaded{return Err("视频上传尚未确认，未发送".into());}
+        }
         let stale:bool=self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='news' AND (json_extract(input,'$.source.published_at') IS NULL OR json_extract(input,'$.source.published_at')<?))",params![id,at-48*3600000],|row|row.get(0)).map_err(|e|e.to_string())?;
         if stale {return Err("新闻已超过48小时，未发送".into());}
         let changed = self.lock()?.execute("UPDATE jobs SET input=json_set(input,'$.stage','sending','$.telemetry.send_started_at',?),updated_at=? WHERE id=? AND client=? AND state='running' AND action='rewrite_publish' AND json_extract(input,'$.stage')='ready' AND json_extract(input,'$.publish_at')<=? AND (json_extract(input,'$.task_id') IS NULL OR EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(jobs.input,'$.task_id') AND t.account=jobs.account AND t.enabled=1)) AND NOT EXISTS(SELECT 1 FROM settings WHERE key='automation_block:'||jobs.account) AND EXISTS(SELECT 1 FROM clients c JOIN browser_sessions s ON s.client=c.id WHERE c.id=jobs.client AND c.account=jobs.account AND c.last_seen>? AND s.connected=1 AND s.state='logged_in')",params![at,at,id,client,at,at-60_000]).map_err(|e|e.to_string())?;
@@ -415,6 +421,7 @@ impl Store {
         let url = result["url"].as_str().unwrap_or("");
         let prefix = format!("https://x.com/{account}/status/");
         let valid = input["stage"] == "sending"
+            && (input["mode"] != "video" || input["media_id"].is_string() && input["media_id"]==result["media_id"])
             && (input["mode"] != "reply"
                 || (result["reply_to"].is_string() && result["reply_to"] == input["source"]["id"]))
             && url.strip_prefix(&prefix).is_some_and(|id| {
@@ -429,6 +436,7 @@ impl Store {
         }
         let failure = error.map(|s| s.chars().take(2000).collect::<String>());
         let mut saved_result=json!({"url":if valid{Some(url)}else{None},"reply_to":if valid&&input["mode"]=="reply"{result["reply_to"].clone()}else{Value::Null}});
+        if valid && input["mode"]=="video" {saved_result["media_id"]=result["media_id"].clone();}
         if valid || failure.is_some() {
             if let Some(closed)=result["tab_closed"].as_bool(){saved_result["tab_closed"]=json!(closed);}
             if let Some(warning)=result["cleanup_warning"].as_str().filter(|warning|!warning.is_empty()&&warning.chars().count()<=300){saved_result["cleanup_warning"]=json!(warning);}
@@ -463,7 +471,7 @@ impl Store {
     }
     pub fn retry_rewrite(&self, account: &str, id: &str, at: i64) -> Result<Value, String> {
         let account = handle(account)?;
-        let changed = self.lock()?.execute("UPDATE jobs SET state='queued',client=NULL,error=NULL,updated_at=? WHERE id=? AND account=? AND action='rewrite_publish' AND state='failed' AND coalesce(json_extract(input,'$.hidden'),0)=0 AND json_extract(input,'$.stage') IN ('rewrite','ready')",params![at,id,account]).map_err(|e|e.to_string())?;
+        let changed = self.lock()?.execute("UPDATE jobs SET state='queued',client=NULL,error=NULL,input=json_remove(input,'$.media_id'),updated_at=? WHERE id=? AND account=? AND action='rewrite_publish' AND state='failed' AND coalesce(json_extract(input,'$.hidden'),0)=0 AND json_extract(input,'$.stage') IN ('rewrite','ready')",params![at,id,account]).map_err(|e|e.to_string())?;
         if changed != 1 {
             return Err("此任务已尝试发送，不能重试；请先到 X 核对发布结果".into());
         }

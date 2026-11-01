@@ -151,6 +151,8 @@ impl Store {
             for source in sources {let url=crate::video::source_page(source.as_str().ok_or("视频来源必须是页面URL")?)?;if !urls.contains(&url){urls.push(url);}}
             if urls.len()>1&&urls.iter().any(|url|crate::video::video_page(url).is_err()){return Err("列表、搜索或作者主页每个计划只填一个；批量来源请填写具体视频URL".into());}
             config["source_urls"]=json!(urls);config["language"]=json!("en");
+            let mode=input.get("publish_mode").map_or(Some("review"),Value::as_str).filter(|v|["review","automatic"].contains(v)).ok_or("视频发布方式无效")?;
+            config["publish_mode"]=json!(mode);
         }
         if action == "auto_post" {
             let source = match input.get("news_source") { None => "international", Some(value) => value.as_str().ok_or("新闻来源无效")? };

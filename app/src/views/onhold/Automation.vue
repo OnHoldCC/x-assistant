@@ -26,6 +26,7 @@ type Plan = {
     scope: string;
     targets: string[];
     source_urls?: string[];
+    publish_mode?: "review" | "automatic";
   };
 };
 type State = {
@@ -43,6 +44,7 @@ const w = useWorkspace(),
   stopAt = ref(""),
   language = ref("auto"),
   targets = ref(""),
+  publishMode = ref("review"),
   sourceUrls = ref("https://www.tiktok.com/"),
   error = ref(""),
   busy = ref(false),
@@ -118,6 +120,7 @@ function open(plan: Plan | null, view = false) {
   days.value = plan?.config.after_days || 7;
   targets.value = plan?.config.targets.join(", ") || "";
   sourceUrls.value = plan?.config.source_urls?.join("\n") || "https://www.tiktok.com/";
+  publishMode.value = plan?.config.publish_mode || "review";
   stopAt.value = localDate(plan?.config.stop_at);
   language.value = plan?.config.language || "auto";
   editorOpen.value = true;
@@ -153,7 +156,7 @@ const automatic = computed(() =>
   ["auto_reply", "reply_notifications", "auto_video"].includes(action.value),
 );
 const name = (p: Plan) =>
-  p.config.action === "auto_video" ? "自动视频配文（TikTok）" : p.config.action === "reply_notifications"
+  p.config.action === "auto_video" ? "视频处理与发布（TikTok）" : p.config.action === "reply_notifications"
       ? "自动回复（通知）"
       : p.config.action === "auto_reply"
         ? "自动评论（For You）"
@@ -350,7 +353,7 @@ async function save() {
       after_days: days.value,
       stop_at: stop,
       language: action.value==='auto_video' ? 'en' : automatic.value ? language.value : "auto",
-      ...(action.value==='auto_video' ? {source_urls:sourceUrls.value.split(/\s+/).filter(Boolean)} : {}),
+      ...(action.value==='auto_video' ? {source_urls:sourceUrls.value.split(/\s+/).filter(Boolean),publish_mode:publishMode.value} : {}),
       targets: (automatic.value ? "" : targets.value)
         .split(/[,，\s]+/)
         .map((v) => v.replace(/^@/, "").trim().toLowerCase())
@@ -500,11 +503,11 @@ async function save() {
                   { value: 'unfollow', label: '一键取消关注' },
                   { value: 'auto_reply', label: '自动评论（For You）' },
                   { value: 'reply_notifications', label: '自动回复（通知）' },
-                  { value: 'auto_video', label: '自动视频配文（TikTok）' },
+                  { value: 'auto_video', label: '视频处理与发布（TikTok）' },
                 ]"
                 @update:value="changeAction" /></NFormItem
             ><NAlert v-if="automatic"
-              ><template v-if="action === 'auto_video'">直接读取配置的 TikTok 页面推荐流，每轮最多保存1条未处理的视频，下载前按页面文字和标签过滤中国人物及中国相关话题，检查抽样画面后生成英文配文。排除广告、国家政治和血腥内容，存疑时标为待检查。下载不可用的视频短时跳过1小时，继续选择其它候选；人物国籍不按外貌推断。保留视频、来源、文案和 Token 记录；不会自动上传或发布到 X。需要连接1.5.28或更新的助手，并在后端安装 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
+              ><template v-if="action === 'auto_video'">直接读取配置的 TikTok 页面推荐流，每轮最多保存1条未处理的视频，下载前按页面文字和标签过滤中国人物及中国相关话题，检查抽样画面后生成英文配文。排除广告、国家政治和血腥内容，存疑时标为待检查。下载不可用的视频短时跳过1小时，继续选择其它候选；人物国籍不按外貌推断。保留原片和处理后文件，检查边缘水印、末尾品牌卡并生成带1–2个英文标签的配文。无法安全处理时停在待检查。可选审核后发布或合格后自动上传到X，只有明确回执才算成功，结果不明不自动重发。需要1.5.29或更新的助手和后端 FFmpeg。</template><template v-else-if="action === 'reply_notifications'"
                 >打开小铃铛通知，只识别别人对当前账号帖子的回复，交给 Codex
                 生成文字并回复对方。根据本机记录跳过已经处理的原帖，保留耗时、token
                 与回执。新关注者回关请另建「自动回关」任务，目标范围选择「通知中的新关注者」。</template
@@ -539,7 +542,7 @@ async function save() {
                 ]" /></NFormItem
             ><NFormItem v-if="action === 'auto_video'" label="TikTok 来源页面">
               <NInput v-model:value="sourceUrls" type="textarea" :autosize="{minRows:3,maxRows:8}" :input-props="{'aria-label':'TikTok 来源页面',required:true}" placeholder="填写推荐页、搜索页或作者主页；也可每行填写一条具体视频 URL" />
-            </NFormItem><p v-if="action === 'auto_video'" class="business-muted">列表、搜索或作者主页只填一个页面；批量取材可填写最多20条具体视频 URL。根据已有记录去重，失败不会自动重新生成配文。</p><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">按执行间隔读取小铃铛中的新关注通知，打开对方主页确认仍关注你、且尚未回关后执行，跳过已关注或已处理账号。无需 Codex，不消耗 Token。需要 1.5.14 或更新的助手；点赞、转发和回复通知不会触发回关。</p><NFormItem v-if="automatic && action !== 'auto_video'" label="内容语言">
+            </NFormItem><NFormItem v-if="action === 'auto_video'" label="视频发布方式"><NSelect v-model:value="publishMode" :options="[{value:'review',label:'审核后发布（默认）'},{value:'automatic',label:'处理和复核合格后自动发布到 X'}]" /></NFormItem><p v-if="action === 'auto_video'" class="business-muted">列表、搜索或作者主页只填一个页面；批量取材可填写最多20条具体视频 URL。根据已有记录去重，失败不会自动重新生成配文。</p><p v-if="action === 'follow_back' && scope === 'notifications'" class="business-muted">按执行间隔读取小铃铛中的新关注通知，打开对方主页确认仍关注你、且尚未回关后执行，跳过已关注或已处理账号。无需 Codex，不消耗 Token。需要 1.5.14 或更新的助手；点赞、转发和回复通知不会触发回关。</p><NFormItem v-if="automatic && action !== 'auto_video'" label="内容语言">
               <NSelect v-model:value="language" role="combobox" aria-label="内容语言" :menu-props="{ role: 'listbox' }" :node-props="option => ({ role: 'option', 'aria-label': String(option.label) })" :options="[{ value: 'auto', label: '跟随原帖' }, { value: 'en', label: '英文（不限制原帖语言）' }]" />
             </NFormItem><NFormItem v-if="!automatic && scope === 'manual'" label="目标账号"
               ><NInput

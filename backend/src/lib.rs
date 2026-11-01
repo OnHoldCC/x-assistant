@@ -3,6 +3,7 @@ pub mod models;
 pub mod news;
 pub mod store;
 pub mod video;
+pub mod video_processing;
 mod ws;
 
 use serde_json::{json, Value};
@@ -130,6 +131,7 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
             now(),
         ),
         "retry_rewrite" => store.retry_rewrite(text("account")?, text("id")?, now()),
+        "video_upload_ready" => store.bind_video_media(text("id")?,text("client")?,text("media_id")?,now()),
         "begin_publish" => store.begin_publish(text("id")?, text("client")?, now()),
         "enqueue" => store.enqueue_action(
             text("account")?,
