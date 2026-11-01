@@ -165,8 +165,10 @@ export async function runPublication(job, call, owner, verify) {
   for(let attempt=0;attempt<10;attempt++){page=await inspect();if(page?.focused)break;await pause();}
   if(!page?.focused||page.text)throw Error('输入框未取得焦点或草稿已改变，未输入或发布');
   typed=true;await command('Input.insertText',{text});
-  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-  await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  if(video){
+   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+   await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  }
   for(let attempt=0;attempt<40;attempt++){page=await inspect();if(page?.ready&&page.text===text&&(video||page.enabled)&&page.button)break;await pause();}
   if(!page?.ready)throw Error('输入后发布页面未就绪；草稿已保留，未发送');
   if(page.text!==text)throw Error('输入后正文校验失败（预期'+[...text].length+'字符，实际'+[...(page.text||'')].length+'字符，输入框焦点'+!!page.focused+'，页面焦点'+!!page.documentFocused+'）；草稿已保留，未发送');
