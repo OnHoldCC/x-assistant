@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
 #[test]
-fn dashboard_task_totals_cover_history_retries_skips_missing_usage_and_account_isolation() {
+fn dashboard_task_totals_cover_selected_tasks_retries_skips_missing_usage_and_account_isolation() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("stats.db");
     let store = Store::open(&path).unwrap();
@@ -16,7 +16,7 @@ fn dashboard_task_totals_cover_history_retries_skips_missing_usage_and_account_i
     let db = Connection::open(path).unwrap();
     let insert = |id: &str, account: &str, action: &str, state: &str, input: Value| {
         db.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,?,?,?,?,?,?)",
-            params![id,account,action,state,at-60*86_400_000i64,at,input.to_string()]).unwrap();
+            params![id,account,action,state,at,at,input.to_string()]).unwrap();
     };
     for index in 0..130 {
         insert(&format!("capture-{index}"), "example", "capture", if index % 2 == 0 { "completed" } else { "failed" }, json!({}));
@@ -53,4 +53,23 @@ fn dashboard_task_totals_cover_history_retries_skips_missing_usage_and_account_i
     assert_eq!(news["tokens"], 35);
     assert_eq!(news["skipped"], 1);
     assert_eq!(store.dashboard(Some("other"), 7, at).unwrap()["task_stats"][0]["completed"], 1);
+}
+
+#[test]
+fn dashboard_task_totals_use_the_selected_calendar_window_and_creation_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("periods.db");
+    let store = Store::open(&path).unwrap();
+    let at = 1_793_571_600_000i64;
+    store.ingest(serde_json::from_value(json!({"handle":"example","source":"https://x.com/example","posts":[]})).unwrap(),at).unwrap();
+    let db = Connection::open(path).unwrap();
+    let start = store.dashboard(Some("example"),7,at).unwrap()["start"].as_i64().unwrap();
+    for (id,created) in [("now",at),("seven-day-boundary",start),("before-seven",start-1),("twenty-days",at-20*86_400_000),("old",at-60*86_400_000),("future",at+1)] {
+        db.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,'example','rewrite_publish','completed',?,?,'{\"telemetry\":{\"generations\":[{\"usage\":{\"total_tokens\":10}}]}}')",params![id,created,at]).unwrap();
+    }
+    for (days,total) in [(1,1),(7,2),(30,4)] {
+        let row=&store.dashboard(Some("example"),days,at).unwrap()["task_stats"][0];
+        assert_eq!(row["completed"],total,"{days} days");
+        assert_eq!(row["tokens"],total*10,"{days} days");
+    }
 }

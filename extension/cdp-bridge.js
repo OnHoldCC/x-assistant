@@ -11,7 +11,7 @@ export function captureX(requestedPeriod,verifiedCreatorAccount){
   if(!['x.com','twitter.com'].includes(location.hostname)||location.protocol!=='https:')throw Error('请打开 X 页面后连接（当前来源：'+location.origin+'）');
   const path=document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')||'';
   const account=(path.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]||document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]')?.innerText.match(/@([A-Za-z0-9_]{1,15})/)?.[1]||(location.pathname==='/i/jf/creators/original_content_rewards'&&/^[a-z0-9_]{1,15}$/.test(verifiedCreatorAccount||'')?verifiedCreatorAccount:'')).toLowerCase();
-  if(!account)throw Error('尚未识别登录账号（页面：'+location.pathname+'，标题：'+document.title.slice(0,80)+'）');
+  if(!account)throw Error((/^\/(?:login|i\/flow\/login)(?:\/|$)/.test(location.pathname)?'请先登录 X：':'')+'尚未识别登录账号（页面：'+location.pathname+'，标题：'+document.title.slice(0,80)+'）');
   function count(raw){
     const found=raw?.replace(/[\u200b-\u200f]/g,'').match(/(\d{1,3}(?:[,\u00a0\u202f ]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*([KMB](?![A-Za-z])|[千万亿])?/i);if(!found||!found[2]&&found[1].includes('.'))return null;
     const unit=(found[2]||'').toUpperCase(),value=Math.round(Number(found[1].replace(/[,\u00a0\u202f ]/g,''))*({K:1e3,M:1e6,B:1e9,'千':1e3,'万':1e4,'亿':1e8}[unit]||1));
@@ -231,8 +231,9 @@ export function createCdpBridge(){
     try{
       const {cdpTab,cdpAccount}=await session();let state='logged_in',error='';
       try{const snapshot=await bounded(capture(cdpTab));if(snapshot.handle!==cdpAccount){state='account_changed';error='X 账号已切换，等待原绑定账号恢复';}
-        else {const cookies=await bounded(chrome.debugger.sendCommand({tabId:cdpTab},'Network.getCookies',{urls:['https://x.com/']}));await call('refresh_x_session',sessionFromCookies(cookies.cookies||[]));}}
-      catch(cause){error=cause.message.slice(0,500);state=/尚未识别登录账号|先登录 X/.test(error)?'logged_out':'page_unavailable';}
+        else {const cookies=await bounded(chrome.debugger.sendCommand({tabId:cdpTab},'Network.getCookies',{urls:['https://x.com/']})),credentials=sessionFromCookies(cookies.cookies||[]);
+          try{await call('refresh_x_session',credentials);}catch(cause){if(authBlocked)throw cause;error=('后台采集凭证同步失败：'+cause.message).slice(0,500);}}}
+      catch(cause){error=cause.message.slice(0,500);state=/先登录 X|未取得 X 登录态/.test(error)?'logged_out':'page_unavailable';}
       if(active!==socket||active.readyState!==WebSocket.OPEN)return;
       active.send(JSON.stringify({type:'heartbeat',state,error,automation_supported:true,extension_version:chrome.runtime.getManifest().version}));await chrome.storage.session.set({cdpLoginState:state,cdpError:error});
     }finally{heartbeating=false;}

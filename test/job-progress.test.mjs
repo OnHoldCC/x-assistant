@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import {jobProgress} from '../app/src/shared/job-progress.ts';
 import {jobLabel,jobMessage} from '../app/src/views/onhold/format.ts';
 const job=(value)=>({id:'fixture',account:'owner',action:'rewrite_publish',state:'queued',created_at:1,updated_at:1,error:null,...value});
+test('due video publications wait for the browser rather than a past schedule',()=>{
+ const input={mode:'video',stage:'ready',publish_at:Date.now()-60000};
+ assert.match(jobProgress(job({input})).text,/已到发布时间，等待浏览器执行/);
+ input.publish_at=Date.now()+60000;assert.match(jobProgress(job({input})).text,/等待计划时间/);
+});
 test('publication progress follows validated stages and requires an owner-matching receipt',()=>{
   assert.equal(jobProgress(job({input:{mode:'replicate',stage:'rewrite'}})).value,0);
   const generating=jobProgress(job({state:'rewriting',input:{mode:'replicate',stage:'rewrite'}}));assert.equal(generating.value,null);assert.match(generating.text,/Codex 分析原帖/);

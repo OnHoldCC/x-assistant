@@ -179,6 +179,9 @@ export const useWorkspace = defineStore("onhold-workspace", () => {
       notice.value = "";
     },
   );
+  watch(analyticsPeriod, (period) => {
+    if (["1d", "7d", "30d"].includes(period)) days.value = period.slice(0, -1);
+  });
   watch(
     [
       account,

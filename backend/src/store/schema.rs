@@ -2,6 +2,11 @@ use rusqlite::{Connection, TransactionBehavior};
 
 pub const SCHEMA_VERSION: i64 = 8;
 
+const JOB_PROGRESS_INDEXES: &str = "
+  CREATE INDEX IF NOT EXISTS jobs_account_discovery_state ON jobs(account,json_extract(input,'$.discovery_job'),state);
+  CREATE INDEX IF NOT EXISTS jobs_account_task_updated ON jobs(account,CAST(json_extract(input,'$.task_id') AS TEXT),updated_at DESC,created_at DESC,id DESC);
+";
+
 pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -13,7 +18,9 @@ pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
         return Err(format!("数据库版本 {version} 高于当前支持的 {SCHEMA_VERSION}，请升级应用；如需回退，请恢复升级前的数据库备份"));
     }
     if version == SCHEMA_VERSION {
-        return Ok(());
+        // Index-only repairs stay compatible with the installed desktop's schema version.
+        tx.execute_batch(JOB_PROGRESS_INDEXES).map_err(|e| e.to_string())?;
+        return tx.commit().map_err(|e| e.to_string());
     }
     // Version 0 includes unversioned 0.8/0.9 installs; preserve existing rows and keys.
     tx.execute_batch("
@@ -135,6 +142,7 @@ pub(super) fn migrate(db: &mut Connection) -> Result<(), String> {
           WHERE coalesce(json_array_length(NEW.result,'$.completed'),0)+coalesce(json_array_length(NEW.result,'$.skipped'),0)>coalesce(json_array_length(OLD.result,'$.completed'),0)+coalesce(json_array_length(OLD.result,'$.skipped'),0);
       END;
     ").map_err(|e|e.to_string())?;
+    tx.execute_batch(JOB_PROGRESS_INDEXES).map_err(|e| e.to_string())?;
     if tx
         .prepare("PRAGMA foreign_key_check")
         .map_err(|e| e.to_string())?

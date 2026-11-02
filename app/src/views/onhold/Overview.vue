@@ -34,17 +34,13 @@ const taskColumns: DataTableColumns<TaskStats> = [
   { title: "跳过总数", key: "skipped", minWidth: 100, align: "right", render: row => row.skipped.toLocaleString() },
   { title: "消耗 Token", key: "tokens", minWidth: 140, align: "right", render: tokenUsage },
 ];
-function setPeriod(value: string) {
-  w.analyticsPeriod = value;
-  w.days = value.slice(0, -1);
-}
 </script>
 <template>
   <div class="business-stack">
     <div class="business-toolbar">
       <span class="business-muted mr-auto">{{ current ? "资料更新于 " + time(current.last_seen) : "等待首次采集" }}</span>
       <span class="business-muted">统计周期</span>
-      <NRadioGroup :value="w.analyticsPeriod" @update:value="setPeriod" aria-label="统计周期" size="small">
+      <NRadioGroup v-model:value="w.analyticsPeriod" aria-label="统计周期" size="small">
         <NRadioButton value="1d">今日</NRadioButton>
         <NRadioButton value="7d">7 天</NRadioButton>
         <NRadioButton value="30d">30 天</NRadioButton>
@@ -115,11 +111,11 @@ function setPeriod(value: string) {
       </p>
       <p v-if="official" class="business-muted">官方统计更新于 {{ time(official.observed_at) }}{{ official.data.verified_only ? ' · 仅认证用户' : '' }}</p>
     </section>
-    <NCard v-if="w.selected" title="任务累计统计" size="small">
-      <p class="business-muted mb-12px">当前账号全部历史记录 · 按任务最终状态计数 · 不受上方统计周期影响</p>
+    <NCard v-if="w.selected" title="任务统计" size="small">
+      <p class="business-muted mb-12px">当前账号 · {{ w.days === '1' ? '今日' : '最近 ' + w.days + ' 天' }}创建的任务 · 按任务最终状态计数</p>
       <NDataTable role="region" aria-label="任务成功失败及 Token 统计" :columns="taskColumns" :data="taskStats" :row-key="jobTitle" :scroll-x="600" size="small" />
       <p class="mt-12px">合计：成功 {{ taskTotals.completed.toLocaleString() }} · 失败 {{ taskTotals.failed.toLocaleString() }} · 跳过 {{ taskTotals.skipped.toLocaleString() }} · 消耗 {{ tokenUsage(taskTotals) }} Token</p>
-      <p class="business-muted mt-8px">Token 包含失败和重试调用，缓存输入不重复计数；≥ 表示部分历史用量未记录。跳过的任务不计入成功或失败。</p>
+      <p class="business-muted mt-8px">Token 包含所选任务的失败和重试调用，缓存输入不重复计数；≥ 表示部分历史用量未记录。跳过的任务不计入成功或失败。</p>
     </NCard>
     <Analytics :key="w.selected || 'none'" />
     <NAlert v-if="w.ready && !w.analyticsReady" type="warning">

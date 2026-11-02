@@ -2,6 +2,31 @@ use onhold_backend::store::{Store, SCHEMA_VERSION};
 use rusqlite::Connection;
 
 #[test]
+fn version_eight_indexes_reply_progress_without_changing_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("reply-progress.db");
+    drop(Store::open(&file).unwrap());
+    let db = rusqlite::Connection::open(&file).unwrap();
+    db.execute_batch("DROP INDEX jobs_account_discovery_state; DROP INDEX jobs_account_task_updated; PRAGMA user_version=8;
+      INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES
+        ('parent','example','capture_for_you','completed',1,1,'{}'),
+        ('child','example','rewrite_publish','completed',2,2,'{\"discovery_job\":\"parent\"}'),
+        ('other','other','rewrite_publish','failed',3,3,'{\"discovery_job\":\"parent\"}');").unwrap();
+    let store = Store::open(&file).unwrap();
+    let jobs = store.jobs().unwrap();
+    let progress = &jobs.as_array().unwrap().iter().find(|job| job["id"] == "parent").unwrap()["result"]["reply_progress"];
+    assert_eq!(*progress, serde_json::json!({"total":1,"completed":1,"failed":0}));
+    let db = rusqlite::Connection::open(&file).unwrap();
+    let plan: String = db.query_row("EXPLAIN QUERY PLAN SELECT count(*),sum(state='completed'),sum(state='failed') FROM jobs WHERE account=? AND json_extract(input,'$.discovery_job')=?", ["example","parent"], |row| row.get(3)).unwrap();
+    assert!(plan.contains("jobs_account_discovery_state"), "{plan}");
+    let mut statement = db.prepare("EXPLAIN QUERY PLAN SELECT a.id,(SELECT j.id FROM jobs j WHERE j.account=a.account AND CAST(json_extract(j.input,'$.task_id') AS TEXT)=a.id ORDER BY CASE WHEN j.state IN ('running','rewriting') THEN 0 WHEN j.state='queued' THEN 1 ELSE 2 END,j.updated_at DESC,j.created_at DESC,j.id DESC LIMIT 1) FROM automation_tasks a WHERE a.account=?").unwrap();
+    let plan = statement.query_map(["example"], |row| row.get::<_, String>(3)).unwrap().collect::<Result<Vec<_>, _>>().unwrap().join("\n");
+    assert!(plan.contains("jobs_account_task_updated (account=? AND <expr>=?)"), "{plan}");
+    assert_eq!(jobs.as_array().unwrap().len(), 3);
+    assert_eq!(db.pragma_query_value(None,"user_version",|row|row.get::<_,i64>(0)).unwrap(),8);
+}
+
+#[test]
 fn version_three_upgrade_keeps_uid_posts_and_pairing() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("version-three.db");

@@ -6,7 +6,7 @@ import type { DataTableColumns } from "naive-ui";
 import { api } from "@/shared/api";
 import type { Job } from "@/shared/types";
 import { useWorkspace } from "./workspace";
-import { time, localDate } from "./format";
+import { time, localDate, loginLabels } from "./format";
 import JobProgress from "./JobProgress.vue";
 type Plan = {
   id: string;
@@ -164,6 +164,7 @@ const name = (p: Plan) =>
           ? (p.config.scope === "notifications" ? "自动回关（通知）" : "自动回关")
           : "一键取消关注";
 const status = (p: Plan) => {
+  const client = w.clients.find(c=>c.account===w.selected&&c.online&&c.transport!=="backend");
   const phase =
     p.last_job && ["queued", "running"].includes(p.last_job.state)
       ? p.last_job.state
@@ -172,8 +173,10 @@ const status = (p: Plan) => {
     ? "限制暂停"
     : !p.enabled
       ? "已暂停"
-      : !w.clients.some(c=>c.account===w.selected&&c.online&&c.transport!=="backend"&&c.login_state==="logged_in")
+      : !client
         ? "等待插件连接"
+      : client.login_state!=="logged_in"
+        ? "X " + loginLabels[client.login_state]
       : p.last_job?.input?.stage === "skipped" && p.last_job.state === "completed"
         ? "本轮跳过"
       : (

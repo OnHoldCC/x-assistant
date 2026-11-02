@@ -13,7 +13,7 @@ function fixture({local,session,attached=true}={}) {
  class Socket {
   static OPEN=1;
   constructor(){this.readyState=0;state.sockets.push(this);queueMicrotask(()=>{if(!state.online)this.onerror?.();else {this.readyState=1;this.onopen?.();}});}
-  send(raw){const value=JSON.parse(raw);if(value.token)queueMicrotask(()=>this.onmessage?.({data:JSON.stringify(state.validKey?{type:'ready'}:{type:'error',error:'连接密钥无效，请重新配对'})}));else if(value.type==='heartbeat')queueMicrotask(()=>this.onmessage?.({data:'{"type":"heartbeat"}'}));}
+  send(raw){const value=JSON.parse(raw);if(value.token)queueMicrotask(()=>this.onmessage?.({data:JSON.stringify(state.validKey?{type:'ready'}:{type:'error',error:'连接密钥无效，请重新配对'})}));else if(value.type==='heartbeat'){state.heartbeat=value;queueMicrotask(()=>this.onmessage?.({data:'{"type":"heartbeat"}'}));}}
   close(){if(this.readyState===3)return;this.readyState=3;queueMicrotask(()=>this.onclose?.());}
  }
  const context=vm.createContext({URL,Date,JSON,Promise,console,WebSocket:Socket,AbortSignal,
@@ -22,7 +22,7 @@ function fixture({local,session,attached=true}={}) {
   fetch:async(url,options)=>{if(!state.online)throw new TypeError('offline');if(url.endsWith('/health'))return Response.json({service:'onhold-admin'});if(!state.validKey)return Response.json({error:'连接密钥无效'},{status:401});const operation=JSON.parse(options.body).operation;if(operation==='creator')return Response.json({account:state.cachedOwner||'owner'});if(operation==='refresh_x_session'&&state.noCache)return Response.json({error:'请重新连接以学习 X 接口'},{status:400});return Response.json({});},
   chrome:{storage:{local:storage(state.local),session:storage(state.session)},runtime:{getManifest:()=>({version:'1.5.18'})},
    alarms:{onAlarm:{addListener:fn=>onAlarm=fn},create:async(name,value)=>state.alarms.set(name,value),clear:async name=>state.alarms.delete(name)},
-   debugger:{onDetach:{addListener:fn=>onDetach=fn},attach:async({tabId})=>{state.attached.add(tabId);state.attachCount++;},detach:async({tabId})=>{state.attached.delete(tabId);},sendCommand:async({tabId},method,input)=>{if(!state.attached.has(tabId))throw Error('Debugger is not attached');if(method==='Network.getCookies')return {cookies:[]};if(input.expression==='0')return {result:{value:0}};return {result:{value:{handle:state.owner,source:'https://x.com/home',posts:[],profile:{}}}};}},
+   debugger:{onDetach:{addListener:fn=>onDetach=fn},attach:async({tabId})=>{state.attached.add(tabId);state.attachCount++;},detach:async({tabId})=>{state.attached.delete(tabId);},sendCommand:async({tabId},method,input)=>{if(!state.attached.has(tabId))throw Error('Debugger is not attached');if(method==='Network.getCookies')return {cookies:[]};if(input.expression==='0')return {result:{value:0}};if(state.captureError)throw Error(state.captureError);return {result:{value:{handle:state.owner,source:'https://x.com/home',posts:[],profile:{}}}};}},
    tabs:{get:async id=>{const tab=state.tabs.find(tab=>tab.id===id);if(!tab)throw Error('No tab');return tab;},query:async()=>state.tabs,create:async value=>{const tab={id:31,url:value.url,lastAccessed:2};state.created.push(value);state.tabs.push(tab);return tab;}}}
  });
  vm.runInContext(source,context);
@@ -65,6 +65,26 @@ test('recovery reuses UID-verified cached read templates, or learns once when ab
  const cached=fixture({session:{},attached:false});await cached.bridge.resume();await flush();assert.equal(cached.learned,0);assert.equal(cached.session.cdpWs,'connected');
  const fresh=fixture({session:{},attached:false});fresh.noCache=true;await fresh.bridge.resume();await flush();assert.equal(fresh.learned,1);assert.equal(fresh.session.cdpWs,'connected');
  const mismatch=fixture({session:{},attached:false});mismatch.cachedOwner='other';await assert.rejects(mismatch.bridge.resume(),/UID/);assert.equal(mismatch.learned,0);assert.equal(mismatch.sockets.length,0);
+});
+
+test('backend credential refresh failure does not disable an authenticated browser worker',async()=>{
+ const s=fixture();s.noCache=true;await s.bridge.resume();await flush();
+ assert.equal(s.session.cdpWs,'connected');assert.equal(s.heartbeat.state,'logged_in');
+ assert.match(s.heartbeat.error,/后台采集凭证同步失败/);
+ let claimed=0;const originalFetch=s.context.fetch;
+ s.context.fetch=async(url,options)=>{if(JSON.parse(options.body).operation==='claim'){claimed++;return Response.json(null);}return originalFetch(url,options);};
+ s.sockets[0].onmessage({data:'{"type":"capture"}'});await flush();assert.equal(claimed,1);
+});
+
+test('temporary missing account markup is unavailable, while an explicit login page is logged out',async()=>{
+ for(const [error,expected] of [['尚未识别登录账号（页面：/home）','page_unavailable'],['请先登录 X：尚未识别登录账号（页面：/i/flow/login）','logged_out']]){
+  const s=fixture();s.captureError=error;await s.bridge.resume();await flush();assert.equal(s.heartbeat.state,expected);
+ }
+ const s=fixture();s.context.document={querySelector:()=>null,title:'X'};
+ for(const path of ['/home','/i/flow/login','/login']){
+  s.context.location={hostname:'x.com',protocol:'https:',pathname:path};
+  assert.throws(()=>vm.runInContext('captureX()',s.context),error=>/尚未识别登录账号/.test(error.message)&&/请先登录 X/.test(error.message)===(path!=='/home'));
+ }
 });
 
 test('simultaneous task notifications reserve the worker before reading session storage',async()=>{

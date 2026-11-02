@@ -225,13 +225,13 @@ impl Store {
                             (j.state IN ('rewriting','completed','failed') OR json_extract(j.input,'$.stage') IN ('ready','sending'))
                             THEN 1 ELSE 0 END AS missing_usage
                 FROM jobs j LEFT JOIN json_each(j.input,'$.telemetry.generations') g
-                WHERE j.account=? AND j.created_at<=? GROUP BY j.id
+                WHERE j.account=? AND j.created_at>=? AND j.created_at<=? GROUP BY j.id
             )
             SELECT action,mode,scope,publication_mode,
                 sum(state='completed' AND coalesce(stage,'')<>'skipped'),sum(state='failed'),sum(tokens),sum(missing_usage),sum(state='completed' AND coalesce(stage,'')='skipped')
             FROM task_usage GROUP BY action,mode,scope,publication_mode ORDER BY action,mode,scope,publication_mode
         "#).map_err(|e|e.to_string())?;
-        let task_stats = statement.query_map(params![selected,at], |r| Ok(json!({
+        let task_stats = statement.query_map(params![selected,start,at], |r| Ok(json!({
             "action":r.get::<_,String>(0)?,
             "input":{"mode":r.get::<_,Option<String>>(1)?,"scope":r.get::<_,Option<String>>(2)?,"publication_mode":r.get::<_,Option<String>>(3)?},
             "completed":r.get::<_,i64>(4)?,"failed":r.get::<_,i64>(5)?,"tokens":r.get::<_,i64>(6)?,"missing_usage":r.get::<_,i64>(7)?,"skipped":r.get::<_,i64>(8)?

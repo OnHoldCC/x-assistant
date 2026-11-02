@@ -12,16 +12,22 @@ try {
  page.setDefaultTimeout(8000);
  page.on('pageerror',error=>errors.push(error.message));
  await page.addInitScript(()=>{
-  localStorage.setItem('onhold-setup-complete','1');window.isTauri=true;
+  localStorage.setItem('onhold-setup-complete','1');window.isTauri=true;window.dashboardDays=[];
   window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
    if(command!=='admin')return {};
    if(args.operation==='pairing')return {};
    if(args.operation==='connections'||args.operation==='jobs')return [];
-   if(args.operation==='dashboard')return {accounts:[{handle:'example',first_seen:1,last_seen:Date.now()}],account:'example',posts:[],metrics:{},series:[],days:args.input.days,analytics:null,task_stats:[
+   if(args.operation==='dashboard'){window.dashboardDays.push(args.input.days);return {accounts:[{handle:'example',first_seen:1,last_seen:Date.now()}],account:'example',posts:[],metrics:{},series:[],days:args.input.days,analytics:null,task_stats:args.input.days===1?[
+    {action:'capture',input:{},completed:3,failed:0,skipped:0,tokens:0,missing_usage:0},
+    {action:'rewrite_publish',input:{mode:'reply',scope:'for_you'},completed:1,failed:0,skipped:0,tokens:10,missing_usage:0},
+   ]:args.input.days===30?[
+    {action:'capture',input:{},completed:260,failed:8,skipped:0,tokens:0,missing_usage:0},
+    {action:'rewrite_publish',input:{mode:'reply',scope:'for_you'},completed:21,failed:6,skipped:0,tokens:1000,missing_usage:0},
+   ]:[
     {action:'capture',input:{},completed:130,failed:4,skipped:0,tokens:0,missing_usage:0},
     {action:'rewrite_publish',input:{mode:'reply',scope:'for_you'},completed:7,failed:2,skipped:0,tokens:350,missing_usage:1},
     {action:'rewrite_publish',input:{mode:'news'},completed:3,failed:1,skipped:8,tokens:0,missing_usage:1},
-   ]};
+   ]};}
    return {};
   }};
  });
@@ -35,7 +41,16 @@ try {
  await page.getByText('合计：成功 140 · 失败 7 · 跳过 8 · 消耗 ≥ 350 Token',{exact:true}).waitFor();
  await page.getByText('今日',{exact:true}).click();
  assert.equal(await page.getByRole('radio',{name:'今日',exact:true}).isChecked(),true);
- assert.deepEqual(await reply.getByRole('cell').allTextContents(),['自动评论','7','2','0','≥ 350'],'period changes do not change lifetime totals');
+ await page.getByText('合计：成功 4 · 失败 0 · 跳过 0 · 消耗 10 Token',{exact:true}).waitFor();
+ assert.deepEqual(await reply.getByRole('cell').allTextContents(),['自动评论','1','0','0','10']);
+ await page.getByText('30 天',{exact:true}).click();
+ await page.getByText('合计：成功 281 · 失败 14 · 跳过 0 · 消耗 1,000 Token',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>window.dashboardDays.at(-1)),30);
+ await page.getByRole('combobox',{name:'官方统计周期',exact:true}).click();
+ await page.getByRole('option',{name:'7D',exact:true}).click();
+ await page.getByText('合计：成功 140 · 失败 7 · 跳过 8 · 消耗 ≥ 350 Token',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('radio',{name:'7 天',exact:true}).isChecked(),true);
+ assert.equal(await page.evaluate(()=>window.dashboardDays.at(-1)),7,'the chart period also updates the local statistics request');
  for(const width of [1440,375]){
   await page.setViewportSize({width,height:1100});await table.scrollIntoViewIfNeeded();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'the table scrolls inside its card on mobile');
@@ -47,7 +62,7 @@ try {
  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.n-card')).backgroundColor.match(/\d+/g)?.slice(0,3).every(value=>Number(value)>200));
  await page.screenshot({path:'/tmp/onhold-overview-tasks-theme.png',fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('Passed: per-task success/failure totals, partial and missing Token usage, lifetime totals across date filters, and desktop/mobile layout. Fixture only.');
+ console.log('Passed: per-task success/failure and Token totals follow today/7/30-day filters, chart selection synchronizes local statistics, and desktop/mobile layout. Fixture only.');
 } finally {
  if(browser)await browser.close();
  if(server.exitCode===null){const exited=once(server,'exit');server.kill('SIGTERM');await exited;}
