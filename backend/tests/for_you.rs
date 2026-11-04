@@ -361,7 +361,7 @@ fn notification_plans_require_verified_reply_parent_and_share_duplicate_history(
 fn notification_seconds_apply_to_discovery_resume_and_each_confirmed_send(){
     let (_dir,store,client,_task,at)=setup();
     store.ingest(serde_json::from_value::<Snapshot>(json!({"uid":"99","handle":"example","source":"https://x.com/example","profile":{},"posts":[]})).unwrap(),at).unwrap();
-    for seconds in [json!(24),json!(26),json!(0),json!(-1),json!(25.5),json!("25"),json!(true)] {
+    for seconds in [json!(604801),json!(0),json!(-1),json!(25.5),json!("25"),json!(true),json!(null)] {
         assert!(store.save_automation("example",&json!({"action":"reply_notifications","interval_seconds":seconds,"limit":1}),at).is_err());
     }
     assert!(store.save_automation("example",&json!({"action":"auto_post","query":"news","interval_minutes":1,"interval_seconds":25,"limit":1}),at).is_err());
@@ -380,6 +380,25 @@ fn notification_seconds_apply_to_discovery_resume_and_each_confirmed_send(){
     let parent=store.run_automation("example",&task,at+25008).unwrap()["id"].as_str().unwrap().to_owned();store.claim(&client,"example",at+25008).unwrap();store.queue_feed_replies(&parent,&client,&json!([reply("803")]),at+25008).unwrap();store.finish_for_you(&parent,&client,None,at+25009).unwrap();
     let job=store.claim_rewrite(at+25010).unwrap();store.save_generated(job["id"].as_str().unwrap(),Ok(&json!({"schema_version":1,"text":"The steps are clear."})),at+25010).unwrap();
     assert!(store.claim(&client,"example",at+50006).unwrap().is_null());assert_eq!(store.claim(&client,"example",at+50007).unwrap()["id"],job["id"]);
+}
+
+#[test]
+fn custom_reply_intervals_are_saved_and_used_by_the_scheduler() {
+    for action in ["auto_reply", "reply_notifications"] {
+        for seconds in [1, 25, 90, 5430, 604800] {
+            let (_dir, store, _client, task, at) = setup();
+            store.ingest(serde_json::from_value::<Snapshot>(json!({"uid":"99","handle":"example","source":"https://x.com/example","profile":{},"posts":[]})).unwrap(), at).unwrap();
+            store.save_automation("example", &json!({"id":task,"action":action,"interval_minutes":1,"interval_seconds":seconds,"limit":1}), at).unwrap();
+            let state = store.automation_state("example").unwrap();
+            let plan = state["tasks"].as_array().unwrap().iter().find(|p|p["id"]==task).unwrap();
+            assert_eq!(plan["enabled"], false);
+            assert_eq!(plan["config"]["interval_seconds"], seconds);
+            store.control_automation("example", &task, true, at).unwrap();
+            store.run_automation("example", &task, at).unwrap();
+            let state = store.automation_state("example").unwrap();
+            assert_eq!(state["tasks"].as_array().unwrap().iter().find(|p|p["id"]==task).unwrap()["next_run"], at + seconds * 1000);
+        }
+    }
 }
 
 #[test]

@@ -39,6 +39,9 @@ const w = useWorkspace(),
   action = ref("follow_back"),
   scope = ref("notifications"),
   interval = ref("1440"),
+  intervalHours = ref<number | null>(24),
+  intervalMinutes = ref<number | null>(0),
+  intervalSeconds = ref<number | null>(0),
   limit = ref<number | null>(5),
   days = ref<number | null>(7),
   stopAt = ref(""),
@@ -115,7 +118,11 @@ function open(plan: Plan | null, view = false) {
   error.value = "";
   action.value = plan?.config.action || "follow_back";
   scope.value = plan?.config.scope || "notifications";
-  interval.value = plan?.config.interval_seconds===25 ? "25s" : String(plan?.config.interval_minutes || 1440);
+  interval.value = String(plan?.config.interval_minutes || 1440);
+  const seconds = plan?.config.interval_seconds ?? Number(interval.value) * 60;
+  intervalHours.value = Math.floor(seconds / 3600);
+  intervalMinutes.value = Math.floor(seconds % 3600 / 60);
+  intervalSeconds.value = seconds % 60;
   limit.value = plan?.config.limit || 5;
   days.value = plan?.config.after_days || 7;
   targets.value = plan?.config.targets.join(", ") || "";
@@ -144,7 +151,6 @@ watch([()=>route.query,()=>w.selected],()=>{
 function changeAction(value: string) {
   action.value = value;
   if(value==='auto_video'){interval.value='1';limit.value=5;language.value='en';}
-  if(!["reply_notifications","auto_reply"].includes(value) && interval.value==="25s")interval.value="1";
   scope.value =
     value === "auto_video" ? "tiktok" : value === "reply_notifications"
         ? "notifications"
@@ -154,6 +160,9 @@ function changeAction(value: string) {
 }
 const automatic = computed(() =>
   ["auto_reply", "reply_notifications", "auto_video"].includes(action.value),
+);
+const customInterval = computed(() =>
+  ["auto_reply", "reply_notifications"].includes(action.value),
 );
 const name = (p: Plan) =>
   p.config.action === "auto_video" ? "视频处理与发布（TikTok）" : p.config.action === "reply_notifications"
@@ -237,10 +246,14 @@ const columns: DataTableColumns<Plan> = [
   {
     title: "执行间隔",
     key: "interval",
-    width: 110,
+    width: 170,
     render: (p) =>
-      p.config.interval_seconds===25
-        ? "25 秒"
+      p.config.interval_seconds != null
+        ? [
+            [Math.floor(p.config.interval_seconds / 3600), "小时"],
+            [Math.floor(p.config.interval_seconds % 3600 / 60), "分钟"],
+            [p.config.interval_seconds % 60, "秒"],
+          ].filter(([value]) => value).map(([value, unit]) => `${value} ${unit}`).join(" ")
         : p.config.interval_minutes >= 60
         ? `${p.config.interval_minutes / 60} 小时`
         : `${p.config.interval_minutes} 分钟`,
@@ -324,6 +337,14 @@ const columns: DataTableColumns<Plan> = [
   },
 ];
 async function save() {
+  const seconds = (intervalHours.value ?? 0) * 3600 + (intervalMinutes.value ?? 0) * 60 + (intervalSeconds.value ?? 0);
+  if (customInterval.value && (
+    ![intervalHours.value, intervalMinutes.value, intervalSeconds.value].every(value => value !== null && Number.isInteger(value) && value >= 0) ||
+    intervalMinutes.value! > 59 || intervalSeconds.value! > 59 || seconds < 1 || seconds > 604800
+  )) {
+    error.value = "执行间隔应为1秒至7天，分和秒应为0–59的整数";
+    return;
+  }
   if (
     limit.value == null ||
     limit.value < 1 ||
@@ -350,8 +371,8 @@ async function save() {
             : action.value === "auto_reply"
               ? "for_you"
               : scope.value,
-      interval_minutes: interval.value==="25s" ? 1 : Number(interval.value),
-      ...(["reply_notifications","auto_reply"].includes(action.value) && interval.value==="25s" ? {interval_seconds:25} : {}),
+      interval_minutes: customInterval.value ? Math.max(1, Math.ceil(seconds / 60)) : Number(interval.value),
+      ...(customInterval.value ? {interval_seconds: seconds} : {}),
       limit: limit.value,
       after_days: days.value,
       stop_at: stop,
@@ -552,7 +573,13 @@ async function save() {
                 v-model:value="targets"
                 :input-props="{ required: true, 'aria-label': '目标账号' }"
                 placeholder="账号之间用逗号分隔，不含 @" /></NFormItem
-            ><NFormItem label="执行间隔"
+            ><NFormItem v-if="customInterval" label="执行间隔">
+              <div class="w-full grid grid-cols-3 gap-12px" role="group" aria-label="执行间隔">
+                <label>时<NInputNumber v-model:value="intervalHours" :min="0" :max="168" :precision="0" :input-props="{ 'aria-label': '执行间隔小时' }" /></label>
+                <label>分<NInputNumber v-model:value="intervalMinutes" :min="0" :max="59" :precision="0" :input-props="{ 'aria-label': '执行间隔分钟' }" /></label>
+                <label>秒<NInputNumber v-model:value="intervalSeconds" :min="0" :max="59" :precision="0" :input-props="{ 'aria-label': '执行间隔秒' }" /></label>
+              </div>
+            </NFormItem><p v-if="customInterval" class="business-muted">自定义执行间隔，合计1秒至7天。</p><NFormItem v-else label="执行间隔"
               ><NSelect
                 role="combobox"
                 :menu-props="{ role: 'listbox' }"
@@ -566,7 +593,6 @@ async function save() {
                 aria-label="执行间隔"
                 :options="
                   [
-                    ...(['reply_notifications','auto_reply'].includes(action) ? [['25s', '每25秒']] : []),
                     ['1', '每1分钟'],
                     ['3', '每3分钟'],
                     ['5', '每5分钟'],
