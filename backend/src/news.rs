@@ -5,6 +5,7 @@ use std::{collections::{BTreeMap, HashSet}, sync::Mutex};
 
 const WEIBO: &str = "https://60s.viki.moe/v2/weibo";
 const REDNOTE: &str = "https://60s.viki.moe/v2/rednote";
+const TIEBA: &str = "https://tieba.baidu.com/hottopic/browse/topicList";
 const BBC: &str = "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml";
 const GUARDIAN: &str = "https://www.theguardian.com/culture/rss";
 const VARIETY: &str = "https://variety.com/feed/";
@@ -18,10 +19,16 @@ fn https_url(value: &str, hosts: &[&str]) -> bool {
 }
 
 fn topics(raw: &str, platform: &str) -> Result<Vec<Value>, String> {
-    let value: Value = serde_json::from_str(raw).map_err(|_| "热榜返回无效 JSON")?;
+    let mut value: Value = serde_json::from_str(raw).map_err(|_| "热榜返回无效 JSON")?;
+    if platform=="tieba" {
+        if value["errno"]!=0 {return Err("贴吧热榜未返回成功状态".into());}
+        let rows=value["data"]["bang_topic"]["topic_list"].as_array().filter(|rows|rows.len()<=100).ok_or("贴吧热榜数据结构无效")?;
+        let items=rows.iter().map(|item|json!({"title":item["topic_name"],"link":item["topic_url"].as_str().unwrap_or("").replace("&amp;","&"),"hot_value":item["discuss_num"]})).collect::<Vec<_>>();
+        value=json!({"code":200,"data":items});
+    }
     if value["code"] != 200 { return Err("热榜服务未返回成功状态".into()); }
     let data = value["data"].as_array().filter(|items| items.len()<=100).ok_or("热榜数据结构无效")?;
-    let hosts: &[&str] = if platform=="weibo" { &["s.weibo.com"] } else { &["www.xiaohongshu.com"] };
+    let hosts: &[&str] = match platform {"weibo"=>&["s.weibo.com"],"tieba"=>&["tieba.baidu.com"],"rednote"=>&["www.xiaohongshu.com"],_=>return Err("热榜来源无效".into())};
     let mut seen=HashSet::new();let mut items=Vec::new();
     for (index, item) in data.iter().enumerate() {
         if item["is_ad"]==true || item["word_type"]=="荐" { continue; }
@@ -43,7 +50,7 @@ struct RssItem {
     #[serde(rename="pubDate", default)] date: String,
     #[serde(default)] description: String,
 }
-fn plain_summary(html: &str) -> String {
+pub(crate) fn plain_summary(html: &str) -> String {
     let mut text=String::new(); let mut in_tag=false;
     for c in html.chars() {
         match c {
@@ -84,23 +91,24 @@ async fn download(client: &reqwest::Client, url: &str) -> Result<String,String> 
 
 impl Sources {
     pub async fn fetch(&self, source: &str) -> Result<Value,String> {
-        if !["weibo","rednote","hot_topics","international","mixed"].contains(&source) { return Err("此来源使用全网搜索，没有固定热榜".into()); }
+        if !["weibo","tieba","gossip","rednote","hot_topics","international","mixed"].contains(&source) { return Err("此来源使用全网搜索，没有固定热榜".into()); }
         let at=crate::store::now();
         if let Some((stamp,value))=self.cache.lock().map_err(|_| "取材缓存忙")?.get(source) {
             if at-*stamp<60_000 { let mut cached=value.clone();cached["cached"]=json!(true);return Ok(cached); }
         }
         let redirects=reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len()>3 || !https_url(attempt.url().as_str(), &["60s.viki.moe","feeds.bbci.co.uk","www.theguardian.com","variety.com","www.variety.com","deadline.com","www.deadline.com"]) { attempt.error("取材重定向地址无效") } else { attempt.follow() }
+            if attempt.previous().len()>3 || !https_url(attempt.url().as_str(), &["60s.viki.moe","tieba.baidu.com","feeds.bbci.co.uk","www.theguardian.com","variety.com","www.variety.com","deadline.com","www.deadline.com"]) { attempt.error("取材重定向地址无效") } else { attempt.follow() }
         });
         let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).redirect(redirects).user_agent("OnHold/0.9 news-source-reader").build().map_err(|_| "取材客户端初始化失败")?;
         let mut feeds=Vec::new();
-        if ["weibo","hot_topics","mixed"].contains(&source) { feeds.push(("weibo",WEIBO)); }
+        if ["weibo","gossip","hot_topics","mixed"].contains(&source) { feeds.push(("weibo",WEIBO)); }
+        if ["tieba","gossip"].contains(&source) { feeds.push(("tieba",TIEBA)); }
         if ["rednote","hot_topics","mixed"].contains(&source) { feeds.push(("rednote",REDNOTE)); }
         if ["international","mixed"].contains(&source) { feeds.extend([("bbc",BBC),("guardian",GUARDIAN),("variety",VARIETY),("deadline",DEADLINE)]); }
         let mut tasks=tokio::task::JoinSet::new();
         for (platform,url) in feeds {
             let client=client.clone();
-            tasks.spawn(async move { let outcome=download(&client,url).await.and_then(|text| if ["weibo","rednote"].contains(&platform) { topics(&text,platform) } else { rss(&text,platform,at) }); (platform,url,outcome) });
+            tasks.spawn(async move { let outcome=download(&client,url).await.and_then(|text| if ["weibo","tieba","rednote"].contains(&platform) { topics(&text,platform) } else { rss(&text,platform,at) }); (platform,url,outcome) });
         }
         let mut items=Vec::new();let mut errors=Vec::new();let mut counts=BTreeMap::new();
         while let Some(result)=tasks.join_next().await {
@@ -111,7 +119,7 @@ impl Sources {
             }
         }
         items.sort_by(|a,b| a["platform"].as_str().cmp(&b["platform"].as_str()).then(a["rank"].as_u64().cmp(&b["rank"].as_u64())));
-        let result=json!({"source":source,"retrieved_at":at,"provider":"60s hot-topics + news-aggregator RSS","cached":false,"counts":counts,"items":items,"errors":errors});
+        let result=json!({"source":source,"retrieved_at":at,"provider":"60s hot-topics + Tieba public topics + news-aggregator RSS","cached":false,"counts":counts,"items":items,"errors":errors});
         if !items.is_empty() && errors.is_empty() { self.cache.lock().map_err(|_| "取材缓存忙")?.insert(source.into(),(at,result.clone())); }
         Ok(result)
     }
@@ -120,6 +128,22 @@ impl Sources {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "live public source smoke check; never publishes"]
+    async fn live_weibo_tieba_sources() {
+        let value=Sources::default().fetch("gossip").await.unwrap();
+        println!("{}",json!({"counts":value["counts"],"errors":value["errors"],"sample":value["items"].as_array().unwrap().iter().take(3).collect::<Vec<_>>()}));
+        assert!(value["items"].as_array().is_some_and(|items|!items.is_empty()));
+    }
+    #[test]
+    fn tieba_topics_are_only_leads_and_reject_foreign_urls() {
+        let raw=json!({"errno":0,"data":{"bang_topic":{"topic_list":[{"topic_name":"剧情反转","topic_url":"https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=1&amp;topic_name=test","create_time":1,"discuss_num":10}]}}}).to_string();
+        let items=topics(&raw,"tieba").unwrap();
+        assert_eq!(items[0]["platform"],"tieba");assert!(items[0]["published_at"].is_null());
+        assert_eq!(items[0]["url"],"https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=1&topic_name=test");
+        assert!(topics(&raw.replace("tieba.baidu.com","tieba.baidu.com.evil.example"),"tieba").is_err());
+        assert!(topics(&raw.replace("\"errno\":0","\"errno\":1"),"tieba").is_err());
+    }
     #[test]
     fn entertainment_rss_accepts_only_its_own_publisher_links() {
         let at=crate::store::now();let date=chrono::DateTime::from_timestamp_millis(at-1000).unwrap().to_rfc2822();

@@ -10,6 +10,7 @@ Nunito font (SIL OFL): extension/assets/OFL-Nunito.txt
 
 Laya runtime and multilingual decision model: Apache-2.0, https://github.com/NandhaKishorM/laya and https://huggingface.co/convaiinnovations/laya-multilingual .
 uv Python bootstrap: MIT/Apache-2.0, https://github.com/astral-sh/uv .
+Optional anonymous Tieba reader: aiotieba 4.8.4 (Unlicense), https://github.com/lumina37/aiotieba . Installed separately with its dependencies; not a Baidu-authorized SDK. External images and text retain their original rights.
 Assistant icon: X logo with a separate blue assistant badge. X is a trademark of X Corp.
 jieba 0.42.1 (MIT): https://github.com/fxsjy/jieba .
 Mobile external links: Tauri Opener (MIT/Apache-2.0), https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/opener .

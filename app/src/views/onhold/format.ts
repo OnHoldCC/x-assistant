@@ -45,6 +45,7 @@ export const jobLabels: Record<Job["action"], string> = {
   video_screening: "批量视频审核",
 };
 export const jobTitle = (j: Pick<Job, "action" | "input">) =>
+  j.input?.mode === "image" ? "搞笑图文" : j.input?.publication_mode === "funny_image" ? "读取搞笑图片候选" :
   j.action === "capture_notifications" && j.input?.publication_mode === "follow_back"
     ? "识别新关注通知"
     : j.input?.mode === "video" ? "视频发布" : j.input?.mode === "news"
@@ -59,6 +60,7 @@ export const jobTitle = (j: Pick<Job, "action" | "input">) =>
           ? "生成同类文章"
           : jobLabels[j.action];
 export function jobLabel(j: Job) {
+  if(j.input?.mode==="image" && j.input.stage==="skipped" && j.state==="completed")return "本轮跳过";
   if(j.action==="video_screening"){if(j.state==="rewriting")return "审核中";if(j.state==="queued")return "等待审核";}
   if(j.action==="video_caption"){if(j.state==="rewriting")return "生成中";if(j.state==="queued")return j.input?.stage==="screening"?"等待审核":"等待生成";}
   if (j.state === "completed" && j.input?.stage === "skipped") return "本轮跳过";

@@ -856,6 +856,7 @@ name = "onhold-backend"
 version = "0.8.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "quick-xml",
  "reqwest",

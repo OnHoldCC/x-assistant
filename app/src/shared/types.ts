@@ -111,7 +111,7 @@ export type Client = {
   analytics_supported?: boolean;
   extension_version?: string;
 };
-export type NewsSource = "web" | "weibo" | "rednote" | "hot_topics" | "international" | "mixed";
+export type NewsSource = "web" | "weibo" | "tieba" | "gossip" | "rednote" | "hot_topics" | "international" | "mixed";
 export type TaskStats = Pick<Job, "action" | "input"> & { completed: number; failed: number; skipped: number; tokens: number; missing_usage: number };
 export type NewsFeed = { retrieved_at:number; cached:boolean; counts:Record<string,number>; items:{kind:string;platform:string;title:string;url:string;published_at:number|null}[]; errors:{platform:string;error:string}[] };
 export type Job = {
@@ -129,23 +129,25 @@ export type Job = {
     screening_job?: string;
     screening_passed?: boolean;
     kind?: "followers" | "following";
-    mode?: "rewrite" | "similar" | "replicate" | "reply" | "news" | "video";
+    mode?: "rewrite" | "similar" | "replicate" | "reply" | "news" | "video" | "image";
     stage?: "rewrite" | "ready" | "sending" | "skipped" | "screening";
     publish_at?: number | null;
-    source?: { text: string; url: string; author: string; id: string; title?:string;published_at?:number };
+    source?: {
+      kind?: string; text: string; url: string; author: string; id: string; title?:string;published_at?:number;image_url?:string };
     text?: string;
     limit?: number;
     targets?: string[];
     analysis?: {topic:string;structure:string;tone:string;key_points:string[]};
     schema_version?: number;
-    scope?:'for_you'|'notifications'|'trending'|'news';
+    scope?:'for_you'|'notifications'|'trending'|'news'|'funny_images';
+    image_review?:{image_type:string;reason:string};
     query?:string;
     news_source?: NewsSource;
     include_source_link?: boolean;
     allow_news_search?: boolean;
     model_not_called?: boolean;
     news_feed?: NewsFeed;
-    publication_mode?: "reply" | "follow_back";
+    publication_mode?: "reply" | "follow_back" | "funny_image";
     rejected_generation?:Record<string,unknown>;
     discovered_from?:string;
     capture_summary?:{scanned:number;eligible:number;filtered:Record<'ads'|'truncated'|'source'|'text'|'own'|'language'|'translated',number>};

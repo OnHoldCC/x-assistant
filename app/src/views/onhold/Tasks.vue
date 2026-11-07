@@ -207,6 +207,7 @@ const recordTypeOptions = [
   ...Object.entries(jobLabels).map(([value, label]) => ({ value, label })),
   { value: "capture_notification_follows", label: "识别新关注通知" },
   { value: "news", label: "新闻发文" },
+  { value: "image", label: "搞笑图文" },
   { value: "video", label: "视频发布" },
   { value: "reply_for_you", label: "自动评论（For You）" },
   { value: "reply_notifications", label: "自动回复（通知）" },
@@ -477,6 +478,8 @@ const columns: DataTableColumns<Job> = [
             <NButton @click="copy">复制正文</NButton>
             <p v-if="viewed.result?.processing?.filename" class="business-pre">处理后视频：{{viewed.result.processing.filename}}</p>
           </template>
+          <p v-if="viewed.input?.image_review" class="business-pre">图片复核：{{ viewed.input.image_review.reason }}</p>
+          <p v-if="viewed.input?.mode === 'image' && viewed.input.source" class="business-pre">图片来源：{{ viewed.input.source.kind === 'ai_generated' ? 'AI 原创生成' : viewed.input.source.url }}</p>
           <template v-if="viewed.action === 'rewrite_publish'"
             ><p v-if="viewed.input?.query">
               新闻搜索主题：{{ viewed.input.query }}

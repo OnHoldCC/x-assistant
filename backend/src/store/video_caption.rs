@@ -30,7 +30,7 @@ impl Store {
         let input:Value=serde_json::from_str(&raw).map_err(|_|"视频任务数据无效")?;
         let result:Value=serde_json::from_str(&result).map_err(|_|"视频审核记录无效")?;
         if result["status"]!="ready"||result["processing"]["verified"]!=true{return Err("视频尚未通过处理和复核，未安排发布".into());}
-        if result["content_policy"]!=crate::video_screening::CONTENT_POLICY&&result["content_policy"]!="pets_only_no_people_v1"{return Err("视频尚未按宠物或搞笑策略审核，请重新检查后再发布".into());}
+        if result["content_policy"]!=crate::video_screening::CONTENT_POLICY{return Err("视频尚未按搞笑或成年人非露骨暧昧搬运策略审核，请重新检查后再发布".into());}
         super::publications::validate_post_hashtags(result["text"].as_str().ok_or("视频文案缺失")?)?;
         if automatic {
             let allowed=input["task_id"].as_str().is_some_and(|task|tx.query_row("SELECT EXISTS(SELECT 1 FROM automation_tasks WHERE id=? AND account=? AND enabled=1 AND json_extract(value,'$.action')='auto_video' AND json_extract(value,'$.publish_mode')='automatic' AND (json_extract(value,'$.stop_at') IS NULL OR json_extract(value,'$.stop_at')>?))",params![task,account,at],|r|r.get::<_,bool>(0)).unwrap_or(false));
@@ -53,7 +53,7 @@ impl Store {
     }
     pub fn video_upload_context(&self,id:&str,client:&str,at:i64)->Result<Value,String>{
         let mut db=self.lock()?;let tx=db.transaction().map_err(|e|e.to_string())?;
-        let (download,account):(String,String)=tx.query_row("SELECT json_extract(j.input,'$.download_id'),j.account FROM jobs j JOIN clients c ON c.id=j.client AND c.account=j.account JOIN browser_sessions s ON s.client=c.id JOIN jobs v ON v.id=json_extract(j.input,'$.download_id') AND v.account=j.account WHERE j.id=? AND j.client=? AND j.action='rewrite_publish' AND j.state='running' AND json_extract(j.input,'$.mode')='video' AND json_extract(j.input,'$.stage')='ready' AND v.state='completed' AND v.action='video_caption' AND json_extract(v.result,'$.status')='ready' AND json_extract(v.result,'$.processing.verified')=1 AND json_extract(v.result,'$.content_policy') IN (?,'pets_only_no_people_v1') AND json_extract(v.result,'$.text')=json_extract(j.input,'$.text') AND c.last_seen>? AND s.connected=1 AND s.state='logged_in' AND extension_video_publish(s.extension_version) AND NOT EXISTS(SELECT 1 FROM settings WHERE key='automation_block:'||j.account) AND (json_extract(j.input,'$.task_id') IS NULL OR EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(j.input,'$.task_id') AND t.account=j.account AND t.enabled=1))",params![id,client,crate::video_screening::CONTENT_POLICY,at-60_000],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|"视频发布任务已暂停、账号不匹配或未通过当前宠物或搞笑策略审核")?;
+        let (download,account):(String,String)=tx.query_row("SELECT json_extract(j.input,'$.download_id'),j.account FROM jobs j JOIN clients c ON c.id=j.client AND c.account=j.account JOIN browser_sessions s ON s.client=c.id JOIN jobs v ON v.id=json_extract(j.input,'$.download_id') AND v.account=j.account WHERE j.id=? AND j.client=? AND j.action='rewrite_publish' AND j.state='running' AND json_extract(j.input,'$.mode')='video' AND json_extract(j.input,'$.stage')='ready' AND v.state='completed' AND v.action='video_caption' AND json_extract(v.result,'$.status')='ready' AND json_extract(v.result,'$.processing.verified')=1 AND json_extract(v.result,'$.content_policy') =? AND json_extract(v.result,'$.text')=json_extract(j.input,'$.text') AND c.last_seen>? AND s.connected=1 AND s.state='logged_in' AND extension_video_publish(s.extension_version) AND NOT EXISTS(SELECT 1 FROM settings WHERE key='automation_block:'||j.account) AND (json_extract(j.input,'$.task_id') IS NULL OR EXISTS(SELECT 1 FROM automation_tasks t WHERE t.id=json_extract(j.input,'$.task_id') AND t.account=j.account AND t.enabled=1))",params![id,client,crate::video_screening::CONTENT_POLICY,at-60_000],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|"视频发布任务已暂停、账号不匹配或未通过当前搞笑或成年人非露骨暧昧搬运策略审核")?;
         tx.execute("UPDATE jobs SET updated_at=? WHERE id=?",params![at,id]).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e|e.to_string())?;Ok(json!({"download_id":download,"account":account}))
     }
@@ -141,7 +141,7 @@ impl Store {
         let account=handle(account)?;
         let id=video["download_id"].as_str().ok_or("下载标识缺失")?;
         uuid::Uuid::parse_str(id).map_err(|_|"下载标识无效")?;
-        let mut input=json!({"download_id":id,"stage":if video["screen_first"]==true{"screening"}else{"rewrite"},"source":{"id":video["id"],"author":video["author"],"url":video["source"],"text":video["title"]},"language":"en"});
+        let mut input=json!({"download_id":id,"stage":if video["screen_first"]==true{"screening"}else{"rewrite"},"source":{"id":video["id"],"author":video["author"],"url":video["source"],"text":video["title"],"page_text":video["source_text"]},"language":"en"});
         if let Some(capture)=video["capture_job"].as_str().filter(|_|!retry){
             let context=self.video_capture_context(capture,video["capture_client"].as_str().ok_or("视频采集连接缺失")?,video["source"].as_str().ok_or("视频来源缺失")?,at)?;
             if context["account"]!=account{return Err("视频采集账号不匹配".into());}

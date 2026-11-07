@@ -55,6 +55,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let store = Arc::new(Store::open(home.join("onhold-admin.sqlite3"))?);
+    if let Some(file)=option("--queue-reviewed-meme") {
+        let file=PathBuf::from(file).canonicalize()?;
+        if std::fs::metadata(&file)?.len()>16000 {return Err("图片审核记录过大".into());}
+        let review:serde_json::Value=serde_json::from_slice(&std::fs::read(&file)?)?;
+        let directory=file.parent().ok_or("缺少审核目录")?;
+        let account=option("--account").ok_or("缺少发布账号")?;
+        let text=option("--caption").ok_or("缺少图片配文")?;
+        let id=uuid::Uuid::new_v4().to_string();
+        let target=onhold_backend::funny_image::path(&home,&id)?;
+        std::fs::create_dir_all(target.parent().ok_or("图片目录无效")?)?;
+        for key in ["original","edited"] {
+            let source=directory.join(review[key].as_str().ok_or("缺少图片文件名")?).canonicalize()?;
+            if !source.starts_with(directory)||std::fs::metadata(&source)?.len()>5_000_000 {return Err("图片不在审核目录或超过5MB".into());}
+            let bytes=std::fs::read(&source)?;
+            let extension=if bytes.starts_with(b"\x89PNG\r\n\x1a\n"){"png"}else if bytes.starts_with(&[255,216])&&bytes.ends_with(&[255,217]){"jpg"}else{return Err("图片必须是完整PNG或JPEG".into());};
+            let saved=target.parent().unwrap().join(format!("source-{key}.{extension}"));std::fs::write(&saved,bytes)?;
+            if key=="edited" {onhold_backend::funny_image::prepare(&home,&id,&saved,"仅清理平台界面与水印，保留梗图内容","operator-reviewed-meme").await?;}
+        }
+        std::fs::write(target.parent().unwrap().join("generation.json"),serde_json::json!({"kind":"tieba_meme","review":review,"created_at":onhold_backend::store::now()}).to_string())?;
+        println!("{}",store.enqueue_reviewed_meme(&account,&id,&review,&text,onhold_backend::store::now())?);
+        return Ok(());
+    }
     let bind = option("--bind").unwrap_or_else(|| "127.0.0.1".into());
     let listener = tokio::net::TcpListener::bind((bind.as_str(), port)).await?;
     let models = Arc::new(onhold_backend::models::Runtime::new(home, store.clone()));

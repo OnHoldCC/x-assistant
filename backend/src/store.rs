@@ -101,9 +101,17 @@ impl Store {
             let version:String=context.get(0)?;
             Ok(version_parts(&version).is_some_and(|parts|parts.as_slice()>=[1,5,29,0].as_slice()))
         }).map_err(|e|e.to_string())?;
+        db.create_scalar_function("extension_image_publish", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, move |context| {
+            let version:String=context.get(0)?;
+            Ok(version_parts(&version).is_some_and(|parts|parts.as_slice()>=[1,5,31,0].as_slice()))
+        }).map_err(|e|e.to_string())?;
         db.create_scalar_function("automation_interval_ms", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC, |context| {
             let raw:Option<String>=context.get(0)?;
             Ok(raw.map_or(0,|raw|automation::interval_ms(&serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null))))
+        }).map_err(|e|e.to_string())?;
+        db.create_scalar_function("meme_review_passes",2,rusqlite::functions::FunctionFlags::SQLITE_UTF8|rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,|context|{
+            let raw:Option<String>=context.get(0)?;let after:bool=context.get(1)?;
+            Ok(raw.and_then(|raw|serde_json::from_str::<Value>(&raw).ok()).is_some_and(|value|crate::tieba_meme::passes(&value,after)))
         }).map_err(|e|e.to_string())?;
         #[cfg(unix)]
         {
@@ -117,8 +125,8 @@ impl Store {
         db.execute_batch("PRAGMA foreign_keys=OFF;")
             .map_err(|e| e.to_string())?;
         schema::migrate(&mut db)?;
-        db.execute("UPDATE automation_tasks SET enabled=0,state='paused' WHERE json_extract(value,'$.action')='auto_post'",[]).map_err(|e|e.to_string())?;
-        db.execute("UPDATE jobs SET state='failed',error='新闻发文功能已移除，未发送',updated_at=? WHERE state='queued' AND json_extract(input,'$.mode')='news'",[now()]).map_err(|e|e.to_string())?;
+        db.execute("UPDATE automation_tasks SET enabled=0,state='paused' WHERE json_extract(value,'$.action')='auto_post' AND coalesce(json_extract(value,'$.news_policy'),'')<>'public_hotspots_v1'",[]).map_err(|e|e.to_string())?;
+        db.execute("UPDATE jobs SET state='failed',error='旧新闻任务已停用，未发送',updated_at=? WHERE state='queued' AND json_extract(input,'$.mode')='news' AND coalesce(json_extract(input,'$.news_policy'),'')<>'public_hotspots_v1'",[now()]).map_err(|e|e.to_string())?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
             .map_err(|e| e.to_string())?;
         Ok(Self {
@@ -160,6 +168,8 @@ mod ingest;
 mod jobs;
 mod publications;
 mod video_caption;
+mod funny_image;
+mod memes;
 mod video_screening;
 mod news_queue;
 mod relationships;

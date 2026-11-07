@@ -37,16 +37,22 @@ impl Store {
         let follow_back = config["action"] == "follow_back" && config["scope"] == "notifications";
         let notifications = config["action"] == "reply_notifications" || follow_back;
         let publishing = config["action"] == "auto_post";
-        let mode = if follow_back { "follow_back" } else { "reply" };
-        let scope = if notifications {
+        let memes=config["action"]=="auto_meme";
+        let images = config["action"] == "auto_image" || memes;
+        let mode = if images { "funny_image" } else if follow_back { "follow_back" } else { "reply" };
+        let scope = if memes {
+            "tieba_memes"
+        } else if images {
+            "funny_images"
+        } else if notifications {
             "notifications"
         } else if publishing {
             "news"
         } else {
             "for_you"
         };
-        if (!notifications && !publishing && config["action"] != "auto_reply")
-            || config["scope"] != scope
+        if (!notifications && !publishing && config["action"] != "auto_reply" && !images)
+            || (config["scope"] != scope && !(images && config["scope"] == "for_you"))
         {
             return Err("自动评论或回复计划的范围无效".into());
         }
@@ -65,14 +71,31 @@ impl Store {
         if !online {
             return Err("请连接支持自动回复的新版 X 助手".into());
         }
+        if images && !tx.query_row("SELECT EXISTS(SELECT 1 FROM browser_sessions WHERE client IN (SELECT id FROM clients WHERE account=?) AND extension_image_publish(extension_version) AND connected=1)", [&account], |r|r.get::<_,bool>(0)).map_err(|e|e.to_string())? {return Err("搞笑图文需要重载并连接1.5.31或更新的助手".into());}
         if follow_back {
             let supported: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM clients c JOIN browser_sessions s ON s.client=c.id WHERE c.account=? AND c.last_seen>? AND s.connected=1 AND s.state='logged_in' AND s.automation_supported=1 AND extension_notification_follows(s.extension_version))", params![account, at-60_000], |r|r.get(0)).map_err(|e|e.to_string())?;
             if !supported { return Err("通知回关需要重载并连接 1.5.14 或更新的 X 助手".into()); }
+        }
+        if images {
+            let previous:i64=tx.query_row("SELECT COUNT(*) FROM jobs WHERE account=? AND json_extract(input,'$.mode')='image' AND json_extract(input,'$.source.kind')='ai_generated' AND json_extract(input,'$.image_version')=3",[&account],|r|r.get(0)).map_err(|e|e.to_string())?;
+            let mut ids=Vec::new();
+            for offset in 0..config["limit"].as_i64().unwrap_or(1).clamp(1,5) {
+                let id=Uuid::new_v4().to_string();
+                let (kind,prompt)=if memes {("tieba_meme",String::new())}else{crate::funny_image::brief(previous+offset,&id)};
+                let payload=json!({"task_id":task,"language":"en","mode":"image","image_version":if memes{1}else{3},"stage":"rewrite","publish_at":at,"image_kind":kind,"source":{"kind":if memes{"tieba_pending"}else{"ai_generated"},"id":id,"author":if memes{"tieba.baidu.com"}else{"AI"},"url":"","text":prompt}});
+                tx.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,?,'rewrite_publish','queued',?,?,?)",params![id,account,at,at,payload.to_string()]).map_err(|e|e.to_string())?;
+                tx.execute("INSERT INTO job_log(job_id,at,stage,message) VALUES(?,?,'created',?)",params![id,at,if memes{"孙笑川吧梗图取材已排队，先做政治风控，再清理水印和复核"}else{"AI原创生图已排队，生成后独立看图复核并配英文文案"}]).map_err(|e|e.to_string())?;
+                ids.push(id);
+            }
+            tx.execute("UPDATE automation_tasks SET state='queued',last_run=?,next_run=? WHERE id=?",params![at,at+super::automation::interval_ms(&config),task]).map_err(|e|e.to_string())?;
+            tx.commit().map_err(|e|e.to_string())?;
+            return Ok(json!({"id":ids[0],"job_ids":ids,"queued":true}));
         }
         if publishing {
             let query=config["query"].as_str().filter(|query|!query.trim().is_empty()).ok_or("请编辑自动发文计划，填写新闻搜索主题")?;
             let id=Uuid::new_v4().to_string();
             let mut payload=json!({"task_id":task,"language":config["language"],"mode":"news","scope":"news","stage":"rewrite","query":query,"news_source":config["news_source"].as_str().unwrap_or("international"),"publish_at":at,"discovered_from":"news"});
+            payload["news_policy"]=config["news_policy"].clone();
             if let Some(value)=config.get("include_source_link") {payload["include_source_link"]=value.clone();}
             payload["allow_news_search"]=json!(config["allow_news_search"].as_bool().unwrap_or(false));
             tx.execute("INSERT INTO jobs(id,account,action,state,created_at,updated_at,input) VALUES(?,?,'rewrite_publish','queued',?,?,?)",params![id,account,at,at,payload.to_string()]).map_err(|e|e.to_string())?;
@@ -83,7 +106,7 @@ impl Store {
         let known = {
             let mut query=tx.prepare("SELECT json_extract(input,'$.source.id') FROM jobs WHERE account=? AND action='rewrite_publish' AND json_extract(input,'$.mode')=? AND json_extract(input,'$.source.id') IS NOT NULL ORDER BY created_at DESC LIMIT 1000").map_err(|e|e.to_string())?;
             let rows = query
-                .query_map(params![account, mode], |r| r.get::<_, String>(0))
+                .query_map(params![account, if images {"image"} else {mode}], |r| r.get::<_, String>(0))
                 .map_err(|e| e.to_string())?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| e.to_string())?;

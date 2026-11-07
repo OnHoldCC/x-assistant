@@ -62,7 +62,7 @@ impl Store {
 
     pub fn news_queue(&self, account: &str, input: &Value) -> Result<Value,String> {
         let account=handle(account)?;
-        let channel=match input.get("channel") {None=>"all",Some(value)=>value.as_str().filter(|v|["all","weibo","rednote","bbc","guardian","variety","deadline"].contains(v)).ok_or("热点渠道无效")?};
+        let channel=match input.get("channel") {None=>"all",Some(value)=>value.as_str().filter(|v|["all","weibo","tieba","rednote","bbc","guardian","variety","deadline"].contains(v)).ok_or("热点渠道无效")?};
         let state=match input.get("state") {None=>"all",Some(value)=>value.as_str().filter(|v|["all","pending","processing","published","skipped","failed","uncertain"].contains(v)).ok_or("热点执行状态无效")?};
         let requested=input["offset"].as_u64().unwrap_or(0).min(1_000_000) as i64;
         let db=self.lock()?;

@@ -1,4 +1,6 @@
 pub mod http;
+pub mod funny_image;
+pub mod tieba_meme;
 pub mod models;
 pub mod news;
 pub mod store;
@@ -64,17 +66,14 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
             .and_then(Value::as_str)
             .ok_or_else(|| format!("缺少 {key}"))
     };
-    if operation=="save_automation" && input["action"]=="auto_post" {
-        return Err("新闻发文功能已移除".into());
-    }
     if operation=="run_automation" || operation=="control_automation" && input["enabled"]==true {
         let state=store.automation_state(text("account")?)?;
-        if state["tasks"].as_array().is_some_and(|tasks|tasks.iter().any(|task|task["id"]==input["id"]&&task["config"]["action"]=="auto_post")) {
-            return Err("新闻发文功能已移除".into());
+        if state["tasks"].as_array().is_some_and(|tasks|tasks.iter().any(|task|task["id"]==input["id"]&&task["config"]["action"]=="auto_post"&&task["config"]["news_policy"]!="public_hotspots_v1")) {
+            return Err("旧新闻计划已停用，请编辑保存为新的热点计划".into());
         }
     }
-    if ["retry_rewrite","begin_publish","schedule_publication"].contains(&operation) && store.is_news_job(text("id")?)? {
-        return Err("新闻发文功能已移除，历史任务不能重发".into());
+    if ["retry_rewrite","begin_publish","schedule_publication"].contains(&operation) && store.is_legacy_news_job(text("id")?)? {
+        return Err("旧新闻历史任务不能重发".into());
     }
     match operation {
         "learn_x_session" => store.learn_x_session(&input, now()),
@@ -133,6 +132,8 @@ fn dispatch_inner(store: &Store, operation: &str, mut input: Value) -> Result<Va
         ),
         "retry_rewrite" => store.retry_rewrite(text("account")?, text("id")?, now()),
         "video_upload_ready" => store.bind_video_media(text("id")?,text("client")?,text("media_id")?,now()),
+        "image_upload_ready" => store.bind_image_media(text("id")?,text("client")?,text("media_id")?,now()),
+        "queue_funny_images" => store.queue_funny_images(text("id")?,text("client")?,&input["posts"],now()),
         "retry_video_screening" => store.retry_video_screening(text("account")?,text("id")?,now()),
         "begin_publish" => store.begin_publish(text("id")?, text("client")?, now()),
         "enqueue" => store.enqueue_action(

@@ -26,11 +26,11 @@ export function inspectForYou(owner,scope='for_you',trendIndex=0,language='auto'
   if(article.querySelector('[data-testid="tweet-text-show-more-link"]')){filtered.truncated++;continue;}
   const own=node=>node.closest('article[data-testid="tweet"]')===article&&!node.closest('[data-testid="quoteTweet"],[data-testid="card.wrapper"]');
   const link=[...article.querySelectorAll('a:has(time)')].find(own)?.getAttribute('href')?.match(/^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,30})(?:\?|$)/);
-  const node=[...article.querySelectorAll('[data-testid="tweetText"]')].find(own),text=node?.innerText?.trim();
+  const node=[...article.querySelectorAll('[data-testid="tweetText"]')].find(own),text=node?.innerText?.trim()||'';
   if(!link){filtered.source++;continue;}
   if(!text||text.length>48000){filtered.text++;continue;}
   if(link[1].toLowerCase()===owner){filtered.own++;continue;}
-  const author=link[1].toLowerCase();posts.push({author,id:link[2],url:'https://x.com/'+author+'/status/'+link[2],text,language:node.getAttribute('lang')?.split('-')[0]||undefined,complete:true});if(posts.length>=50)break;
+  const author=link[1].toLowerCase();posts.push({author,id:link[2],url:'https://x.com/'+author+'/status/'+link[2],text,language:node?.getAttribute('lang')?.split('-')[0]||undefined,complete:true});if(posts.length>=50)break;
  }
  return {ready:true,phase:'timeline',posts,scanned,filtered,loading:!!document.querySelector('main [role="progressbar"]'),document_state:document.readyState,visibility:document.visibilityState};
 }
@@ -48,17 +48,19 @@ export function forYouDiagnostic(page,statuses=[]){
 export async function collectForYou(job,call,owner,verify){
  const limit=job.input?.limit;
  if(job.action!=='capture_for_you'||job.account!==owner||!Number.isInteger(limit)||limit<1||limit>20)throw Error('For You 任务无效');
+ if(job.input?.publication_mode==='funny_image')throw Error('外部图片转载已停用，请使用AI原创生图');
  const known=new Set(job.input?.known_ids||[]);
  const allowed=async()=>{await verify();if(!(await call('automation_can_run',{account:owner,task_id:job.input.task_id})).allowed)throw Error('自动化评论已暂停');};
  await allowed();
  const scope=job.input?.scope==='trending'?'trending':'for_you',language=job.input?.language==='en'?'en':'auto';
- const saved=(await chrome.storage.session.get(job.input?.publication_mode==='replicate'?'forYouPostPage':'forYouPage'))[job.input?.publication_mode==='replicate'?'forYouPostPage':'forYouPage'];
+ const cacheKey=job.input?.publication_mode==='replicate'?'forYouPostPage':'forYouPage';
+ const saved=(await chrome.storage.session.get(cacheKey))[cacheKey];
  let remaining=saved?.account===owner&&saved.scope===scope&&(saved.language||'auto')===language&&Array.isArray(saved.posts)?saved.posts.filter(post=>!known.has(post.id)):[];
  let captureSummary=null;
  let trendIndex=saved?.account===owner&&saved.scope===scope?saved.trend_index||0:0;
  if(!remaining.length){
   const tab=await createTaskTab({url:'about:blank',active:false});let attached=false;
-  const command=async(method,params={})=>{let timer;try{return await Promise.race([chrome.debugger.sendCommand({tabId:tab.id},method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('For You 页面响应超时，停止本轮采集')),20000);})]);}finally{clearTimeout(timer);}};
+  const command=async(method,params={})=>{let timer;try{return await Promise.race([chrome.debugger.sendCommand({tabId:tab.id},method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('For You 页面响应超时（'+method+'），停止本轮采集')),20000);})]);}finally{clearTimeout(timer);}};
   let selected=false,trendClicked=false,snapshot=null,lastIds=null,lastPage=null;const statuses=[];
   const network=(source,method,event)=>{if(source.tabId===tab.id&&method==='Network.responseReceived'&&/^https:\/\/x\.com\/i\/api\//.test(event.response?.url||'')&&event.response.status>=400)statuses.push(event.response.status);};
   try{
@@ -83,6 +85,6 @@ export async function collectForYou(job,call,owner,verify){
  if(job.input?.publication_mode==='replicate')throw Error('评分发文已停用，请改用新闻搜索');
  if(captureSummary)await call('for_you_snapshot',{id:job.id,client:job.client,snapshot:captureSummary});
  const result=await call('queue_feed_replies',{id:job.id,client:job.client,posts:selected});
- await chrome.storage.session.set({[job.input?.publication_mode==='replicate'?'forYouPostPage':'forYouPage']:{account:owner,scope,language,trend_index:trendIndex,posts:remaining.slice(consumed)}});
+ await chrome.storage.session.set({[cacheKey]:{account:owner,scope,language,trend_index:trendIndex,posts:remaining.slice(consumed)}});
  return result;
 }

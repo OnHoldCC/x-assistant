@@ -19,8 +19,8 @@ fn video_plans_schedule_owned_deduplicated_captions_and_pause_without_blocking_o
  assert!(store.video_capture_context(&capture,"wrong",url,at).is_err());assert!(store.video_capture_context(&capture,&client,"https://evil.example/123",at).is_err());
  assert!(store.record_video_source(&capture,"wrong",url,at).is_err());store.record_video_source(&capture,&client,url,at).unwrap();
  let selected=store.job_records("example",&json!({"task_type":"capture_tiktok"})).unwrap();assert_eq!(selected["items"][0]["input"]["source"]["url"],url);assert_eq!(selected["items"][0]["input"]["source"]["id"],"123");
- let id=uuid::Uuid::new_v4().to_string();let data=json!({"download_id":id,"id":"123","source":url,"author":"creator","title":"A kitten plays","capture_job":capture,"capture_client":client});
- let caption=store.enqueue_video_caption("example",&data,false,at+1).unwrap();assert_eq!(caption["input"]["task_id"],task);assert_eq!(caption["input"]["capture_job"],capture);
+ let id=uuid::Uuid::new_v4().to_string();let data=json!({"download_id":id,"id":"123","source":url,"author":"creator","title":"A kitten plays","source_text":"Reposted funny compilation, not a personal vlog.","capture_job":capture,"capture_client":client});
+ let caption=store.enqueue_video_caption("example",&data,false,at+1).unwrap();assert_eq!(caption["input"]["task_id"],task);assert_eq!(caption["input"]["capture_job"],capture);assert_eq!(caption["input"]["source"]["page_text"],data["source_text"]);
  assert!(store.video_capture_context(&capture,&client,url,at+2).is_err(),"deduplicate even before model completion");
  store.finish_video_capture(&capture,&client,None,at+2).unwrap().unwrap();let records=store.job_records("example",&json!({"task_type":"capture_tiktok"})).unwrap();assert_eq!(records["items"][0]["result"]["prepared"],1);
  assert_eq!(store.automation_state("example").unwrap()["tasks"][0]["last_job"]["id"],id);
@@ -58,15 +58,43 @@ fn video_publishing_is_opt_in_and_stops_when_its_plan_is_paused(){
  let ready=json!({"status":"ready","text":"A playful kitten. #Cats","processing":{"verified":true},"content_policy":onhold_backend::video_screening::CONTENT_POLICY});store.finish_video_caption(&id,Ok(&ready),true,at).unwrap();
  let db=rusqlite::Connection::open(dir.path().join("db")).unwrap();
  db.execute("UPDATE jobs SET result=json_remove(result,'$.content_policy') WHERE id=?",[&id]).unwrap();
- assert!(store.enqueue_video_publication(&id,"example",true,at).unwrap_err().contains("宠物或搞笑"),"older review results cannot bypass the current pets-or-funny policy");
+ assert!(store.enqueue_video_publication(&id,"example",true,at).unwrap_err().contains("搬运策略"),"older results cannot bypass the current content selection");
  db.execute("UPDATE jobs SET result=json_set(result,'$.content_policy',?) WHERE id=?",rusqlite::params![onhold_backend::video_screening::CONTENT_POLICY,id]).unwrap();
  let pub_id=store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"].as_str().unwrap().to_owned();assert!(store.claim(&client,"example",at).unwrap().is_null(),"batch output must respect the plan interval");
  let at=at+60_000;store.session_status(&client,"example","logged_in","",at).unwrap();assert_eq!(store.claim(&client,"example",at).unwrap()["id"],pub_id);
  db.execute("UPDATE jobs SET result=json_set(result,'$.content_policy','pets_only_no_people_v1') WHERE id=?",[&id]).unwrap();
- assert!(store.video_upload_context(&pub_id,&client,at).is_ok(),"already approved pets remain eligible when the policy is broadened");
- assert_eq!(store.enqueue_video_publication(&id,"example",true,at).unwrap()["id"],pub_id,"reuse the pet review without generating another publication");
+ assert!(store.video_upload_context(&pub_id,&client,at).is_err(),"old pet reviews have not checked the new repost and adult-content selection");
+ assert!(store.enqueue_video_publication(&id,"example",true,at).is_err());
  db.execute("UPDATE jobs SET result=json_remove(result,'$.content_policy') WHERE id=?",[&id]).unwrap();
- assert!(store.video_upload_context(&pub_id,&client,at).is_err(),"already queued publications must also pass the current pets-or-funny policy");
+ assert!(store.video_upload_context(&pub_id,&client,at).is_err(),"queued publications must also pass the current content policy");
  db.execute("UPDATE jobs SET result=json_set(result,'$.content_policy',?) WHERE id=?",rusqlite::params![onhold_backend::video_screening::CONTENT_POLICY,id]).unwrap();
  store.control_automation("example",&task,false,at).unwrap();assert!(store.video_upload_context(&pub_id,&client,at).is_err());assert!(store.begin_publish(&pub_id,&client,at).is_err());
+}
+
+#[test]
+fn media_rounds_alternate_without_blocking_comments_or_waiting_on_a_cooled_down_video_source(){
+ let dir=tempfile::tempdir().unwrap();let store=Store::open(dir.path().join("db")).unwrap();let at=now();
+ store.ingest(serde_json::from_value::<Snapshot>(json!({"handle":"example","source":"https://x.com/example","profile":{},"posts":[]})).unwrap(),at).unwrap();
+ let client=uuid::Uuid::new_v4().to_string();store.session_status(&client,"example","logged_in","",at).unwrap();store.set_automation_support(&client,true).unwrap();store.set_extension_version(&client,"1.5.32").unwrap();
+ for config in [json!({"action":"auto_meme","interval_seconds":120,"limit":1}),json!({"action":"auto_video","interval_minutes":2,"limit":1,"source_urls":["https://www.tiktok.com/"],"publish_mode":"automatic"})]{
+  let task=store.save_automation("example",&config,at).unwrap()["id"].as_str().unwrap().to_owned();store.control_automation("example",&task,true,at).unwrap();
+ }
+ for (offset,video) in [(0,true),(120000,false),(240000,true),(360000,false),(480000,false)]{
+  let time=at+offset;store.session_status(&client,"example","logged_in","",time).unwrap();
+  if offset==480000{store.cool_down_tiktok(time).unwrap();}
+  store.schedule_automation("example",time).unwrap();
+  if video {
+   let job=store.claim(&client,"example",time).unwrap();assert_eq!(job["action"],"capture_tiktok");
+   store.finish_video_capture(job["id"].as_str().unwrap(),&client,None,time).unwrap();
+  }else{
+   let job=store.claim_rewrite(time).unwrap();assert_eq!(job["input"]["image_kind"],"tieba_meme");
+   assert!(store.claim(&client,"example",time).unwrap().is_null(),"no simultaneous browser/media work");
+   store.finish_meme_image(job["id"].as_str().unwrap(),Ok(&json!({"status":"rejected","reason":"本轮没有合格素材"})),time).unwrap();
+  }
+  store.schedule_automation("example",time+1).unwrap();
+  assert!(!store.jobs().unwrap().as_array().unwrap().iter().any(|job|["queued","running","rewriting"].iter().any(|state|job["state"]==*state)),"both media plans share the minimum round interval");
+ }
+ let time=at+480002;
+ let task=store.save_automation("example",&json!({"action":"auto_reply","interval_seconds":10,"limit":1}),time).unwrap()["id"].as_str().unwrap().to_owned();store.control_automation("example",&task,true,time).unwrap();
+ store.schedule_automation("example",time).unwrap();assert_eq!(store.claim(&client,"example",time).unwrap()["action"],"capture_for_you","comments continue during media cooldown");
 }

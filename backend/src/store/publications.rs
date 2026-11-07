@@ -11,13 +11,16 @@ fn validate_news(value:&Value,at:i64,news_source:Option<&str>,include_source_lin
     let host=parsed.host_str().ok_or("缺少新闻来源域名")?.to_owned();
     if parsed.scheme()!="https" || !parsed.username().is_empty() || parsed.password().is_some() || parsed.port().is_some() || !host.contains('.') || host.parse::<std::net::IpAddr>().is_ok() || ["x.com","twitter.com"].contains(&host.as_str()) {return Err("新闻需来自可追溯的公开HTTPS报道".into());}
     match news_source.unwrap_or("web") {
-        "web" | "hot_topics" | "international" | "mixed" => (),
+        "web" | "gossip" | "hot_topics" | "international" | "mixed" => (),
+        "tieba" if ["tieba.baidu.com","www.tieba.baidu.com"].contains(&host.as_str()) => (),
+        "tieba" => return Err("此计划仅允许贴吧原帖来源，未发布".into()),
         "rednote" if ["www.xiaohongshu.com","xiaohongshu.com"].contains(&host.as_str()) => (),
         "rednote" => return Err("此计划仅允许小红书原帖来源，未发布".into()),
         "weibo" if ["weibo.com","www.weibo.com","weibo.cn","www.weibo.cn","m.weibo.cn"].contains(&host.as_str()) => (),
         "weibo" => return Err("此计划仅允许微博来源，未发布".into()),
         _ => return Err("新闻来源无效，未发布".into()),
     }
+    if ["tieba.baidu.com","www.tieba.baidu.com"].contains(&host.as_str()) && !parsed.path().strip_prefix("/p/").is_some_and(|id|!id.is_empty()&&id.bytes().all(|c|c.is_ascii_digit())) {return Err("贴吧热议页不是原帖，未发布".into());}
     if host=="s.weibo.com" || host=="60s.viki.moe" || parsed.path().starts_with("/search_result") { return Err("热榜或搜索页不是原始报道，未发布".into()); }
     parsed.set_fragment(None);
     let published=chrono::DateTime::parse_from_rfc3339(field("published_at",50)?).map_err(|_|"新闻发布时间无效")?.timestamp_millis();
@@ -33,6 +36,14 @@ fn validate_news(value:&Value,at:i64,news_source:Option<&str>,include_source_lin
 #[cfg(test)]
 mod news_tests {
     use super::*;
+    #[test]
+    fn tieba_requires_a_real_post_and_never_accepts_a_topic_page() {
+        let at=now();
+        for (url,allowed) in [("https://tieba.baidu.com/p/123",true),("https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=1",false),("https://tieba.baidu.com/p/123/other",false),("https://tieba.baidu.com.evil.example/p/123",false)] {
+            let value=json!({"schema_version":1,"news":{"title":"公开讨论","url":url,"published_at":chrono::DateTime::from_timestamp_millis(at-1000).unwrap().to_rfc3339(),"summary":"原帖讨论公开事件。"},"text":format!("原帖讨论公开事件。{url}")});
+            assert_eq!(validate_news(&value,at,Some("tieba"),true).is_ok(),allowed,"{url}");
+        }
+    }
     #[test]
     fn weibo_source_rejects_other_sites_and_lookalike_domains(){
         let at=now();
@@ -216,8 +227,8 @@ impl Store {
             Ok(Value::Null)
         }
     }
-    pub fn is_news_job(&self,id:&str)->Result<bool,String>{
-        self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='news')",[id],|row|row.get(0)).map_err(|e|e.to_string())
+    pub fn is_legacy_news_job(&self,id:&str)->Result<bool,String>{
+        self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='news' AND coalesce(json_extract(input,'$.news_policy'),'')<>'public_hotspots_v1')",[id],|row|row.get(0)).map_err(|e|e.to_string())
     }
     pub fn record_generation(
         &self,
@@ -389,10 +400,12 @@ impl Store {
     pub fn begin_publish(&self, id: &str, client: &str, at: i64) -> Result<Value, String> {
         self.expire_automation(at)?;
         let video:bool=self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='video')",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-        if video {
-            self.video_upload_context(id,client,at)?;
+        let image:bool=self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='image')",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if image {self.image_upload_context(id,client,at)?;}
+        if video || image {
+            if video { self.video_upload_context(id,client,at)?; }
             let uploaded:bool=self.lock()?.query_row("SELECT json_extract(input,'$.media_id') IS NOT NULL FROM jobs WHERE id=?",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-            if !uploaded{return Err("视频上传尚未确认，未发送".into());}
+            if !uploaded{return Err("媒体上传尚未确认，未发送".into());}
         }
         let stale:bool=self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND json_extract(input,'$.mode')='news' AND (json_extract(input,'$.source.published_at') IS NULL OR json_extract(input,'$.source.published_at')<?))",params![id,at-48*3600000],|row|row.get(0)).map_err(|e|e.to_string())?;
         if stale {return Err("新闻已超过48小时，未发送".into());}
@@ -421,7 +434,7 @@ impl Store {
         let url = result["url"].as_str().unwrap_or("");
         let prefix = format!("https://x.com/{account}/status/");
         let valid = input["stage"] == "sending"
-            && (input["mode"] != "video" || input["media_id"].is_string() && input["media_id"]==result["media_id"])
+            && (!["video","image"].iter().any(|m|input["mode"]==*m) || input["media_id"].is_string() && input["media_id"]==result["media_id"])
             && (input["mode"] != "reply"
                 || (result["reply_to"].is_string() && result["reply_to"] == input["source"]["id"]))
             && url.strip_prefix(&prefix).is_some_and(|id| {
@@ -436,7 +449,7 @@ impl Store {
         }
         let failure = error.map(|s| s.chars().take(2000).collect::<String>());
         let mut saved_result=json!({"url":if valid{Some(url)}else{None},"reply_to":if valid&&input["mode"]=="reply"{result["reply_to"].clone()}else{Value::Null}});
-        if valid && input["mode"]=="video" {saved_result["media_id"]=result["media_id"].clone();}
+        if valid && ["video","image"].iter().any(|m|input["mode"]==*m) {saved_result["media_id"]=result["media_id"].clone();}
         if valid || failure.is_some() {
             if let Some(closed)=result["tab_closed"].as_bool(){saved_result["tab_closed"]=json!(closed);}
             if let Some(warning)=result["cleanup_warning"].as_str().filter(|warning|!warning.is_empty()&&warning.chars().count()<=300){saved_result["cleanup_warning"]=json!(warning);}
@@ -462,6 +475,9 @@ impl Store {
         .map_err(|e| e.to_string())?;
         if !input["task_id"].is_null() {
             if let Some(task) = input["task_id"].as_str() {
+                if input["mode"]=="image" {
+                    tx.execute("UPDATE automation_tasks SET state=CASE WHEN EXISTS(SELECT 1 FROM jobs WHERE account=automation_tasks.account AND json_extract(input,'$.task_id')=automation_tasks.id AND state IN ('queued','rewriting','running')) THEN 'queued' ELSE ? END WHERE id=? AND account=? AND enabled=1",params![if failure.is_some(){"error"}else{"waiting"},task,account]).map_err(|e|e.to_string())?;
+                }
                 tx.execute("UPDATE automation_tasks SET next_run=CASE WHEN json_extract(value,'$.action')='auto_post' THEN MAX(next_run,?) ELSE MAX(next_run,?+automation_interval_ms(value)) END WHERE id=? AND account=?",params![at,at,task,account]).map_err(|e|e.to_string())?;
                 tx.execute("UPDATE jobs SET input=json_set(input,'$.publish_at',MAX(COALESCE(json_extract(input,'$.publish_at'),0),?+COALESCE((SELECT automation_interval_ms(value) FROM automation_tasks WHERE id=? AND account=?),0))) WHERE account=? AND action='rewrite_publish' AND state='queued' AND json_extract(input,'$.task_id')=? AND json_extract(input,'$.stage')='ready'",params![at,task,account,account,task]).map_err(|e|e.to_string())?;
             }

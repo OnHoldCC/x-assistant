@@ -7,6 +7,19 @@ import {createHash} from 'node:crypto';
 import http from 'node:http';
 import {verify} from '../docker/prepare-models.mjs';
 import {createGateway} from '../lib/gateway.mjs';
+test('Docker backend copies every embedded runtime library asset',()=>{
+ const dockerfile=fs.readFileSync(new URL('../docker/Dockerfile.web',import.meta.url),'utf8');
+ const backend=dockerfile.split(' AS backend\n')[1].split('\nFROM ')[0];
+ const copied=new Set([...backend.matchAll(/^COPY (.+) lib\/$/gm)].flatMap(match=>match[1].split(/\s+/)));
+ const source=new URL('../backend/src/',import.meta.url);let checked=0;
+ for(const file of fs.readdirSync(source,{recursive:true}).filter(name=>name.endsWith('.rs'))){
+  const text=fs.readFileSync(new URL(file.replaceAll('\\','/'),source),'utf8');
+  for(const match of text.matchAll(/include_(?:str|bytes)!\("(?:\.\.\/)+lib\/([^\"]+)"\)/g)){
+   assert.ok(copied.has('lib/')||copied.has('lib/'+match[1]),'Missing embedded asset in Docker build: '+match[1]);checked++;
+  }
+ }
+ assert.ok(checked>0);
+});
 test('model verifier rejects missing, truncated and same-size corrupted model files',async()=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'onhold-model-verify-'));
   try {
@@ -118,4 +131,23 @@ test('batch video screening accepts bounded generated review images with its own
  const server=createCodexServer('screen-key',async(args)=>{calls++;assert.equal(args.filter(v=>v==='--image').length,10);assert.ok(args[args.indexOf('--output-schema')+1].endsWith('video-screening-schema.json'));assert.ok(args.includes('web_search="disabled"'));fs.writeFileSync(args[args.indexOf('--output-last-message')+1],'{"schema_version":1,"items":[]}');return 0;},root);
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const request=paths=>fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer screen-key'},body:JSON.stringify({operation:'generate',instructions:'screen only',prompt:'batch',output_format:'video_screening_v1',image_paths:paths})});
  try{assert.equal((await request([...images,images[0]])).status,422);const valid=await request(images);assert.equal(valid.status,200,await valid.text());assert.equal(calls,1);}finally{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('puzzle reviews accept only one poster or five bounded same-folder review JPEGs',async()=>{
+ const {createCodexServer}=await import('../docker/codex.mjs');
+ const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'onhold-funny-image-'))),videoRoot=path.join(root,'tiktok'),images=path.join(root,'images');fs.mkdirSync(videoRoot);fs.mkdirSync(images);
+ const image=path.join(images,'image.jpg');fs.writeFileSync(image,Buffer.from([255,216,0,0,255,217]));let calls=0;
+ const server=createCodexServer('image-key',async(args,_prompt,_timeout,directory)=>{calls++;assert.equal(args[args.indexOf('--image')+1],image);assert.ok(args.includes('web_search="disabled"'));assert.ok(args[args.indexOf('--output-schema')+1].endsWith('funny-image-schema.json'));fs.writeFileSync(args[args.indexOf('--output-last-message')+1],'{"schema_version":1,"image_type":"photo","status":"ready","text":"The boss is taking a break. #Cats","reason":"反差"}');return 0;},videoRoot);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const request=paths=>fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer image-key'},body:JSON.stringify({operation:'generate',instructions:'caption',prompt:'source',output_format:'funny_image_v1',image_paths:paths})});
+ try{assert.equal((await request([image])).status,200);const details=Array.from({length:4},(_,i)=>path.join(images,`scene-${i}.jpg`));for(const file of details)fs.copyFileSync(image,file);assert.equal((await request([image,...details])).status,200);assert.equal((await request([image,image])).status,422);assert.equal((await request([])).status,422);const wrong=path.join(videoRoot,'image.jpg');fs.copyFileSync(image,wrong);assert.equal((await request([wrong])).status,422);assert.equal(calls,2);}finally{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('meme screening accepts four same-folder candidates or an original/edited pair with no tools',async()=>{
+ const {createCodexServer}=await import('../docker/codex.mjs');
+ const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'onhold-meme-screen-'))),videoRoot=path.join(root,'tiktok'),folder=path.join(root,'images','fixture');fs.mkdirSync(videoRoot);fs.mkdirSync(folder,{recursive:true});
+ const images=Array.from({length:4},(_,i)=>path.join(folder,`scene-${i}.jpg`));for(const file of [...images,path.join(folder,'image.jpg')])fs.writeFileSync(file,Buffer.from([255,216,0,0,255,217]));let calls=0;
+ const server=createCodexServer('meme-key',async(args)=>{calls++;assert.ok(args.includes('web_search="disabled"'));assert.ok(args.includes('shell_tool'));assert.ok(args[args.indexOf('--output-schema')+1].endsWith('meme-screen-schema.json'));fs.writeFileSync(args[args.indexOf('--output-last-message')+1],'{"schema_version":1,"items":[]}');return 0;},videoRoot);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const request=paths=>fetch(`http://127.0.0.1:${server.address().port}/rpc`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer meme-key'},body:JSON.stringify({operation:'generate',instructions:'political screening',prompt:'batch',output_format:'meme_screen_v1',image_paths:paths})});
+ try{assert.equal((await request(images)).status,200);assert.equal((await request([images[0],path.join(folder,'image.jpg')])).status,200);assert.equal((await request([...images,images[0]])).status,422);assert.equal((await request([])).status,422);assert.equal((await request(['/etc/passwd'])).status,422);assert.equal(calls,2);}finally{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
 });

@@ -16,7 +16,7 @@ type Queue = {
 };
 const w = useWorkspace(), data = ref<Queue | null>(null), page = ref(1), channel = ref("all"), status = ref("all"), error = ref("");
 const names: Record<string, string> = { pending: "未发 X · 待处理", processing: "处理中", published: "已发 X", skipped: "未发 X · 已跳过", failed: "未发 X · 失败", uncertain: "发送结果待核对" };
-const sources: Record<string, string> = { weibo: "微博", rednote: "小红书", bbc: "BBC 娱乐", guardian: "Guardian 文化", variety: "Variety 娱乐", deadline: "Deadline 娱乐" };
+const sources: Record<string, string> = { weibo: "微博", tieba: "贴吧", rednote: "小红书", bbc: "BBC 娱乐", guardian: "Guardian 文化", variety: "Variety 娱乐", deadline: "Deadline 娱乐" };
 const channels = [{ value: "all", label: "全部渠道" }, ...Object.entries(sources).map(([value,label]) => ({ value,label }))];
 const states = [{ value: "all", label: "全部执行状态" }, { value: "pending", label: "待处理" }, { value: "processing", label: "处理中" }, { value: "published", label: "已发 X" }, { value: "skipped", label: "已跳过" }, { value: "failed", label: "失败" }, { value: "uncertain", label: "待核对" }];
 const progress = computed(() => {
@@ -48,8 +48,8 @@ watch([() => w.selected, page, channel, status], (_, __, cleanup) => {
 }, { immediate: true });
 </script>
 <template>
-  <NCard title="历史热点">
-    <p class="mb-16px text-muted">新闻发文已移除。这里只保留历史取材和发布结果，不再采集、生成或发布新闻。</p>
+  <NCard title="热点取材">
+    <p class="mb-16px text-muted">查看微博、贴吧等来源的候选、核实和发布结果。热榜仅提供选题线索，不代表事件已被核实；原帖不可访问或资料不足时跳过。</p>
     <NAlert v-if="error" type="error" class="mb-16px">{{ error }}</NAlert>
     <div v-if="data?.batch" class="mb-16px">
       <div class="mb-8px">本批整体进度 · {{ data.batch.total }} 条 · 待处理 {{ data.batch.counts.pending || 0 }} · 处理中 {{ data.batch.counts.processing || 0 }} · 已发布 {{ data.batch.counts.published || 0 }} · 跳过 {{ data.batch.counts.skipped || 0 }} · 失败 {{ data.batch.counts.failed || 0 }} · 待核对 {{ data.batch.counts.uncertain || 0 }}</div>

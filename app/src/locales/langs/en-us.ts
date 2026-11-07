@@ -224,7 +224,7 @@ const local: App.I18n.Schema = {
     }
   },
   route: {
-    overview: "运营概览", accounts: "账号管理", automation: "自动化任务配置", relationships: "关系名单", hotspots: "历史热点", tasks: "任务记录", logs: "系统日志", author: "作者", connect: "连接 X 助手插件",
+    overview: "运营概览", accounts: "账号管理", automation: "自动化任务配置", relationships: "关系名单", hotspots: "热点取材", tasks: "任务记录", logs: "系统日志", author: "作者", connect: "连接 X 助手插件",
     login: 'Login',
     403: 'No Permission',
     404: 'Page Not Found',

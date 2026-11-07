@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { modelApi } from "@/shared/api";
+import ImageModelSettings from './ImageModelSettings.vue';
 type ModelConfig = {
-  provider: "codex_cli" | "responses_api";
+  provider: "codex_cli" | "codex_api" | "responses_api";
   cli_path: string;
   model: string;
   endpoint: string;
@@ -22,6 +23,12 @@ const config = ref<ModelConfig>({
   busy = ref(false),
   error = ref(""),
   message = ref("");
+watch(() => config.value.provider, provider => {
+  if (provider === 'codex_api') {
+    config.value.endpoint = 'https://api.openai.com/v1';
+    config.value.api_style = 'responses';
+  }
+});
 onMounted(async () => {
   try {
     config.value = await modelApi<ModelConfig>("model_config");
@@ -66,7 +73,7 @@ async function inspect() {
 <template>
   <NCard title="模型接入" size="small"
     ><div class="business-stack">
-      <p>运营记忆保存在本地；复盘与已创建的改写任务使用此模型。</p>
+      <p>运营记忆保存在本地；支持的复盘、改写和自动任务使用此模型。</p>
       <NForm class="business-form" :disabled="busy" @submit.prevent="save"
         ><NFormItem label="调用方式"
           ><NSelect
@@ -85,6 +92,7 @@ async function inspect() {
                 value: 'codex_cli',
                 label: (isTauri() ? '本机' : '容器内') + ' Codex CLI',
               },
+              ...(!isTauri() ? [{ value: 'codex_api', label: 'Codex（API Key）' }] : []),
               { value: 'responses_api', label: '自带 API Key' },
             ]" /></NFormItem
         ><template v-if="config.provider === 'codex_cli'"
@@ -99,12 +107,13 @@ async function inspect() {
           ><NFormItem label="API 地址"
             ><NInput
               v-model:value="config.endpoint"
+              :readonly="config.provider === 'codex_api'"
               :input-props="{
                 'aria-label': 'API 地址',
                 type: 'url',
                 required: true,
               }" /></NFormItem
-          ><NFormItem label="接口格式"
+          ><p v-if="config.provider === 'codex_api'">通过 OpenAI 官方 API 运行 Codex。文案、翻译和看图审核使用 API 额度；原生图片编辑沿用现有 Codex 登录。</p><NFormItem v-if="config.provider === 'responses_api'" label="接口格式"
             ><NSelect
               role="combobox"
               :menu-props="{ role: 'listbox' }"
@@ -130,7 +139,7 @@ async function inspect() {
                   ? '已保存，留空保留'
                   : isTauri()
                     ? '仅保存到本机系统凭据库'
-                    : '保存到本机 Docker 私有数据卷'
+                    : '仅保存到后台本机私密配置'
               " /></NFormItem></template
         ><NFormItem
           :label="
@@ -139,7 +148,7 @@ async function inspect() {
           ><NInput
             v-model:value="config.model"
             :input-props="{
-              required: config.provider === 'responses_api',
+              required: config.provider !== 'codex_cli',
               'aria-label': '模型名称',
             }"
             :placeholder="
@@ -151,10 +160,10 @@ async function inspect() {
           ><NButton attr-type="submit" type="primary" :disabled="busy"
             >保存模型</NButton
           ><NButton
-            v-if="config.provider === 'codex_cli'"
+            v-if="config.provider !== 'responses_api'"
             :disabled="busy"
             @click="inspect"
-            >检查 CLI</NButton
+            >{{ config.provider === 'codex_api' ? '测试 API 调用' : '检查 CLI' }}</NButton
           ></NSpace
         ></NForm
       ><NAlert v-if="error" type="error">{{ error }}</NAlert
@@ -165,4 +174,5 @@ async function inspect() {
       </p>
     </div></NCard
   >
+  <ImageModelSettings v-if="!isTauri()" />
 </template>

@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn interval_ms(config:&Value)->i64 {
     if let Some(seconds) = config["interval_seconds"].as_i64().filter(|seconds|
-        (1..=604800).contains(seconds) && ["reply_notifications","auto_reply"].iter().any(|action|config["action"]==*action)
+        (1..=604800).contains(seconds) && ["reply_notifications","auto_reply","auto_image","auto_meme"].iter().any(|action|config["action"]==*action)
     ) {seconds * 1000}
     else {config["interval_minutes"].as_i64().unwrap_or(60)*60_000}
 }
@@ -35,7 +35,7 @@ impl Store {
             Ok(json!({"id":r.get::<_,String>(0)?,"config":serde_json::from_str::<Value>(&r.get::<_,String>(1)?).unwrap_or(Value::Null),"enabled":r.get::<_,bool>(2)?,"state":r.get::<_,String>(3)?,"next_run":r.get::<_,i64>(4)?,"last_run":r.get::<_,Option<i64>>(5)?,"last_job":last_job}))
         }).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
         for task in &mut tasks {
-            if ["auto_post","auto_video"].iter().any(|action|task["config"]["action"]==*action) && !task["last_job"].is_null() {
+            if ["auto_post","auto_video","auto_meme"].iter().any(|action|task["config"]["action"]==*action) && !task["last_job"].is_null() {
                 task["state"]=json!(match task["last_job"]["state"].as_str().unwrap_or("") {"completed"=>"waiting","failed"=>"error","rewriting"|"running"=>"running",_=>"queued"});
             }
             if ["auto_reply", "reply_notifications"]
@@ -70,13 +70,15 @@ impl Store {
             "reply_notifications",
             "auto_post",
             "auto_video",
+            "auto_image",
+            "auto_meme",
         ]
         .contains(&action)
         {
             return Err("自动化类型无效".into());
         }
         let seconds=input.get("interval_seconds").map(|value| {
-            value.as_i64().filter(|value|(1..=604800).contains(value)&&["reply_notifications","auto_reply"].contains(&action)).ok_or("评论或通知回复的执行间隔应为1–604800秒")
+            value.as_i64().filter(|value|(1..=604800).contains(value)&&["reply_notifications","auto_reply","auto_image","auto_meme"].contains(&action)).ok_or("评论或通知回复的执行间隔应为1–604800秒")
         }).transpose()?;
         let interval = if input.get("interval_minutes").is_some() {input["interval_minutes"].as_i64()} else {seconds.map(|_|1)}
             .filter(|n| (1..=10080).contains(n))
@@ -85,8 +87,9 @@ impl Store {
             .as_u64()
             .filter(|n| (1..=20).contains(n))
             .ok_or("每次执行1–20个目标")?;
-        if action=="auto_video"&&limit>5{return Err("视频计划每批最多下载并审核5条".into());}
-        let days = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
+        if ["auto_video","auto_image","auto_meme"].contains(&action)&&limit>5{return Err("视频计划每批最多下载并审核5条".into());}
+        if action=="auto_meme" && limit!=1 {return Err("梗图计划每轮最多发布1张".into());}
+        let days = if ["auto_reply", "reply_notifications", "auto_post", "auto_video", "auto_image","auto_meme"].contains(&action) {
             7
         } else {
             input["after_days"]
@@ -94,8 +97,8 @@ impl Store {
                 .filter(|n| (1..=365).contains(n))
                 .ok_or("到期天数应为1–365天")?
         };
-        let scope = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
-            if action=="auto_video" {"tiktok"} else if action == "reply_notifications" {
+        let scope = if ["auto_reply", "reply_notifications", "auto_post", "auto_video", "auto_image","auto_meme"].contains(&action) {
+            if action=="auto_meme" {"tieba_memes"} else if action=="auto_image" {"funny_images"} else if action=="auto_video" {"tiktok"} else if action == "reply_notifications" {
                 "notifications"
             } else if action == "auto_post" {
                 "news"
@@ -109,7 +112,7 @@ impl Store {
                 .ok_or("自动化范围无效")?
         };
         let empty = Vec::new();
-        let targets = if ["auto_reply", "reply_notifications", "auto_post", "auto_video"].contains(&action) {
+        let targets = if ["auto_reply", "reply_notifications", "auto_post", "auto_video", "auto_image","auto_meme"].contains(&action) {
             &empty
         } else {
             input["targets"].as_array().ok_or("目标名单无效")?
@@ -157,9 +160,11 @@ impl Store {
             let mode=input.get("publish_mode").map_or(Some("review"),Value::as_str).filter(|v|["review","automatic"].contains(v)).ok_or("视频发布方式无效")?;
             config["publish_mode"]=json!(mode);
         }
+        if action=="auto_meme" {config["language"]=json!("en");config["forum"]=json!("孙笑川");}
         if action == "auto_post" {
             let source = match input.get("news_source") { None => "international", Some(value) => value.as_str().ok_or("新闻来源无效")? };
-            if !["web", "weibo", "rednote", "hot_topics", "international", "mixed"].contains(&source) { return Err("新闻来源无效".into()); }
+            if !["web", "weibo", "tieba", "gossip", "rednote", "hot_topics", "international", "mixed"].contains(&source) { return Err("新闻来源无效".into()); }
+            config["news_policy"]=json!("public_hotspots_v1");
             config["news_source"] = json!(source);
             config["allow_news_search"] = json!(input.get("allow_news_search").map_or(Some(false),Value::as_bool).ok_or("新闻联网核实设置无效")?);
             if let Some(value)=input.get("include_source_link") { config["include_source_link"]=json!(value.as_bool().ok_or("来源链接设置无效")?); }
@@ -329,7 +334,7 @@ impl Store {
             .ok_or("请先启用当前账号的任务")?;
         let config = &task["config"];
         if config["action"]=="auto_video" {return self.run_video_automation(&account,id,at);}
-        if ["auto_reply", "reply_notifications", "auto_post"]
+        if ["auto_reply", "reply_notifications", "auto_post", "auto_image","auto_meme"]
             .iter()
             .any(|action| config["action"] == *action) || config["action"] == "follow_back" && config["scope"] == "notifications"
         {
@@ -432,11 +437,23 @@ impl Store {
         if !state["block"].is_null() {
             return Ok(());
         }
-        for task in state["tasks"].as_array().unwrap() {
-            if task["enabled"] == true && task["next_run"].as_i64().is_some_and(|t| t <= at) {
-                let _ = self.run_automation(account, task["id"].as_str().unwrap(), at);
-                break;
+        let tasks=state["tasks"].as_array().unwrap();
+        let media=|task:&&Value| task["enabled"]==true && ["auto_video","auto_meme"].iter().any(|action|task["config"]["action"]==*action);
+        let alternating=["auto_video","auto_meme"].iter().all(|action|tasks.iter().filter(media).any(|task|task["config"]["action"]==*action));
+        let mut due=tasks.iter().filter(|task|task["enabled"]==true&&task["next_run"].as_i64().is_some_and(|t|t<=at)).collect::<Vec<_>>();
+        if alternating {
+            let until=tasks.iter().filter(media).filter_map(|task|task["last_run"].as_i64().map(|last|last+interval_ms(&task["config"]))).max().unwrap_or(0);
+            if at<until {due.retain(|task|!media(task));}
+            else {
+                let mut turns=due.iter().copied().filter(media).collect::<Vec<_>>();
+                turns.sort_by_key(|task|(task["last_run"].as_i64().unwrap_or(0),task["config"]["action"]=="auto_meme"));
+                let mut turns=turns.into_iter();
+                for task in &mut due {if media(task){*task=turns.next().unwrap();}}
             }
+        }
+        for task in due {
+            // An unavailable video source must not stop pictures or notification checks.
+            if self.run_automation(account,task["id"].as_str().unwrap(),at).is_ok(){break;}
         }
         Ok(())
     }
